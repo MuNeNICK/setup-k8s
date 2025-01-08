@@ -2,6 +2,9 @@
 
 This script automates the installation and configuration of a Kubernetes cluster on Ubuntu systems. It supports both master and worker node setup with customizable configuration options.
 
+## Blog here
+https://www.munenick.me/blog/k8s-setup-script
+ 
 ## Prerequisites
 
 - Ubuntu operating system (tested only on Ubuntu 22.04 LTS)
