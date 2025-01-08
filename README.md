@@ -38,12 +38,12 @@ sudo ./setup-k8s.sh [options]
 
 Basic master node setup with default settings:
 ```bash
-sudo ./k8s-install.sh --node-type master
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh | sudo bash -s -- --node-type master
 ```
 
 Advanced master node setup with custom configuration:
 ```bash
-sudo ./k8s-install.sh \
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh | sudo bash -s -- \
   --node-type master \
   --kubernetes-version 1.29 \
   --pod-network-cidr 192.168.0.0/16 \
@@ -62,7 +62,7 @@ These can be obtained by running `kubeadm token create --print-join-command` on 
 
 Example worker node setup:
 ```bash
-sudo ./k8s-install.sh \
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh | sudo bash -s -- \
   --node-type worker \
   --join-token abcdef.1234567890abcdef \
   --join-address 192.168.1.10:6443 \
@@ -126,13 +126,6 @@ journalctl -xeu kubelet
 ```bash
 sudo ./k8s-install.sh [options]  # The script automatically performs cleanup
 ```
-
-## Security Considerations
-
-- Change default network CIDRs in production environments
-- Use proper network security policies
-- Regularly update Kubernetes to the latest stable version
-- Follow the principle of least privilege when setting up RBAC
 
 ## Support
 
