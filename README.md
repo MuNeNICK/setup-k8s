@@ -16,13 +16,13 @@ This script automates the installation and configuration of a Kubernetes cluster
 
 Download and run the installation script in one command:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/refs/heads/main/hack/setup-k8s.sh | sudo bash -s -- [options]
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh | sudo bash -s -- [options]
 ```
 
 Or if you want to inspect the script before running:
 ```bash
 # First download
-curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/refs/heads/main/hack/setup-k8s.sh -o setup-k8s.sh
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh -o setup-k8s.sh
 
 # Inspect the script
 less setup-k8s.sh
