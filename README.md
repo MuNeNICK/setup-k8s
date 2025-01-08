@@ -12,7 +12,7 @@ This script automates the installation and configuration of a Kubernetes cluster
   - 2GB of RAM per machine
   - Full network connectivity between all machines in the cluster
 
-## Installation
+## How to Use
 
 Download and run the installation script in one command:
 ```bash
