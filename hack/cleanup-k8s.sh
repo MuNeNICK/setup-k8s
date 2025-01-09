@@ -48,8 +48,15 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-# Confirmation prompt unless --force is used
-if [ "$FORCE" = false ]; then
+# Check if script is running in a terminal
+if [ -t 0 ]; then
+    IS_TERMINAL=true
+else
+    IS_TERMINAL=false
+fi
+
+# Confirmation prompt unless --force is used or running via pipe
+if [ "$FORCE" = false ] && [ "$IS_TERMINAL" = true ]; then
     echo "WARNING: This script will remove Kubernetes configurations."
     echo "Are you sure you want to continue? (y/N)"
     read -r response
@@ -57,6 +64,10 @@ if [ "$FORCE" = false ]; then
         echo "Operation cancelled."
         exit 0
     fi
+elif [ "$FORCE" = false ]; then
+    echo "WARNING: This script will remove Kubernetes configurations."
+    echo "Running in non-interactive mode. Use --force to suppress this warning."
+    sleep 2
 fi
 
 echo "Starting Kubernetes cleanup..."
