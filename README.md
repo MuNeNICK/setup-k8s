@@ -1,50 +1,61 @@
-# Kubernetes Installation Script
+# Kubernetes Cluster Management Scripts
 
-This script automates the installation and configuration of a Kubernetes cluster on Ubuntu systems. It supports both master and worker node setup with customizable configuration options.
+A comprehensive set of scripts for managing Kubernetes clusters on Ubuntu systems, including installation, configuration, and cleanup operations.
 
-## Blog here
-https://www.munenick.me/blog/k8s-setup-script
- 
+## Table of Contents
+- [Overview](#overview)
+- [Prerequisites](#prerequisites)
+- [Installation Guide](#installation-guide)
+- [Cleanup Guide](#cleanup-guide)
+- [Post-Installation Configuration](#post-installation-configuration)
+- [Troubleshooting](#troubleshooting)
+- [Support](#support)
+
+## Overview
+
+This repository provides two main scripts:
+- `setup-k8s.sh`: For installing and configuring Kubernetes nodes
+- `cleanup-k8s.sh`: For safely removing Kubernetes components from nodes
+
+Blog and additional information: https://www.munenick.me/blog/k8s-setup-script
+
 ## Prerequisites
 
-- Ubuntu operating system (tested only on Ubuntu 22.04 LTS)
+### System Requirements
+- Ubuntu operating system (tested on Ubuntu 22.04 LTS)
+- 2 CPUs or more
+- 2GB of RAM per machine
+- Full network connectivity between cluster machines
+
+### Access Requirements
 - Root privileges or sudo access
 - Internet connectivity
-- Minimum system requirements:
-  - 2 CPUs or more
-  - 2GB of RAM per machine
-  - Full network connectivity between all machines in the cluster
+- Open required ports for Kubernetes communication
 
-## How to Use
+## Installation Guide
 
-Download and run the installation script in one command:
+### Quick Start
+
+Download and run the installation script:
 ```bash
 curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh | sudo bash -s -- [options]
 ```
 
-Or if you want to inspect the script before running:
+Manual download and inspection:
 ```bash
-# First download
 curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh -o setup-k8s.sh
-
-# Inspect the script
 less setup-k8s.sh
-
-# Make executable and run
 chmod +x setup-k8s.sh
-sudo ./setup-k8s.sh [options]
 ```
 
-## Usage Options
+### Master Node Installation
 
-### Setting up a Master Node
-
-Basic master node setup with default settings:
+Basic setup:
 ```bash
 curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh | sudo bash -s -- --node-type master
 ```
 
-Advanced master node setup with custom configuration:
+Advanced setup:
 ```bash
 curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh | sudo bash -s -- \
   --node-type master \
@@ -54,82 +65,124 @@ curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh | su
   --service-cidr 10.96.0.0/12
 ```
 
-### Setting up a Worker Node
+### Worker Node Installation
 
-To join a worker node to the cluster, you'll need three pieces of information from the master node:
-- Join token
-- Join address
-- Discovery token hash
+Obtain join information from master node:
+```bash
+# Run on master node
+kubeadm token create --print-join-command
+```
 
-These can be obtained by running `kubeadm token create --print-join-command` on the master node.
-
-Example worker node setup:
+Join worker node:
 ```bash
 curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh | sudo bash -s -- \
   --node-type worker \
-  --join-token abcdef.1234567890abcdef \
-  --join-address 192.168.1.10:6443 \
-  --discovery-token-hash sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+  --join-token <token> \
+  --join-address <address> \
+  --discovery-token-hash <hash>
 ```
 
-## Available Options
+### Installation Options Reference
 
 | Option | Description | Example |
 |--------|-------------|---------|
 | --node-type | Type of node (master/worker) | --node-type master |
-| --kubernetes-version | Kubernetes version to install | --kubernetes-version 1.29 |
-| --pod-network-cidr | CIDR for pod network | --pod-network-cidr 192.168.0.0/16 |
-| --apiserver-advertise-address | API server advertise address | --apiserver-advertise-address 192.168.1.10 |
+| --kubernetes-version | Kubernetes version | --kubernetes-version 1.29 |
+| --pod-network-cidr | Pod network CIDR | --pod-network-cidr 192.168.0.0/16 |
+| --apiserver-advertise-address | API server address | --apiserver-advertise-address 192.168.1.10 |
 | --control-plane-endpoint | Control plane endpoint | --control-plane-endpoint cluster.example.com |
-| --service-cidr | CIDR for services | --service-cidr 10.96.0.0/12 |
-| --join-token | Token for joining worker nodes | --join-token abcdef.1234567890abcdef |
-| --join-address | Master node address for workers | --join-address 192.168.1.10:6443 |
-| --discovery-token-hash | Discovery token hash for workers | --discovery-token-hash sha256:abc... |
-| --help | Display help message | --help |
+| --service-cidr | Service CIDR | --service-cidr 10.96.0.0/12 |
+| --join-token | Worker join token | --join-token abcdef.1234567890abcdef |
+| --join-address | Master address | --join-address 192.168.1.10:6443 |
+| --discovery-token-hash | Discovery token hash | --discovery-token-hash sha256:abc... |
 
-## Post-Installation Steps
+## Cleanup Guide
 
-### For Master Node
+### Quick Start
 
-1. Install a CNI (Container Network Interface) plugin. For example, to install Calico:
+Execute the cleanup script:
 ```bash
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/cleanup-k8s.sh | sudo bash -s -- [options]
+```
+
+### Worker Node Cleanup
+
+1. Drain the node (run on master):
+```bash
+kubectl drain <worker-node-name> --ignore-daemonsets --delete-local-data
+kubectl delete node <worker-node-name>
+```
+
+2. Run cleanup on worker:
+```bash
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/cleanup-k8s.sh | sudo bash -s -- --node-type worker
+```
+
+### Master Node Cleanup
+
+**Warning**: This will destroy your entire cluster.
+
+1. Ensure all worker nodes are removed first
+2. Run cleanup:
+```bash
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/cleanup-k8s.sh | sudo bash -s -- --node-type master
+```
+
+### Cleanup Options Reference
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| --node-type | Type of node (master/worker) | --node-type master |
+| --force | Skip confirmation prompts | --force |
+| --preserve-cni | Keep CNI configurations | --preserve-cni |
+| --help | Show help message | --help |
+
+## Post-Installation Configuration
+
+### CNI Setup
+Install a Container Network Interface (CNI) plugin:
+```bash
+# Example: Installing Calico
 kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
 ```
 
-2. For single-node clusters, remove the control-plane taint:
+### Single-Node Cluster Configuration
+Remove control-plane taint for single-node clusters:
 ```bash
 kubectl taint nodes --all node-role.kubernetes.io/control-plane-
 ```
 
-3. Verify the installation:
+### Verification Steps
+Check cluster status:
 ```bash
 kubectl get nodes
-```
-
-### For Worker Node
-
-1. Verify that the node has joined the cluster by running on the master node:
-```bash
-kubectl get nodes
+kubectl get pods --all-namespaces
 ```
 
 ## Troubleshooting
 
-1. If the installation fails, check the logs for error messages:
+### Installation Issues
+- Check kubelet logs:
 ```bash
 journalctl -xeu kubelet
 ```
+- Verify system requirements
+- Confirm network connectivity
 
-2. If a worker node fails to join:
-- Verify network connectivity between master and worker nodes
-- Ensure the join token hasn't expired (tokens expire after 24 hours by default)
-- Check firewall rules allow necessary Kubernetes ports
+### Worker Node Join Issues
+- Verify network connectivity
+- Check token expiration (24-hour default)
+- Confirm firewall settings
 
-3. To reset a node and start over:
+### Cleanup Issues
+- Ensure proper node drainage
+- Verify permissions
+- Check system logs:
 ```bash
-sudo ./k8s-install.sh [options]  # The script automatically performs cleanup
+journalctl -xe
 ```
 
 ## Support
-
-For issues and feature requests, please open an issue in the repository or contact the maintainer.
+- Issues and feature requests: Open an issue in the repository
+- Additional assistance: Contact the maintainer
+- Documentation updates: Submit a pull request
