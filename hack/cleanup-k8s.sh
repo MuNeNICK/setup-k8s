@@ -52,7 +52,11 @@ fi
 if [ "$FORCE" = false ]; then
     echo "WARNING: This script will remove Kubernetes configurations."
     echo "Are you sure you want to continue? (y/N)"
-    read -r response < /dev/tty
+    if [ -t 0 ]; then
+        read -r response
+    else
+        read -r response < /dev/tty
+    fi
     if [[ ! "$response" =~ ^[yY]$ ]]; then
         echo "Operation cancelled."
         exit 0
