@@ -109,7 +109,7 @@ curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/cleanup-k8s.sh | 
 
 1. Drain the node (run on master):
 ```bash
-kubectl drain <worker-node-name> --ignore-daemonsets --delete-local-data
+kubectl drain <worker-node-name> --ignore-daemonsets
 kubectl delete node <worker-node-name>
 ```
 
