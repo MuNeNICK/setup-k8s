@@ -1,13 +1,15 @@
 # Kubernetes Cluster Management Scripts
 
-A comprehensive set of scripts for managing Kubernetes clusters on Ubuntu systems, including installation, configuration, and cleanup operations.
+A comprehensive set of scripts for managing Kubernetes clusters on various Linux distributions, including installation, configuration, and cleanup operations.
 
 ## Table of Contents
 - [Overview](#overview)
+- [Supported Distributions](#supported-distributions)
 - [Prerequisites](#prerequisites)
 - [Installation Guide](#installation-guide)
 - [Cleanup Guide](#cleanup-guide)
 - [Post-Installation Configuration](#post-installation-configuration)
+- [Distribution-Specific Notes](#distribution-specific-notes)
 - [Troubleshooting](#troubleshooting)
 - [Support](#support)
 
@@ -17,12 +19,39 @@ This repository provides two main scripts:
 - `setup-k8s.sh`: For installing and configuring Kubernetes nodes
 - `cleanup-k8s.sh`: For safely removing Kubernetes components from nodes
 
+Both scripts automatically detect your Linux distribution and use the appropriate package manager and configuration methods.
+
 Blog and additional information: https://www.munenick.me/blog/k8s-setup-script
+
+## Supported Distributions
+
+The scripts support the following Linux distribution families:
+
+- **Debian-based**:
+  - Ubuntu
+  - Debian
+
+- **Red Hat-based**:
+  - RHEL (Red Hat Enterprise Linux)
+  - CentOS
+  - Fedora
+  - Rocky Linux
+  - AlmaLinux
+
+- **SUSE-based**:
+  - openSUSE
+  - SLES (SUSE Linux Enterprise Server)
+
+- **Arch-based**:
+  - Arch Linux
+  - Manjaro
+
+For unsupported distributions, the scripts will attempt to use generic methods but may require manual intervention.
 
 ## Prerequisites
 
 ### System Requirements
-- Ubuntu operating system (tested on Ubuntu 22.04 LTS)
+- One of the supported Linux distributions
 - 2 CPUs or more
 - 2GB of RAM per machine
 - Full network connectivity between cluster machines
@@ -159,6 +188,26 @@ kubectl get nodes
 kubectl get pods --all-namespaces
 ```
 
+## Distribution-Specific Notes
+
+### Debian/Ubuntu
+- The scripts use apt/apt-get for package management
+- Packages are held using apt-mark to prevent automatic updates
+
+### RHEL/CentOS/Fedora
+- The scripts automatically detect and use dnf or yum as appropriate
+- For RHEL, you may need to enable additional repositories
+- Package version locking is handled via versionlock
+
+### SUSE
+- The scripts use zypper for package management
+- For SLES, you may need a subscription for some repositories
+
+### Arch Linux
+- The scripts use pacman for package management
+- Kubernetes packages may need to be installed from the AUR on some systems
+- For AUR packages, you may need to manually install an AUR helper like yay or paru
+
 ## Troubleshooting
 
 ### Installation Issues
@@ -168,6 +217,7 @@ journalctl -xeu kubelet
 ```
 - Verify system requirements
 - Confirm network connectivity
+- Check distribution-specific logs for package management issues
 
 ### Worker Node Join Issues
 - Verify network connectivity
@@ -181,6 +231,11 @@ journalctl -xeu kubelet
 ```bash
 journalctl -xe
 ```
+
+### Distribution Detection Issues
+If the script fails to detect your distribution correctly:
+- Check if `/etc/os-release` exists and contains valid information
+- You may need to manually specify some steps for unsupported distributions
 
 ## Support
 - Issues and feature requests: Open an issue in the repository
