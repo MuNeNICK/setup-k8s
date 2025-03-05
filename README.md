@@ -260,8 +260,8 @@ If the script fails to detect your distribution correctly:
 | Rocky Linux | 8 | 2025-03-05 | 🚫 Untested | |
 | AlmaLinux | 9 | 2025-03-05 | 🚫 Untested | |
 | AlmaLinux | 8 | 2025-03-05 | 🚫 Untested | |
-| Fedora | 41 | 2025-03-05 | ✅ Tested | |
-| Fedora | 39 | 2025-03-05 | 🚫 Untested | |
+| Fedora | 41 | 2025-03-05 | 🚫 Untested | |
+| Fedora | 39 | 2025-03-05 | ✅ Tested | |
 | openSUSE | Leap 15.5 | 2025-03-05 | 🚫 Untested | |
 | SLES | 15 SP5 | 2025-03-05 | 🚫 Untested | Subscription required |
 | Arch Linux | Rolling | 2025-03-05 | 🚫 Untested |  |

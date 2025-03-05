@@ -85,6 +85,60 @@ common_cleanup() {
     rm -rf /etc/kubernetes
     rm -rf /etc/systemd/system/kubelet.service.d
     
+    # Disable and clean up zram swap (especially for Fedora)
+    echo "Checking and disabling zram swap if present..."
+    if grep -q zram /proc/swaps || [ "$DISTRO_NAME" = "fedora" ]; then
+        echo "zram swap detected or Fedora system, disabling..."
+        
+        # Stop and disable all potential zram swap services
+        for service in zram-swap.service systemd-zram-setup@zram0.service; do
+            if systemctl is-active $service &>/dev/null; then
+                echo "Stopping and disabling $service..."
+                systemctl stop $service
+                systemctl disable $service
+            fi
+            # Unmask the service during cleanup to restore normal system state
+            echo "Unmasking $service if it was masked..."
+            systemctl unmask $service 2>/dev/null || true
+        done
+        
+        # Remove any zram-generator custom configuration
+        if [ -d /etc/systemd/zram-generator.conf.d ]; then
+            echo "Removing zram swap configuration..."
+            rm -rf /etc/systemd/zram-generator.conf.d
+        fi
+        
+        # Unload zram kernel module if loaded
+        if lsmod | grep -q zram; then
+            echo "Unloading zram kernel module..."
+            swapoff -a  # Make sure all swap is off before unloading
+            modprobe -r zram || true
+        fi
+        
+        # Make sure all swap is disabled
+        echo "Making sure all swap is disabled..."
+        swapoff -a
+        
+        # Find and disable all swap entries
+        echo "Checking for any remaining active swap..."
+        if [ -n "$(swapon --show 2>/dev/null)" ]; then
+            echo "Additional swap devices found, disabling them individually:"
+            swapon --show
+            for swap_device in $(swapon --show=NAME --noheadings 2>/dev/null); do
+                echo "Disabling swap on $swap_device"
+                swapoff "$swap_device" || true
+            done
+        fi
+        
+        # Verify swap is truly off
+        if [ -n "$(swapon --show 2>/dev/null)" ]; then
+            echo "WARNING: Some swap devices could not be disabled:"
+            swapon --show
+        else
+            echo "All swap has been successfully disabled."
+        fi
+    fi
+    
     # Clean up CNI configurations if not preserving
     if [ "$PRESERVE_CNI" = false ]; then
         echo "Removing CNI configurations..."
