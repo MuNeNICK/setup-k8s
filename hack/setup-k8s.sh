@@ -39,11 +39,9 @@ detect_distribution() {
         . /etc/os-release
         DISTRO_NAME=$ID
         DISTRO_VERSION=$VERSION_ID
-        DISTRO_FAMILY=$ID_LIKE
     # Fallback methods
     elif [ -f /etc/debian_version ]; then
         DISTRO_NAME="debian"
-        DISTRO_FAMILY="debian"
         DISTRO_VERSION=$(cat /etc/debian_version)
     elif [ -f /etc/redhat-release ]; then
         if grep -q "CentOS" /etc/redhat-release; then
@@ -55,11 +53,9 @@ detect_distribution() {
         else
             DISTRO_NAME="rhel"  # Default to RHEL for other Red Hat-based distros
         fi
-        DISTRO_FAMILY="rhel"
         DISTRO_VERSION=$(grep -oE '[0-9]+(\.[0-9]+)?' /etc/redhat-release | head -1)
     elif [ -f /etc/SuSE-release ] || [ -f /etc/SUSE-brand ]; then
         DISTRO_NAME="suse"
-        DISTRO_FAMILY="suse"
         if [ -f /etc/os-release ]; then
             . /etc/os-release
             DISTRO_VERSION=$VERSION_ID
@@ -68,15 +64,13 @@ detect_distribution() {
         fi
     elif [ -f /etc/arch-release ]; then
         DISTRO_NAME="arch"
-        DISTRO_FAMILY="arch"
         DISTRO_VERSION="rolling"
     else
         DISTRO_NAME="unknown"
-        DISTRO_FAMILY="unknown"
         DISTRO_VERSION="unknown"
     fi
     
-    echo "Detected distribution: $DISTRO_NAME $DISTRO_VERSION (family: $DISTRO_FAMILY)"
+    echo "Detected distribution: $DISTRO_NAME $DISTRO_VERSION"
     
     # Check if distribution is supported
     case "$DISTRO_NAME" in
@@ -84,22 +78,8 @@ detect_distribution() {
             echo "Distribution $DISTRO_NAME is supported."
             ;;
         *)
-            if [[ "$DISTRO_FAMILY" == *"debian"* ]]; then
-                echo "Distribution family 'debian' is supported. Treating as Debian-based."
-                DISTRO_FAMILY="debian"
-            elif [[ "$DISTRO_FAMILY" == *"rhel"* || "$DISTRO_FAMILY" == *"fedora"* ]]; then
-                echo "Distribution family 'rhel/fedora' is supported. Treating as RHEL-based."
-                DISTRO_FAMILY="rhel"
-            elif [[ "$DISTRO_FAMILY" == *"suse"* ]]; then
-                echo "Distribution family 'suse' is supported. Treating as SUSE-based."
-                DISTRO_FAMILY="suse"
-            elif [[ "$DISTRO_FAMILY" == *"arch"* ]]; then
-                echo "Distribution family 'arch' is supported. Treating as Arch-based."
-                DISTRO_FAMILY="arch"
-            else
-                echo "Warning: Unsupported distribution $DISTRO_NAME. The script may not work correctly."
-                echo "Attempting to continue, but you may need to manually install some components."
-            fi
+            echo "Warning: Unsupported distribution $DISTRO_NAME. The script may not work correctly."
+            echo "Attempting to continue, but you may need to manually install some components."
             ;;
     esac
 }
@@ -644,50 +624,40 @@ EOF
 sysctl --system
 
 # Install and configure based on distribution
-# For CentOS, directly use RHEL functions regardless of DISTRO_FAMILY
-if [ "$DISTRO_NAME" = "centos" ]; then
-    echo "Setting up CentOS based distribution..."
-    install_dependencies_rhel
-    setup_containerd_rhel
-    setup_kubernetes_rhel
-    cleanup_rhel
-else
-    # For other distributions, check the family
-    case "$DISTRO_FAMILY" in
-        *debian*)
-            install_dependencies_debian
-            setup_containerd_debian
-            setup_kubernetes_debian
-            cleanup_debian
-            ;;
-        *rhel*|*fedora*)
-            echo "Setting up RHEL/Fedora based distribution..."
-            install_dependencies_rhel
-            setup_containerd_rhel
-            setup_kubernetes_rhel
-            cleanup_rhel
-            ;;
-        *suse*)
-            install_dependencies_suse
-            setup_containerd_suse
-            setup_kubernetes_suse
-            cleanup_suse
-            ;;
-        *arch*)
-            install_dependencies_arch
-            setup_containerd_arch
-            setup_kubernetes_arch
-            cleanup_arch
-            ;;
-        *)
-            echo "Warning: Unsupported distribution family. Using generic methods."
-            install_dependencies_generic
-            setup_containerd_generic
-            setup_kubernetes_generic
-            cleanup_generic
-            ;;
-    esac
-fi
+case "$DISTRO_NAME" in
+    debian|ubuntu)
+        install_dependencies_debian
+        setup_containerd_debian
+        setup_kubernetes_debian
+        cleanup_debian
+        ;;
+    centos|rhel|fedora|rocky|almalinux)
+        echo "Setting up RHEL/Fedora based distribution..."
+        install_dependencies_rhel
+        setup_containerd_rhel
+        setup_kubernetes_rhel
+        cleanup_rhel
+        ;;
+    suse|opensuse*)
+        install_dependencies_suse
+        setup_containerd_suse
+        setup_kubernetes_suse
+        cleanup_suse
+        ;;
+    arch|manjaro)
+        install_dependencies_arch
+        setup_containerd_arch
+        setup_kubernetes_arch
+        cleanup_arch
+        ;;
+    *)
+        echo "Warning: Unsupported distribution. Using generic methods."
+        install_dependencies_generic
+        setup_containerd_generic
+        setup_kubernetes_generic
+        cleanup_generic
+        ;;
+esac
 
 if [[ "$NODE_TYPE" == "master" ]]; then
     # Initialize master node

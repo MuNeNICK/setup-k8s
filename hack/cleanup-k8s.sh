@@ -5,7 +5,6 @@ set -e
 # Default values
 DISTRO_NAME=""
 DISTRO_VERSION=""
-DISTRO_FAMILY=""
 
 # Help message
 show_help() {
@@ -28,11 +27,9 @@ detect_distribution() {
         . /etc/os-release
         DISTRO_NAME=$ID
         DISTRO_VERSION=$VERSION_ID
-        DISTRO_FAMILY=$ID_LIKE
     # Fallback methods
     elif [ -f /etc/debian_version ]; then
         DISTRO_NAME="debian"
-        DISTRO_FAMILY="debian"
         DISTRO_VERSION=$(cat /etc/debian_version)
     elif [ -f /etc/redhat-release ]; then
         if grep -q "CentOS" /etc/redhat-release; then
@@ -44,11 +41,9 @@ detect_distribution() {
         else
             DISTRO_NAME="rhel"  # Default to RHEL for other Red Hat-based distros
         fi
-        DISTRO_FAMILY="rhel"
         DISTRO_VERSION=$(grep -oE '[0-9]+(\.[0-9]+)?' /etc/redhat-release | head -1)
     elif [ -f /etc/SuSE-release ] || [ -f /etc/SUSE-brand ]; then
         DISTRO_NAME="suse"
-        DISTRO_FAMILY="suse"
         if [ -f /etc/os-release ]; then
             . /etc/os-release
             DISTRO_VERSION=$VERSION_ID
@@ -57,15 +52,13 @@ detect_distribution() {
         fi
     elif [ -f /etc/arch-release ]; then
         DISTRO_NAME="arch"
-        DISTRO_FAMILY="arch"
         DISTRO_VERSION="rolling"
     else
         DISTRO_NAME="unknown"
-        DISTRO_FAMILY="unknown"
         DISTRO_VERSION="unknown"
     fi
     
-    echo "Detected distribution: $DISTRO_NAME $DISTRO_VERSION (family: $DISTRO_FAMILY)"
+    echo "Detected distribution: $DISTRO_NAME $DISTRO_VERSION"
     
     # Check if distribution is supported
     case "$DISTRO_NAME" in
@@ -73,22 +66,8 @@ detect_distribution() {
             echo "Distribution $DISTRO_NAME is supported."
             ;;
         *)
-            if [[ "$DISTRO_FAMILY" == *"debian"* ]]; then
-                echo "Distribution family 'debian' is supported. Treating as Debian-based."
-                DISTRO_FAMILY="debian"
-            elif [[ "$DISTRO_FAMILY" == *"rhel"* || "$DISTRO_FAMILY" == *"fedora"* ]]; then
-                echo "Distribution family 'rhel/fedora' is supported. Treating as RHEL-based."
-                DISTRO_FAMILY="rhel"
-            elif [[ "$DISTRO_FAMILY" == *"suse"* ]]; then
-                echo "Distribution family 'suse' is supported. Treating as SUSE-based."
-                DISTRO_FAMILY="suse"
-            elif [[ "$DISTRO_FAMILY" == *"arch"* ]]; then
-                echo "Distribution family 'arch' is supported. Treating as Arch-based."
-                DISTRO_FAMILY="arch"
-            else
-                echo "Warning: Unsupported distribution $DISTRO_NAME. The script may not work correctly."
-                echo "Attempting to continue, but you may need to manually remove some components."
-            fi
+            echo "Warning: Unsupported distribution $DISTRO_NAME. The script may not work correctly."
+            echo "Attempting to continue, but you may need to manually remove some components."
             ;;
     esac
 }
@@ -146,7 +125,7 @@ common_cleanup() {
         echo "Warning: iptables command not found, skipping iptables reset"
         
         # Try to install iptables if not present
-        if [ "$DISTRO_FAMILY" = "rhel" ] || [ "$DISTRO_FAMILY" = "fedora" ]; then
+        if [[ "$DISTRO_NAME" = "rhel" || "$DISTRO_NAME" = "centos" || "$DISTRO_NAME" = "fedora" || "$DISTRO_NAME" = "rocky" || "$DISTRO_NAME" = "almalinux" ]]; then
             echo "Attempting to install iptables..."
             if command -v dnf &> /dev/null; then
                 dnf install -y iptables iptables-services || true
@@ -519,31 +498,24 @@ detect_distribution
 common_cleanup
 
 # Perform distribution-specific cleanup
-# For CentOS, directly use RHEL functions regardless of DISTRO_FAMILY
-if [ "$DISTRO_NAME" = "centos" ]; then
-    echo "Cleaning up CentOS based distribution..."
-    cleanup_rhel
-else
-    # For other distributions, check the family
-    case "$DISTRO_FAMILY" in
-        *debian*)
-            cleanup_debian
-            ;;
-        *rhel*|*fedora*)
-            echo "Cleaning up RHEL/Fedora based distribution..."
-            cleanup_rhel
-            ;;
-        *suse*)
-            cleanup_suse
-            ;;
-        *arch*)
-            cleanup_arch
-            ;;
-        *)
-            echo "Warning: Unsupported distribution family. Using generic cleanup methods."
-            cleanup_generic
-            ;;
-    esac
-fi
+case "$DISTRO_NAME" in
+    debian|ubuntu)
+        cleanup_debian
+        ;;
+    centos|rhel|fedora|rocky|almalinux)
+        echo "Cleaning up RHEL/Fedora based distribution..."
+        cleanup_rhel
+        ;;
+    suse|opensuse*)
+        cleanup_suse
+        ;;
+    arch|manjaro)
+        cleanup_arch
+        ;;
+    *)
+        echo "Warning: Unsupported distribution. Using generic cleanup methods."
+        cleanup_generic
+        ;;
+esac
 
 echo "Cleanup complete! Please reboot the system for all changes to take effect."
