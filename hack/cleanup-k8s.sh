@@ -177,21 +177,6 @@ common_cleanup() {
         iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X || true
     else
         echo "Warning: iptables command not found, skipping iptables reset"
-        
-        # Try to install iptables if not present
-        if [[ "$DISTRO_NAME" = "rhel" || "$DISTRO_NAME" = "centos" || "$DISTRO_NAME" = "fedora" || "$DISTRO_NAME" = "rocky" || "$DISTRO_NAME" = "almalinux" ]]; then
-            echo "Attempting to install iptables..."
-            if command -v dnf &> /dev/null; then
-                dnf install -y iptables iptables-services || true
-            else
-                yum install -y iptables iptables-services || true
-            fi
-            
-            # Try again after installation
-            if command -v iptables &> /dev/null; then
-                iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X || true
-            fi
-        fi
     fi
     
     # Reload systemd
@@ -292,10 +277,9 @@ cleanup_rhel() {
     
     echo "Using package manager: $PKG_MGR"
     
-    # Check for iptables and install if missing
+    # Check for iptables
     if ! command -v iptables &> /dev/null; then
-        echo "Installing iptables..."
-        $PKG_MGR install -y iptables iptables-services || true
+        echo "Warning: iptables command not found, some cleanup steps may be skipped"
     fi
     
     # Remove version locks
@@ -355,10 +339,9 @@ cleanup_rhel() {
 cleanup_suse() {
     echo "Performing SUSE specific cleanup..."
     
-    # Check for iptables and install if missing
+    # Check for iptables
     if ! command -v iptables &> /dev/null; then
-        echo "Installing iptables..."
-        zypper install -y iptables || true
+        echo "Warning: iptables command not found, some cleanup steps may be skipped"
     fi
     
     # Remove packages
@@ -406,10 +389,9 @@ cleanup_suse() {
 cleanup_arch() {
     echo "Performing Arch Linux specific cleanup..."
     
-    # Check for iptables and install if missing
+    # Check for iptables
     if ! command -v iptables &> /dev/null; then
-        echo "Installing iptables..."
-        pacman -Sy --noconfirm iptables || true
+        echo "Warning: iptables command not found, some cleanup steps may be skipped"
     fi
     
     # Remove packages
@@ -451,20 +433,9 @@ cleanup_generic() {
     echo "Warning: Using generic cleanup method for unsupported distribution."
     echo "This may not completely remove all Kubernetes components."
     
-    # Check for iptables and try to install if missing
+    # Check for iptables
     if ! command -v iptables &> /dev/null; then
-        echo "Attempting to install iptables..."
-        if command -v apt-get &> /dev/null; then
-            apt-get update && apt-get install -y iptables
-        elif command -v dnf &> /dev/null; then
-            dnf install -y iptables
-        elif command -v yum &> /dev/null; then
-            yum install -y iptables
-        elif command -v zypper &> /dev/null; then
-            zypper install -y iptables
-        elif command -v pacman &> /dev/null; then
-            pacman -Sy --noconfirm iptables
-        fi
+        echo "Warning: iptables command not found, some cleanup steps may be skipped"
     fi
     
     # Try to remove packages using common package managers
