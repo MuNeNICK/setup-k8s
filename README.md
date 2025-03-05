@@ -12,6 +12,7 @@ A comprehensive set of scripts for managing Kubernetes clusters on various Linux
 - [Distribution-Specific Notes](#distribution-specific-notes)
 - [Troubleshooting](#troubleshooting)
 - [Support](#support)
+- [Distribution Test Results](#distribution-test-results)
 
 ## Overview
 
@@ -241,3 +242,35 @@ If the script fails to detect your distribution correctly:
 - Issues and feature requests: Open an issue in the repository
 - Additional assistance: Contact the maintainer
 - Documentation updates: Submit a pull request
+
+## Distribution Test Results
+
+| Distribution | Version | Test Date | Status | Notes |
+|-------------|---------|-----------|---------|-------|
+| Ubuntu | 22.04 LTS | 2025-03-05 | ✅ Tested | |
+| Ubuntu | 20.04 LTS | 2025-03-05 | 🚫 Untested | |
+| Debian | 12 (Bookworm) | 2025-03-05 | ✅ Tested | |
+| Debian | 11 (Bullseye) | 2025-03-05 | 🚫 Untested | |
+| RHEL | 9 | 2025-03-05 | 🚫 Untested | Subscription required |
+| RHEL | 8 | 2025-03-05 | 🚫 Untested | Subscription required |
+| CentOS | 7 | 2025-03-05 | 🚫 Untested | |
+| CentOS Stream | 9 | 2025-03-05 | ✅ Tested | |
+| CentOS Stream | 8 | 2025-03-05 | 🚫 Untested | |
+| Rocky Linux | 9 | 2025-03-05 | 🚫 Untested | |
+| Rocky Linux | 8 | 2025-03-05 | 🚫 Untested | |
+| AlmaLinux | 9 | 2025-03-05 | 🚫 Untested | |
+| AlmaLinux | 8 | 2025-03-05 | 🚫 Untested | |
+| Fedora | 41 | 2025-03-05 | ✅ Tested | |
+| Fedora | 39 | 2025-03-05 | 🚫 Untested | |
+| openSUSE | Leap 15.5 | 2025-03-05 | 🚫 Untested | |
+| SLES | 15 SP5 | 2025-03-05 | 🚫 Untested | Subscription required |
+| Arch Linux | Rolling | 2025-03-05 | 🚫 Untested |  |
+| Manjaro | Rolling | 2025-03-05 | 🚫 Untested | |
+
+Status Legend:
+- ✅ Tested: Fully tested and working
+- ⚠️ Partial: Works with some limitations or manual steps
+- ❌ Failed: Not working or major issues
+- 🚫 Untested: Not yet tested
+
+Note: Test dates and results should be updated regularly. Please submit your test results via issues or pull requests.
