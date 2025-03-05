@@ -179,7 +179,11 @@ cleanup_debian() {
     
     # Reset iptables rules
     echo "Resetting iptables rules..."
-    iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X
+    if command -v iptables &> /dev/null; then
+        iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X
+    else
+        echo "Warning: iptables command not found, skipping iptables reset"
+    fi
 }
 
 # RHEL/CentOS/Fedora specific functions
@@ -193,7 +197,24 @@ install_dependencies_rhel() {
         PKG_MGR="yum"
     fi
     
-    $PKG_MGR install -y curl gnupg2
+    echo "Using package manager: $PKG_MGR"
+    
+    # Install essential packages including iptables
+    echo "Installing essential packages..."
+    $PKG_MGR install -y curl gnupg2 iptables iptables-services
+    
+    # Check if iptables was installed successfully
+    if ! command -v iptables &> /dev/null; then
+        echo "Warning: iptables installation failed. Trying alternative package..."
+        $PKG_MGR install -y iptables-legacy || $PKG_MGR install -y iptables-services || true
+    fi
+    
+    # For CentOS 9 Stream, we need to enable additional repositories
+    if [ "$DISTRO_NAME" = "centos" ] && [[ "$DISTRO_VERSION" == "9"* ]]; then
+        echo "Detected CentOS 9 Stream, enabling additional repositories..."
+        $PKG_MGR install -y epel-release || true
+        $PKG_MGR config-manager --set-enabled crb || $PKG_MGR config-manager --set-enabled powertools || true
+    fi
 }
 
 setup_containerd_rhel() {
@@ -206,21 +227,50 @@ setup_containerd_rhel() {
         PKG_MGR="yum"
     fi
     
+    echo "Using package manager: $PKG_MGR"
+    
+    # Install required packages for repository management
+    echo "Installing repository management tools..."
+    $PKG_MGR install -y yum-utils device-mapper-persistent-data lvm2
+    
     # Add Docker repository (for containerd)
+    echo "Adding Docker repository..."
     if [ "$DISTRO_NAME" = "fedora" ]; then
         $PKG_MGR config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
     else
+        # For CentOS/RHEL
         $PKG_MGR config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
     fi
     
     # Install containerd
+    echo "Installing containerd.io package..."
     $PKG_MGR install -y containerd.io
     
+    # Check if containerd was installed successfully
+    if ! command -v containerd &> /dev/null; then
+        echo "Error: containerd installation failed. Trying alternative approach..."
+        # Try installing docker-ce as it includes containerd
+        $PKG_MGR install -y docker-ce docker-ce-cli containerd.io || true
+        
+        # If still not installed, try installing from CentOS 8 repository for CentOS 9
+        if ! command -v containerd &> /dev/null && [ "$DISTRO_NAME" = "centos" ] && [[ "$DISTRO_VERSION" == "9"* ]]; then
+            echo "Trying to install containerd from CentOS 8 repository..."
+            $PKG_MGR install -y --releasever=8 containerd.io || true
+        fi
+    fi
+    
     # Configure containerd
-    mkdir -p /etc/containerd
-    containerd config default | tee /etc/containerd/config.toml
-    sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-    systemctl restart containerd
+    if command -v containerd &> /dev/null; then
+        echo "Configuring containerd..."
+        mkdir -p /etc/containerd
+        containerd config default | tee /etc/containerd/config.toml
+        sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+        systemctl restart containerd
+        systemctl enable containerd
+        echo "Containerd configured and restarted."
+    else
+        echo "Error: containerd is not installed. Kubernetes setup may fail."
+    fi
 }
 
 setup_kubernetes_rhel() {
@@ -233,7 +283,10 @@ setup_kubernetes_rhel() {
         PKG_MGR="yum"
     fi
     
+    echo "Using package manager: $PKG_MGR"
+    
     # Add Kubernetes repository
+    echo "Adding Kubernetes repository for version ${K8S_VERSION}..."
     cat <<EOF | tee /etc/yum.repos.d/kubernetes.repo
 [kubernetes]
 name=Kubernetes
@@ -244,17 +297,34 @@ gpgkey=https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/rpm/repodata/repomd.xml
 EOF
     
     # Install Kubernetes components
-    $PKG_MGR install -y kubelet kubeadm kubectl
+    echo "Installing Kubernetes components..."
+    $PKG_MGR install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
+    
+    # Check if installation was successful
+    if ! command -v kubeadm &> /dev/null; then
+        echo "Error: kubeadm installation failed. Trying alternative approach..."
+        # Try installing with different options
+        $PKG_MGR install -y --nogpgcheck kubelet kubeadm kubectl || true
+        
+        # If still not installed, try installing from CentOS 8 repository for CentOS 9
+        if ! command -v kubeadm &> /dev/null && [ "$DISTRO_NAME" = "centos" ] && [[ "$DISTRO_VERSION" == "9"* ]]; then
+            echo "Trying to install Kubernetes components from CentOS 8 repository..."
+            $PKG_MGR install -y --releasever=8 kubelet kubeadm kubectl || true
+        fi
+    fi
     
     # Hold packages (prevent automatic updates)
+    echo "Preventing automatic updates of Kubernetes packages..."
     if command -v dnf &> /dev/null; then
-        dnf versionlock add kubelet kubeadm kubectl || true
+        dnf versionlock add kubelet kubeadm kubectl || echo "Warning: versionlock not available, skipping"
     else
-        yum versionlock add kubelet kubeadm kubectl || true
+        yum versionlock add kubelet kubeadm kubectl || echo "Warning: versionlock not available, skipping"
     fi
     
     # Enable and start kubelet
-    systemctl enable --now kubelet
+    echo "Enabling and starting kubelet service..."
+    systemctl enable kubelet
+    systemctl start kubelet
 }
 
 cleanup_rhel() {
@@ -275,7 +345,11 @@ cleanup_rhel() {
     
     # Reset iptables rules
     echo "Resetting iptables rules..."
-    iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X
+    if command -v iptables &> /dev/null; then
+        iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X
+    else
+        echo "Warning: iptables command not found, skipping iptables reset"
+    fi
 }
 
 # SUSE specific functions
@@ -334,7 +408,11 @@ cleanup_suse() {
     
     # Reset iptables rules
     echo "Resetting iptables rules..."
-    iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X
+    if command -v iptables &> /dev/null; then
+        iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X
+    else
+        echo "Warning: iptables command not found, skipping iptables reset"
+    fi
 }
 
 # Arch Linux specific functions
@@ -392,7 +470,11 @@ cleanup_arch() {
     
     # Reset iptables rules
     echo "Resetting iptables rules..."
-    iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X
+    if command -v iptables &> /dev/null; then
+        iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X
+    else
+        echo "Warning: iptables command not found, skipping iptables reset"
+    fi
 }
 
 # Generic functions for unsupported distributions
@@ -403,6 +485,23 @@ install_dependencies_generic() {
     echo "- curl"
     echo "- containerd"
     echo "- kubeadm, kubelet, kubectl"
+    echo "- iptables"
+    
+    # Try to install iptables if not present
+    if ! command -v iptables &> /dev/null; then
+        echo "Attempting to install iptables..."
+        if command -v apt-get &> /dev/null; then
+            apt-get update && apt-get install -y iptables
+        elif command -v dnf &> /dev/null; then
+            dnf install -y iptables
+        elif command -v yum &> /dev/null; then
+            yum install -y iptables
+        elif command -v zypper &> /dev/null; then
+            zypper install -y iptables
+        elif command -v pacman &> /dev/null; then
+            pacman -Sy --noconfirm iptables
+        fi
+    fi
 }
 
 setup_containerd_generic() {
@@ -447,7 +546,11 @@ cleanup_generic() {
     
     # Reset iptables rules
     echo "Resetting iptables rules..."
-    iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X
+    if command -v iptables &> /dev/null; then
+        iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X
+    else
+        echo "Warning: iptables command not found, skipping iptables reset"
+    fi
 }
 
 # Parse command line arguments
@@ -541,39 +644,50 @@ EOF
 sysctl --system
 
 # Install and configure based on distribution
-case "$DISTRO_FAMILY" in
-    debian)
-        install_dependencies_debian
-        setup_containerd_debian
-        setup_kubernetes_debian
-        cleanup_debian
-        ;;
-    rhel|fedora)
-        install_dependencies_rhel
-        setup_containerd_rhel
-        setup_kubernetes_rhel
-        cleanup_rhel
-        ;;
-    suse)
-        install_dependencies_suse
-        setup_containerd_suse
-        setup_kubernetes_suse
-        cleanup_suse
-        ;;
-    arch)
-        install_dependencies_arch
-        setup_containerd_arch
-        setup_kubernetes_arch
-        cleanup_arch
-        ;;
-    *)
-        echo "Warning: Unsupported distribution family. Using generic methods."
-        install_dependencies_generic
-        setup_containerd_generic
-        setup_kubernetes_generic
-        cleanup_generic
-        ;;
-esac
+# For CentOS, directly use RHEL functions regardless of DISTRO_FAMILY
+if [ "$DISTRO_NAME" = "centos" ]; then
+    echo "Setting up CentOS based distribution..."
+    install_dependencies_rhel
+    setup_containerd_rhel
+    setup_kubernetes_rhel
+    cleanup_rhel
+else
+    # For other distributions, check the family
+    case "$DISTRO_FAMILY" in
+        *debian*)
+            install_dependencies_debian
+            setup_containerd_debian
+            setup_kubernetes_debian
+            cleanup_debian
+            ;;
+        *rhel*|*fedora*)
+            echo "Setting up RHEL/Fedora based distribution..."
+            install_dependencies_rhel
+            setup_containerd_rhel
+            setup_kubernetes_rhel
+            cleanup_rhel
+            ;;
+        *suse*)
+            install_dependencies_suse
+            setup_containerd_suse
+            setup_kubernetes_suse
+            cleanup_suse
+            ;;
+        *arch*)
+            install_dependencies_arch
+            setup_containerd_arch
+            setup_kubernetes_arch
+            cleanup_arch
+            ;;
+        *)
+            echo "Warning: Unsupported distribution family. Using generic methods."
+            install_dependencies_generic
+            setup_containerd_generic
+            setup_kubernetes_generic
+            cleanup_generic
+            ;;
+    esac
+fi
 
 if [[ "$NODE_TYPE" == "master" ]]; then
     # Initialize master node
@@ -583,17 +697,18 @@ if [[ "$NODE_TYPE" == "master" ]]; then
 
     # Configure kubectl
     echo "Configuring kubectl..."
-    if [ -n "$SUDO_USER" ]; then
+    if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
+        # If run with sudo by a non-root user
         USER_HOME="/home/$SUDO_USER"
         mkdir -p "$USER_HOME/.kube"
-        cp -i /etc/kubernetes/admin.conf "$USER_HOME/.kube/config"
+        cp -f /etc/kubernetes/admin.conf "$USER_HOME/.kube/config"
         chown -R "$SUDO_USER:$(id -gn $SUDO_USER)" "$USER_HOME/.kube"
         echo "Created kubectl configuration for user $SUDO_USER"
     else
-        # If run directly as root
-        mkdir -p $HOME/.kube
-        cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-        echo "Created kubectl configuration for root user"
+        # If run directly as root 
+        mkdir -p /root/.kube
+        cp -f /etc/kubernetes/admin.conf /root/.kube/config
+        echo "Created kubectl configuration for root user at /root/.kube/config"
     fi
 
     # Display join command

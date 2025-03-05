@@ -118,16 +118,48 @@ common_cleanup() {
     # Clean up .kube directory
     if [ -n "$SUDO_USER" ]; then
         USER_HOME="/home/$SUDO_USER"
-        echo "Cleanup: Removing .kube directory for user $SUDO_USER"
+        echo "Cleanup: Removing .kube directory and config for user $SUDO_USER"
         rm -rf "$USER_HOME/.kube" || true
-    else
-        echo "Cleanup: Removing .kube directory for root user"
-        rm -rf $HOME/.kube/ || true
+        rm -f "$USER_HOME/.kube/config" || true
     fi
+
+    # Clean up root's .kube directory
+    ROOT_HOME=$(eval echo ~root)
+    echo "Cleanup: Removing .kube directory and config for root user at $ROOT_HOME"
+    rm -rf "$ROOT_HOME/.kube" || true
+    rm -f "$ROOT_HOME/.kube/config" || true
+    
+    # Clean up all users' .kube/config files
+    for user_home in /home/*; do
+        if [ -d "$user_home" ]; then
+            echo "Cleanup: Removing .kube directory and config for user directory $user_home"
+            rm -rf "$user_home/.kube" || true
+            rm -f "$user_home/.kube/config" || true
+        fi
+    done
     
     # Reset iptables rules
     echo "Resetting iptables rules..."
-    iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X || true
+    if command -v iptables &> /dev/null; then
+        iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X || true
+    else
+        echo "Warning: iptables command not found, skipping iptables reset"
+        
+        # Try to install iptables if not present
+        if [ "$DISTRO_FAMILY" = "rhel" ] || [ "$DISTRO_FAMILY" = "fedora" ]; then
+            echo "Attempting to install iptables..."
+            if command -v dnf &> /dev/null; then
+                dnf install -y iptables iptables-services || true
+            else
+                yum install -y iptables iptables-services || true
+            fi
+            
+            # Try again after installation
+            if command -v iptables &> /dev/null; then
+                iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X || true
+            fi
+        fi
+    fi
     
     # Reload systemd
     systemctl daemon-reload
@@ -225,6 +257,14 @@ cleanup_rhel() {
         VERSIONLOCK="versionlock"
     fi
     
+    echo "Using package manager: $PKG_MGR"
+    
+    # Check for iptables and install if missing
+    if ! command -v iptables &> /dev/null; then
+        echo "Installing iptables..."
+        $PKG_MGR install -y iptables iptables-services || true
+    fi
+    
     # Remove version locks
     echo "Removing version locks..."
     $PKG_MGR $VERSIONLOCK delete kubeadm kubectl kubelet || true
@@ -282,6 +322,12 @@ cleanup_rhel() {
 cleanup_suse() {
     echo "Performing SUSE specific cleanup..."
     
+    # Check for iptables and install if missing
+    if ! command -v iptables &> /dev/null; then
+        echo "Installing iptables..."
+        zypper install -y iptables || true
+    fi
+    
     # Remove packages
     echo "Removing Kubernetes packages..."
     zypper remove -y kubeadm kubectl kubelet kubernetes-cni || true
@@ -327,6 +373,12 @@ cleanup_suse() {
 cleanup_arch() {
     echo "Performing Arch Linux specific cleanup..."
     
+    # Check for iptables and install if missing
+    if ! command -v iptables &> /dev/null; then
+        echo "Installing iptables..."
+        pacman -Sy --noconfirm iptables || true
+    fi
+    
     # Remove packages
     echo "Removing Kubernetes packages..."
     pacman -Rns --noconfirm kubeadm kubectl kubelet || true
@@ -365,6 +417,22 @@ cleanup_arch() {
 cleanup_generic() {
     echo "Warning: Using generic cleanup method for unsupported distribution."
     echo "This may not completely remove all Kubernetes components."
+    
+    # Check for iptables and try to install if missing
+    if ! command -v iptables &> /dev/null; then
+        echo "Attempting to install iptables..."
+        if command -v apt-get &> /dev/null; then
+            apt-get update && apt-get install -y iptables
+        elif command -v dnf &> /dev/null; then
+            dnf install -y iptables
+        elif command -v yum &> /dev/null; then
+            yum install -y iptables
+        elif command -v zypper &> /dev/null; then
+            zypper install -y iptables
+        elif command -v pacman &> /dev/null; then
+            pacman -Sy --noconfirm iptables
+        fi
+    fi
     
     # Try to remove packages using common package managers
     if command -v apt-get &> /dev/null; then
@@ -451,22 +519,31 @@ detect_distribution
 common_cleanup
 
 # Perform distribution-specific cleanup
-case "$DISTRO_FAMILY" in
-    debian)
-        cleanup_debian
-        ;;
-    rhel|fedora)
-        cleanup_rhel
-        ;;
-    suse)
-        cleanup_suse
-        ;;
-    arch)
-        cleanup_arch
-        ;;
-    *)
-        cleanup_generic
-        ;;
-esac
+# For CentOS, directly use RHEL functions regardless of DISTRO_FAMILY
+if [ "$DISTRO_NAME" = "centos" ]; then
+    echo "Cleaning up CentOS based distribution..."
+    cleanup_rhel
+else
+    # For other distributions, check the family
+    case "$DISTRO_FAMILY" in
+        *debian*)
+            cleanup_debian
+            ;;
+        *rhel*|*fedora*)
+            echo "Cleaning up RHEL/Fedora based distribution..."
+            cleanup_rhel
+            ;;
+        *suse*)
+            cleanup_suse
+            ;;
+        *arch*)
+            cleanup_arch
+            ;;
+        *)
+            echo "Warning: Unsupported distribution family. Using generic cleanup methods."
+            cleanup_generic
+            ;;
+    esac
+fi
 
 echo "Cleanup complete! Please reboot the system for all changes to take effect."
