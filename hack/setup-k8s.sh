@@ -14,7 +14,7 @@ show_help() {
     echo "Usage: $0 [options]"
     echo ""
     echo "Options:"
-    echo "  --node-type    Node type (master or worker)"
+    echo "  --node-type    Node type (master, worker, or only-setup)"
     echo "  --pod-network-cidr   Pod network CIDR (e.g., 192.168.0.0/16)"
     echo "  --apiserver-advertise-address   API server advertise address"
     echo "  --control-plane-endpoint   Control plane endpoint"
@@ -66,8 +66,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate node type
-if [[ "$NODE_TYPE" != "master" && "$NODE_TYPE" != "worker" ]]; then
-    echo "Error: Node type must be either 'master' or 'worker'"
+if [[ "$NODE_TYPE" != "master" && "$NODE_TYPE" != "worker" && "$NODE_TYPE" != "only-setup" ]]; then
+    echo "Error: Node type must be either 'master', 'worker', or 'only-setup'"
     exit 1
 fi
 
@@ -148,6 +148,23 @@ fi
 
 apt-get install -y --allow-change-held-packages kubelet=${VERSION_STRING} kubeadm=${VERSION_STRING} kubectl=${VERSION_STRING}
 apt-mark hold kubelet kubeadm kubectl
+
+# If only-setup is specified, exit here
+if [[ "$NODE_TYPE" == "only-setup" ]]; then
+    echo "Setup completed successfully!"
+    echo "Kubernetes components have been installed, but no cluster has been initialized or joined."
+    echo ""
+    echo "To initialize a master node later, run:"
+    echo "  $0 --node-type master [other options]"
+    echo ""
+    echo "To join as a worker node later, run:"
+    echo "  $0 --node-type worker --join-token TOKEN --join-address ADDRESS --discovery-token-hash HASH"
+    echo ""
+    echo "Installed versions:"
+    kubectl version --client
+    kubeadm version
+    exit 0
+fi
 
 # Reset existing cluster configuration
 echo "Cleaning up existing cluster configuration..."
