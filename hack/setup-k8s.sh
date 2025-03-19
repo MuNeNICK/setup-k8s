@@ -3,7 +3,8 @@
 set -e
 
 # Default values
-K8S_VERSION="1.32"
+K8S_VERSION="1.32"  # メジャー.マイナーバージョンのみをデフォルトに
+FULL_K8S_VERSION="" # パッケージのフルバージョンを保持する変数を追加
 NODE_TYPE="master"  # Default is master node
 JOIN_TOKEN=""
 JOIN_ADDRESS=""
@@ -133,20 +134,26 @@ sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.to
 systemctl restart containerd
 
 # Install kubeadm
-echo "Installing kubeadm, kubelet, kubectl... (version: ${K8S_VERSION})"
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list
+echo "Installing kubeadm, kubelet, kubectl..."
+# リポジトリのURLにはメジャー.マイナーバージョンのみを使用
+REPO_VERSION=$(echo $K8S_VERSION | cut -d. -f1-2)
+echo "Adding Kubernetes repository (version: ${REPO_VERSION})..."
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v${REPO_VERSION}/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v${REPO_VERSION}/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list
 
 apt-get update
 
-# Install specific version
-VERSION_STRING=$(apt-cache madison kubeadm | grep ${K8S_VERSION} | head -1 | awk '{print $3}')
-if [ -z "$VERSION_STRING" ]; then
-    echo "Specified version ${K8S_VERSION} not found"
+# パッケージバージョンの取得と検証
+FULL_K8S_VERSION=$(apt-cache madison kubeadm | grep ${K8S_VERSION} | head -1 | awk '{print $3}')
+if [ -z "$FULL_K8S_VERSION" ]; then
+    echo "Error: No package found for Kubernetes version ${K8S_VERSION}"
+    echo "Available versions:"
+    apt-cache madison kubeadm | grep -oP '1\.\d+\.\d+-\d+' | sort -u
     exit 1
 fi
 
-apt-get install -y --allow-change-held-packages kubelet=${VERSION_STRING} kubeadm=${VERSION_STRING} kubectl=${VERSION_STRING}
+echo "Installing Kubernetes ${FULL_K8S_VERSION}..."
+apt-get install -y --allow-change-held-packages kubelet=${FULL_K8S_VERSION} kubeadm=${FULL_K8S_VERSION} kubectl=${FULL_K8S_VERSION}
 apt-mark hold kubelet kubeadm kubectl
 
 # If only-setup is specified, exit here
