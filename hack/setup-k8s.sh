@@ -410,26 +410,154 @@ setup_containerd_arch() {
     # Configure containerd
     mkdir -p /etc/containerd
     containerd config default | tee /etc/containerd/config.toml
-    sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+    
+    # For containerd v2, SystemdCgroup is in a different location
+    # Check containerd version and apply correct configuration
+    CONTAINERD_VERSION=$(containerd --version | grep -oP 'v\d+' | sed 's/v//')
+    
+    if [ "$CONTAINERD_VERSION" -ge 2 ]; then
+        echo "Detected containerd v2, applying v2 configuration..."
+        # For containerd v2, add SystemdCgroup to runc options
+        sed -i '/\[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runc.options\]/a\            SystemdCgroup = true' /etc/containerd/config.toml
+    else
+        # For containerd v1.x
+        sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+    fi
+    
     systemctl restart containerd
+    systemctl enable containerd
 }
 
 setup_kubernetes_arch() {
     echo "Setting up Kubernetes for Arch-based distribution..."
     
-    # Install Kubernetes components from AUR or community repo
-    # Note: This is a simplified approach. In practice, you might need to use an AUR helper or manually build packages
-    if pacman -Ss kubeadm | grep -q "^community/kubeadm"; then
-        pacman -Sy --noconfirm kubeadm kubelet kubectl
+    # Check if running as root
+    if [ "$EUID" -eq 0 ]; then
+        # If running as root, we need to handle AUR installation differently
+        echo "Running as root. Setting up AUR helper for Kubernetes installation..."
+        
+        # Check if an AUR helper is already installed
+        AUR_HELPER=""
+        if command -v yay &> /dev/null; then
+            AUR_HELPER="yay"
+        elif command -v paru &> /dev/null; then
+            AUR_HELPER="paru"
+        else
+            echo "No AUR helper found. Installing yay..."
+            
+            # Create a temporary user for building AUR packages
+            TEMP_USER="aur_builder_$$"
+            useradd -m -s /bin/bash "$TEMP_USER"
+            
+            # Install base-devel and git if not present
+            pacman -Sy --needed --noconfirm base-devel git
+            
+            # Clone and build yay as the temporary user
+            su - "$TEMP_USER" -c "
+                cd /tmp
+                git clone https://aur.archlinux.org/yay-bin.git
+                cd yay-bin
+                makepkg -si --noconfirm
+            "
+            
+            # Clean up temporary user
+            userdel -r "$TEMP_USER"
+            
+            if command -v yay &> /dev/null; then
+                AUR_HELPER="yay"
+                echo "yay installed successfully."
+            else
+                echo "Failed to install yay. Please install Kubernetes components manually."
+                exit 1
+            fi
+        fi
+        
+        echo "Using AUR helper: $AUR_HELPER"
+        
+        # Create another temporary user for installing Kubernetes packages
+        KUBE_USER="kube_installer_$$"
+        useradd -m -s /bin/bash "$KUBE_USER"
+        
+        # Give the temporary user sudo privileges without password for pacman
+        echo "$KUBE_USER ALL=(ALL) NOPASSWD: /usr/bin/pacman" >> /etc/sudoers
+        
+        # Install Kubernetes components as the temporary user
+        echo "Installing Kubernetes components from AUR..."
+        su - "$KUBE_USER" -c "
+            $AUR_HELPER -S --noconfirm --needed kubeadm-bin kubelet-bin kubectl-bin
+        "
+        
+        # Remove sudo privileges and clean up
+        sed -i "/$KUBE_USER/d" /etc/sudoers
+        userdel -r "$KUBE_USER"
+        
     else
-        echo "Kubernetes packages not found in official repositories."
-        echo "Please install kubeadm, kubelet, and kubectl manually from the AUR."
-        echo "You can use an AUR helper like 'yay' or 'paru'."
+        # If not running as root (should not happen since we check at the beginning of the script)
+        echo "This script must be run as root. Exiting."
         exit 1
     fi
     
+    # Verify installation
+    if command -v kubeadm &> /dev/null && command -v kubelet &> /dev/null && command -v kubectl &> /dev/null; then
+        echo "Kubernetes components installed successfully."
+    else
+        # Try alternative approach: directly downloading binaries
+        echo "AUR installation failed. Trying direct binary download..."
+        
+        # Get the latest stable version
+        KUBE_VERSION=$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)
+        echo "Downloading Kubernetes version: $KUBE_VERSION"
+        
+        # Download and install binaries
+        for binary in kubeadm kubelet kubectl; do
+            echo "Downloading $binary..."
+            curl -Lo /usr/local/bin/$binary "https://storage.googleapis.com/kubernetes-release/release/${KUBE_VERSION}/bin/linux/amd64/$binary"
+            chmod +x /usr/local/bin/$binary
+        done
+        
+        # Create kubelet service file if it doesn't exist
+        if [ ! -f /etc/systemd/system/kubelet.service ]; then
+            cat > /etc/systemd/system/kubelet.service <<'KUBELET_SERVICE'
+[Unit]
+Description=kubelet: The Kubernetes Node Agent
+Documentation=https://kubernetes.io/docs/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/kubelet
+Restart=always
+StartLimitInterval=0
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+KUBELET_SERVICE
+        fi
+        
+        # Create kubelet service drop-in directory
+        mkdir -p /etc/systemd/system/kubelet.service.d
+        
+        # Create kubeadm config for kubelet
+        cat > /etc/systemd/system/kubelet.service.d/10-kubeadm.conf <<'KUBEADM_CONF'
+[Service]
+Environment="KUBELET_KUBECONFIG_ARGS=--bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf"
+Environment="KUBELET_CONFIG_ARGS=--config=/var/lib/kubelet/config.yaml"
+EnvironmentFile=-/var/lib/kubelet/kubeadm-flags.env
+EnvironmentFile=-/etc/default/kubelet
+ExecStart=
+ExecStart=/usr/local/bin/kubelet $KUBELET_KUBECONFIG_ARGS $KUBELET_CONFIG_ARGS $KUBELET_KUBEADM_ARGS $KUBELET_EXTRA_ARGS
+KUBEADM_CONF
+        
+        # Reload systemd
+        systemctl daemon-reload
+    fi
+    
     # Enable and start kubelet
-    systemctl enable --now kubelet
+    systemctl enable kubelet
+    systemctl start kubelet
+    
+    echo "Kubernetes setup completed for Arch Linux."
 }
 
 cleanup_arch() {
@@ -454,6 +582,41 @@ cleanup_arch() {
         iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X
     else
         echo "Warning: iptables command not found, skipping iptables reset"
+    fi
+    
+    # Arch Linux specific: Disable zram swap completely
+    echo "Disabling zram swap on Arch Linux..."
+    
+    # Stop and disable all zram-related services
+    for service in systemd-zram-setup@zram0.service dev-zram0.swap; do
+        if systemctl is-active "$service" &>/dev/null; then
+            echo "Stopping $service..."
+            systemctl stop "$service"
+        fi
+        if systemctl is-enabled "$service" &>/dev/null; then
+            echo "Disabling $service..."
+            systemctl disable "$service"
+        fi
+        echo "Masking $service to prevent activation..."
+        systemctl mask "$service" 2>/dev/null || true
+    done
+    
+    # Turn off all swap devices
+    echo "Turning off all swap devices..."
+    swapoff -a
+    
+    # Remove zram module if loaded
+    if lsmod | grep -q zram; then
+        echo "Removing zram kernel module..."
+        modprobe -r zram || true
+    fi
+    
+    # Verify swap is disabled
+    if [ -n "$(swapon --show 2>/dev/null)" ]; then
+        echo "Warning: Some swap devices are still active:"
+        swapon --show
+    else
+        echo "All swap has been successfully disabled."
     fi
 }
 
@@ -603,12 +766,12 @@ echo "Disabling swap..."
 swapoff -a
 sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
 
-# Disable zram swap (especially for Fedora)
+# Disable zram swap (especially for Fedora and Arch)
 echo "Checking and disabling zram swap if present..."
-if grep -q zram /proc/swaps || [ "$DISTRO_NAME" = "fedora" ]; then
-    echo "zram swap detected or Fedora system, disabling..."
+if grep -q zram /proc/swaps || [ "$DISTRO_NAME" = "fedora" ] || [ "$DISTRO_NAME" = "arch" ] || [ "$DISTRO_NAME" = "manjaro" ]; then
+    echo "zram swap detected or Fedora/Arch system, disabling..."
     # Stop and disable all potential zram swap services
-    for service in zram-swap.service systemd-zram-setup@zram0.service; do
+    for service in zram-swap.service systemd-zram-setup@zram0.service dev-zram0.swap; do
         if systemctl is-active $service &>/dev/null; then
             echo "Stopping and disabling $service..."
             systemctl stop $service
