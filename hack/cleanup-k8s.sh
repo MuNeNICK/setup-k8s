@@ -74,6 +74,13 @@ detect_distribution() {
 
 # Common cleanup functions for all distributions
 common_cleanup() {
+    # Check if Docker is installed and warn about containerd
+    if command -v docker &> /dev/null; then
+        echo "WARNING: Docker is installed on this system."
+        echo "This cleanup script will reset containerd configuration but will NOT remove containerd."
+        echo "Docker should continue to work normally after cleanup."
+    fi
+    
     # Stop services first
     echo "Stopping Kubernetes services..."
     systemctl stop kubelet || true
@@ -85,13 +92,13 @@ common_cleanup() {
     rm -rf /etc/kubernetes
     rm -rf /etc/systemd/system/kubelet.service.d
     
-    # Disable and clean up zram swap (especially for Fedora)
+    # Disable and clean up zram swap (especially for Fedora and Arch)
     echo "Checking and disabling zram swap if present..."
-    if grep -q zram /proc/swaps || [ "$DISTRO_NAME" = "fedora" ]; then
-        echo "zram swap detected or Fedora system, disabling..."
+    if grep -q zram /proc/swaps || [ "$DISTRO_NAME" = "fedora" ] || [ "$DISTRO_NAME" = "arch" ] || [ "$DISTRO_NAME" = "manjaro" ]; then
+        echo "zram swap detected or Fedora/Arch system, disabling..."
         
         # Stop and disable all potential zram swap services
-        for service in zram-swap.service systemd-zram-setup@zram0.service; do
+        for service in zram-swap.service systemd-zram-setup@zram0.service dev-zram0.swap; do
             if systemctl is-active $service &>/dev/null; then
                 echo "Stopping and disabling $service..."
                 systemctl stop $service
@@ -177,6 +184,22 @@ common_cleanup() {
         iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X || true
     else
         echo "Warning: iptables command not found, skipping iptables reset"
+    fi
+    
+    # Reset containerd configuration (but don't remove containerd)
+    if [ -f /etc/containerd/config.toml ]; then
+        echo "Resetting containerd configuration to default..."
+        if command -v containerd &> /dev/null; then
+            # Backup current config
+            cp /etc/containerd/config.toml /etc/containerd/config.toml.bak.$(date +%Y%m%d%H%M%S)
+            # Generate default config
+            containerd config default > /etc/containerd/config.toml
+            # Restart containerd if it's running
+            if systemctl is-active containerd &>/dev/null; then
+                echo "Restarting containerd with default configuration..."
+                systemctl restart containerd
+            fi
+        fi
     fi
     
     # Reload systemd
@@ -394,13 +417,59 @@ cleanup_arch() {
         echo "Warning: iptables command not found, some cleanup steps may be skipped"
     fi
     
-    # Remove packages
-    echo "Removing Kubernetes packages..."
-    pacman -Rns --noconfirm kubeadm kubectl kubelet || true
+    # Remove AUR packages (with -bin suffix)
+    echo "Removing Kubernetes packages from AUR..."
+    for pkg in kubeadm-bin kubectl-bin kubelet-bin kubeadm kubectl kubelet; do
+        if pacman -Qi $pkg &>/dev/null; then
+            echo "Removing $pkg..."
+            pacman -Rns --noconfirm $pkg || true
+        fi
+    done
+    
+    # Remove binaries from /usr/local/bin if they exist
+    echo "Removing Kubernetes binaries from /usr/local/bin..."
+    for binary in kubeadm kubectl kubelet; do
+        if [ -f "/usr/local/bin/$binary" ]; then
+            echo "Removing /usr/local/bin/$binary..."
+            rm -f "/usr/local/bin/$binary"
+        fi
+    done
+    
+    # Remove systemd service files if they were manually created
+    if [ -f "/etc/systemd/system/kubelet.service" ]; then
+        echo "Removing manually created kubelet service file..."
+        rm -f "/etc/systemd/system/kubelet.service"
+        rm -rf "/etc/systemd/system/kubelet.service.d"
+        systemctl daemon-reload
+    fi
     
     # Clean up dependencies
     echo "Removing unnecessary dependencies..."
     pacman -Sc --noconfirm
+    
+    # Disable zram swap specifically for Arch
+    echo "Disabling zram swap on Arch Linux..."
+    for service in systemd-zram-setup@zram0.service dev-zram0.swap; do
+        if systemctl is-active "$service" &>/dev/null; then
+            echo "Stopping $service..."
+            systemctl stop "$service"
+        fi
+        if systemctl is-enabled "$service" &>/dev/null; then
+            echo "Disabling $service..."
+            systemctl disable "$service"
+        fi
+        echo "Unmasking $service if it was masked..."
+        systemctl unmask "$service" 2>/dev/null || true
+    done
+    
+    # Turn off all swap devices
+    swapoff -a
+    
+    # Remove zram module if loaded
+    if lsmod | grep -q zram; then
+        echo "Removing zram kernel module..."
+        modprobe -r zram || true
+    fi
     
     # Verify cleanup
     echo -e "\nVerifying cleanup..."
@@ -413,8 +482,16 @@ cleanup_arch() {
         remaining_files=1
     fi
     
+    # Check for remaining binaries
+    for binary in kubeadm kubectl kubelet; do
+        if [ -f "/usr/local/bin/$binary" ] || command -v $binary &>/dev/null; then
+            echo "Warning: $binary still exists in PATH"
+            remaining_files=1
+        fi
+    done
+    
     # Check for remaining files
-    for file in "/etc/default/kubelet"; do
+    for file in "/etc/default/kubelet" "/etc/systemd/system/kubelet.service"; do
         if [ -f "$file" ]; then
             echo "Warning: File still exists: $file"
             remaining_files=1
