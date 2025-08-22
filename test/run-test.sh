@@ -136,8 +136,30 @@ download_image() {
     log_info "This may take several minutes..."
     
     cd "$SCRIPT_DIR"
-    if timeout "$TIMEOUT_DOWNLOAD" docker-compose exec -T qemu-tools \
-        wget --progress=dot:giga -O "/shared/$image_file" "$image_url" 2>&1; then
+    
+    # Start download in background and monitor progress
+    docker-compose exec -T qemu-tools bash -c "
+        wget --progress=bar:force:noscroll -O '/shared/$image_file' '$image_url' 2>&1 | \
+        stdbuf -o0 -e0 sed 's/^/[DOWNLOAD] /'
+    " &
+    local download_pid=$!
+    
+    # Monitor download progress
+    local monitor_count=0
+    while kill -0 $download_pid 2>/dev/null; do
+        if [ -f "$image_file" ]; then
+            local current_size=$(stat -c%s "$image_file" 2>/dev/null || echo "0")
+            if [ $((monitor_count % 5)) -eq 0 ] && [ "$current_size" -gt 0 ]; then
+                log_info "Downloaded: $((current_size/1024/1024))MB"
+            fi
+        fi
+        monitor_count=$((monitor_count + 1))
+        sleep 1
+    done
+    
+    # Check if download succeeded
+    wait $download_pid
+    if [ $? -eq 0 ]; then
         log_success "Image downloaded successfully: $image_file"
         
         # Check file size
