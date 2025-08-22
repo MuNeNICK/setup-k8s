@@ -143,12 +143,12 @@ test/
 
 ## カスタマイズ
 
-### 新しいディストリビューション追加
+### New distribution追加
 
 `distro-urls.conf`に以下形式で追加：
 
 ```bash
-# 新しいディストリビューション
+# New distribution
 newdistro-1.0=https://example.com/newdistro-1.0-cloud.qcow2
 newdistro-1.0_user=newuser
 ```

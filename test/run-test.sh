@@ -6,31 +6,31 @@
 
 set -e
 
-# 定数定義
+# Constants
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/distro-urls.conf"
 CLOUD_INIT_TEMPLATE="$SCRIPT_DIR/cloud-init-template.yaml"
 SETUP_K8S_SCRIPT="$SCRIPT_DIR/../hack/setup-k8s.sh"
 
-# タイムアウト設定（秒）
-TIMEOUT_TOTAL=1200    # 20分
-TIMEOUT_DOWNLOAD=600  # 10分
-TIMEOUT_QEMU_START=60 # 1分
+# Timeout settings (seconds)
+TIMEOUT_TOTAL=1200    # 20 minutes
+TIMEOUT_DOWNLOAD=600  # 10 minutes
+TIMEOUT_QEMU_START=60 # 1 minute
 
-# 色付きログ用
+# Colors for logging
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# ログ関数
+# Logging functions
 log_info() { echo -e "${BLUE}[INFO]${NC} $*"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*"; }
 
-# ヘルプメッセージ
+# Help message
 show_help() {
     cat <<EOF
 K8s Multi-Distribution Test Runner
@@ -49,11 +49,11 @@ EOF
     echo "  $0 centos-stream-9"
 }
 
-# 設定読み込み関数
+# Load configuration function
 load_config() {
     local distro=$1
     
-    # イメージURL取得
+    # Get image URL
     IMAGE_URL=$(grep "^${distro}=" "$CONFIG_FILE" 2>/dev/null | cut -d= -f2-)
     if [ -z "$IMAGE_URL" ]; then
         log_error "Unknown distribution: $distro"
@@ -62,7 +62,7 @@ load_config() {
         return 1
     fi
     
-    # ログインユーザー取得
+    # Get login user
     LOGIN_USER=$(grep "^${distro}_user=" "$CONFIG_FILE" 2>/dev/null | cut -d= -f2-)
     if [ -z "$LOGIN_USER" ]; then
         log_error "Login user not found for: $distro"
@@ -77,11 +77,11 @@ load_config() {
     return 0
 }
 
-# コンテナ起動確認・起動
+# Check and start container
 ensure_container_running() {
     log_info "Checking QEMU container status..."
     
-    # コンテナが起動しているかチェック
+    # Check if container is running
     if docker ps --format "{{.Names}}" | grep -q "k8s-qemu-tools"; then
         log_info "QEMU container is already running"
     else
@@ -89,7 +89,7 @@ ensure_container_running() {
         cd "$SCRIPT_DIR"
         docker-compose up -d qemu-tools
         
-        # 起動完了待機
+        # Wait for startup completion
         log_info "Waiting for container to be ready..."
         for i in {1..10}; do
             if docker-compose exec -T qemu-tools echo "Container ready" >/dev/null 2>&1; then
@@ -108,7 +108,7 @@ ensure_container_running() {
     return 0
 }
 
-# イメージダウンロード
+# Download image
 download_image() {
     local distro=$1
     local image_url=$2
@@ -116,10 +116,10 @@ download_image() {
     
     log_info "Checking cloud image: $image_file"
     
-    # 既存イメージの確認
+    # Check existing image
     if [ -f "$image_file" ]; then
         local file_size=$(stat -c%s "$image_file" 2>/dev/null || echo "0")
-        if [ "$file_size" -gt 104857600 ]; then  # 100MB以上
+        if [ "$file_size" -gt 104857600 ]; then  # More than 100MB
             log_info "Using cached image: $image_file ($((file_size/1024/1024))MB)"
             return 0
         else
@@ -128,10 +128,10 @@ download_image() {
         fi
     fi
     
-    # ディレクトリ作成
+    # Create directory
     mkdir -p "$(dirname "$image_file")"
     
-    # ダウンロード実行
+    # Execute download
     log_info "Downloading cloud image: $image_url"
     log_info "This may take several minutes..."
     
@@ -140,7 +140,7 @@ download_image() {
         wget --progress=dot:giga -O "/shared/$image_file" "$image_url" 2>&1; then
         log_success "Image downloaded successfully: $image_file"
         
-        # ファイルサイズ確認
+        # Check file size
         local downloaded_size=$(stat -c%s "$image_file" 2>/dev/null || echo "0")
         log_info "Downloaded size: $((downloaded_size/1024/1024))MB"
         
@@ -152,7 +152,7 @@ download_image() {
     fi
 }
 
-# cloud-init設定生成
+# Generate cloud-init configuration
 generate_cloud_init() {
     local distro=$1
     local login_user=$2
@@ -160,11 +160,11 @@ generate_cloud_init() {
     
     log_info "Generating cloud-init configuration..."
     
-    # 共有ディレクトリ内に一時ディレクトリ作成
+    # Create temporary directory in shared directory
     rm -rf "$temp_dir"
     mkdir -p "$temp_dir"
     
-    # setup-k8s.sh内容をBase64エンコード
+    # Base64 encode setup-k8s.sh content
     if [ ! -f "$SETUP_K8S_SCRIPT" ]; then
         log_error "setup-k8s.sh not found: $SETUP_K8S_SCRIPT"
         return 1
@@ -172,18 +172,18 @@ generate_cloud_init() {
     
     local setup_k8s_b64=$(base64 -w 0 < "$SETUP_K8S_SCRIPT")
     
-    # cloud-initテンプレート処理
+    # Process cloud-init template
     sed -e "s/{{LOGIN_USER}}/$login_user/g" \
         -e "s/{{SETUP_K8S_CONTENT}}/$setup_k8s_b64/g" \
         "$CLOUD_INIT_TEMPLATE" > "$temp_dir/user-data"
     
-    # meta-data生成
+    # Generate meta-data
     cat > "$temp_dir/meta-data" <<EOF
 instance-id: k8s-test-${distro}-$(date +%s)
 local-hostname: k8s-test-${distro}
 EOF
     
-    # seed.iso生成（コンテナ内で実行、/shared経由でアクセス）
+    # Generate seed.iso (execute in container, access via /shared)
     log_info "Creating seed.iso..."
     cd "$SCRIPT_DIR"
     docker-compose exec -T qemu-tools genisoimage \
@@ -205,11 +205,11 @@ EOF
     fi
 }
 
-# テスト結果解析
+# Parse test results
 parse_test_output() {
     local line="$1"
     
-    # JSONテスト結果検出
+    # Detect JSON test results
     if [[ "$line" == *"=== K8S_TEST_RESULT_JSON_START ==="* ]]; then
         JSON_CAPTURE=true
         JSON_CONTENT=""
@@ -219,7 +219,7 @@ parse_test_output() {
     if [[ "$line" == *"=== K8S_TEST_RESULT_JSON_END ==="* ]]; then
         JSON_CAPTURE=false
         
-        # JSON解析・結果保存
+        # Parse JSON and save results
         if [ -n "$JSON_CONTENT" ]; then
             echo "$JSON_CONTENT" > results/test-result.json
             log_info "Test result captured"
@@ -227,13 +227,13 @@ parse_test_output() {
         return
     fi
     
-    # JSON内容蓄積
+    # Accumulate JSON content
     if [ "$JSON_CAPTURE" = true ]; then
         JSON_CONTENT="${JSON_CONTENT}${line}\n"
         return
     fi
     
-    # その他のマーカー検出
+    # Detect other markers
     case "$line" in
         *"K8S_TEST_START:"*)
             TEST_STARTED=true
@@ -248,7 +248,7 @@ parse_test_output() {
     esac
 }
 
-# QEMU実行・監視
+# Execute and monitor QEMU
 run_qemu_test() {
     local distro=$1
     local image_file="images/${distro}.qcow2"
@@ -256,16 +256,16 @@ run_qemu_test() {
     
     log_info "Starting QEMU VM test for: $distro"
     
-    # 既存のQEMUプロセスをクリーンアップ
+    # Clean up existing QEMU processes
     log_info "Cleaning up existing QEMU processes..."
     docker-compose exec -T qemu-tools pkill -9 qemu-system-x86_64 2>/dev/null || true
     sleep 2
     
-    # 結果・ログディレクトリ作成
+    # Create results and log directories
     mkdir -p results/logs
     rm -f results/test-result.json
     
-    # テスト用イメージの作成（オリジナルを拡張してコピー）
+    # Create test image (expand and copy original)
     local test_image="images/${distro}-test.qcow2"
     log_info "Creating test image with expanded size..."
     docker-compose exec -T qemu-tools bash -c "
@@ -276,7 +276,7 @@ run_qemu_test() {
         return 1
     }
     
-    # QEMUコマンド構築
+    # Build QEMU command
     local qemu_cmd="qemu-system-x86_64 \
         -machine pc,accel=kvm:tcg \
         -m 4096 \
@@ -291,33 +291,33 @@ run_qemu_test() {
     log_info "QEMU command: $qemu_cmd"
     log_info "Monitor output in: $log_file"
     
-    # 監視変数初期化
+    # Initialize monitoring variables
     TEST_STARTED=false
     TEST_COMPLETED=false
     JSON_CAPTURE=false
     JSON_CONTENT=""
     
-    # クリーンアップ用のtrap設定
+    # Set trap for cleanup
     cleanup_qemu() {
         log_info "Cleaning up QEMU process..."
         docker-compose exec -T qemu-tools pkill -9 qemu-system-x86_64 2>/dev/null || true
     }
     trap cleanup_qemu EXIT INT TERM
     
-    # QEMU起動・出力監視
+    # Start QEMU and monitor output
     local start_time=$(date +%s)
     cd "$SCRIPT_DIR"
     
-    # QEMUをバックグラウンドで起動し、PIDを保存
+    # Start QEMU in background and save PID
     docker-compose exec -T qemu-tools bash -c "$qemu_cmd" 2>&1 | \
     while IFS= read -r line; do
-        # ログファイルに記録
+        # Record to log file
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] $line" | tee -a "$log_file"
         
-        # テスト結果解析
+        # Parse test results
         parse_test_output "$line"
         
-        # タイムアウトチェック
+        # Check timeout
         local current_time=$(date +%s)
         local elapsed=$((current_time - start_time))
         
@@ -326,28 +326,28 @@ run_qemu_test() {
             break
         fi
         
-        # テスト完了チェック
+        # Check test completion
         if [ "$TEST_COMPLETED" = true ] && [ -f "results/test-result.json" ]; then
             log_success "Test execution completed"
             break
         fi
     done
     
-    # QEMUプロセスを確実に終了
+    # Ensure QEMU process termination
     log_info "Terminating QEMU process..."
     docker-compose exec -T qemu-tools pkill -9 qemu-system-x86_64 2>/dev/null || true
     
-    # テスト用イメージを削除
+    # Delete test image
     log_info "Cleaning up test image..."
     rm -f "images/${distro}-test.qcow2"
     
-    # trapを解除
+    # Remove trap
     trap - EXIT INT TERM
     
     return 0
 }
 
-# テスト結果表示
+# Show test results
 show_test_results() {
     local distro=$1
     
@@ -359,7 +359,7 @@ show_test_results() {
     log_info "Test Results for $distro:"
     echo "=================="
     
-    # JSON内容を読み取り・表示
+    # Read and display JSON content
     local status=$(grep -o '"status": *"[^"]*"' results/test-result.json | cut -d'"' -f4)
     local exit_code=$(grep -o '"setup_exit_code": *[0-9]*' results/test-result.json | grep -o '[0-9]*')
     local kubelet_status=$(grep -o '"kubelet_status": *"[^"]*"' results/test-result.json | cut -d'"' -f4)
@@ -371,7 +371,7 @@ show_test_results() {
     echo "API Responsive: $api_responsive"
     echo "=================="
     
-    # 結果判定
+    # Determine results
     if [ "$status" = "success" ] && [ "$exit_code" = "0" ]; then
         log_success "✅ Test PASSED for $distro"
         return 0
@@ -381,11 +381,11 @@ show_test_results() {
     fi
 }
 
-# メイン処理
+# Main process
 main() {
     local distro=$1
     
-    # 引数チェック
+    # Check arguments
     if [ -z "$distro" ]; then
         log_error "Distribution name required"
         show_help
@@ -400,14 +400,14 @@ main() {
     log_info "Starting K8s test for: $distro"
     log_info "Working directory: $SCRIPT_DIR"
     
-    # 各ステップ実行
+    # Execute each step
     load_config "$distro" || exit 1
     ensure_container_running || exit 1
     download_image "$distro" "$IMAGE_URL" || exit 1
     generate_cloud_init "$distro" "$LOGIN_USER" || exit 1
     run_qemu_test "$distro" || exit 1
     
-    # 結果表示・終了コード設定
+    # Display results and set exit code
     if show_test_results "$distro"; then
         exit 0
     else
@@ -415,5 +415,5 @@ main() {
     fi
 }
 
-# スクリプト実行
+# Execute script
 main "$@"
