@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  qemu-tools:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: k8s-qemu-tools
+    
+    # QEMU KVM実行に必要な権限
+    privileged: true
+    devices:
+      - /dev/kvm:/dev/kvm
+    
+    # ホストディレクトリを/sharedとしてマウント
+    volumes:
+      - .:/shared
+    
+    # ネットワーク設定（VM用）
+    network_mode: host
+    
+    # バックグラウンド待機状態で維持
+    command: tail -f /dev/null

@@ -1,0 +1,16 @@
+# Test artifacts
+images/*.qcow2
+images/*.img
+images/*-test.qcow2
+results/logs/*.log
+results/*.json
+seed.iso
+seed-debug.iso
+cloud-init-temp/
+
+# Docker build cache
+.docker/
+
+# Temporary files
+*.log
+/tmp/

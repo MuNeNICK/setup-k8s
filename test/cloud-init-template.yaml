@@ -1,0 +1,119 @@
+#cloud-config
+# K8s Multi-Distribution Test - Universal Cloud-Init Template
+
+users:
+  - name: {{LOGIN_USER}}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: true
+
+# システムパッケージ更新
+package_update: true
+packages:
+  - curl
+  - wget
+  - sudo
+
+# ファイル書き込み
+write_files:
+  # setup-k8s.sh スクリプト（base64デコード）
+  - path: /tmp/setup-k8s.sh
+    content: {{SETUP_K8S_CONTENT}}
+    encoding: base64
+    permissions: '0755'
+    
+  # テスト実行ラッパースクリプト
+  - path: /tmp/test-runner.sh
+    content: |
+      #!/bin/bash
+      
+      # テスト開始マーカー（シリアルコンソールに出力）
+      echo "=== K8S_TEST_START:$(date -Iseconds) ===" > /dev/console
+      
+      # setup-k8s.sh実行
+      echo "Starting Kubernetes setup (master node)..." > /dev/console
+      /tmp/setup-k8s.sh --node-type master > /tmp/setup-k8s.log 2>&1
+      SETUP_EXIT_CODE=$?
+      
+      echo "Setup completed with exit code: $SETUP_EXIT_CODE" > /dev/console
+      
+      # エラー時はログを出力
+      if [ $SETUP_EXIT_CODE -ne 0 ]; then
+        echo "=== SETUP ERROR LOG ===" > /dev/console
+        cat /tmp/setup-k8s.log > /dev/console 2>/dev/null || true
+        echo "=== SETUP ERROR LOG END ===" > /dev/console
+      fi
+      
+      # 詳細な動作確認
+      echo "Verifying Kubernetes components..." > /dev/console
+      
+      # kubelet状態確認
+      if systemctl is-active --quiet kubelet; then
+        KUBELET_STATUS="active"
+        echo "kubelet is active" > /dev/console
+      else
+        KUBELET_STATUS="inactive"
+        echo "kubelet is not active" > /dev/console
+        systemctl status kubelet > /tmp/kubelet-status.log 2>&1 || true
+      fi
+      
+      # kubeconfig存在確認
+      if [ -f /etc/kubernetes/admin.conf ]; then
+        KUBECONFIG_EXISTS="true"
+        echo "kubeconfig exists" > /dev/console
+      else
+        KUBECONFIG_EXISTS="false"
+        echo "kubeconfig does not exist" > /dev/console
+      fi
+      
+      # API server応答確認
+      echo "Testing API server connectivity..." > /dev/console
+      if timeout 30 kubectl get nodes --kubeconfig=/etc/kubernetes/admin.conf >/dev/null 2>&1; then
+        API_RESPONSIVE="true"
+        echo "API server is responsive" > /dev/console
+      else
+        API_RESPONSIVE="false"
+        echo "API server is not responsive" > /dev/console
+        # API テストログ保存
+        kubectl get nodes --kubeconfig=/etc/kubernetes/admin.conf > /tmp/api-test.log 2>&1 || true
+      fi
+      
+      # 最終結果判定
+      if [ "$SETUP_EXIT_CODE" -eq 0 ] && [ "$KUBELET_STATUS" = "active" ] && [ "$API_RESPONSIVE" = "true" ]; then
+        FINAL_STATUS="success"
+      else
+        FINAL_STATUS="failed"
+      fi
+      
+      # テスト結果をJSON形式でシリアルコンソールに出力
+      # run-test.shがこの出力を解析する
+      echo "=== K8S_TEST_RESULT_JSON_START ===" > /dev/console
+      echo "{" > /dev/console
+      echo "  \"status\": \"$FINAL_STATUS\"," > /dev/console
+      echo "  \"setup_exit_code\": $SETUP_EXIT_CODE," > /dev/console
+      echo "  \"kubelet_status\": \"$KUBELET_STATUS\"," > /dev/console
+      echo "  \"kubeconfig_exists\": $KUBECONFIG_EXISTS," > /dev/console
+      echo "  \"api_responsive\": $API_RESPONSIVE," > /dev/console
+      echo "  \"timestamp\": \"$(date -Iseconds)\"" > /dev/console
+      echo "}" > /dev/console
+      echo "=== K8S_TEST_RESULT_JSON_END ===" > /dev/console
+      
+      # 詳細ログもシリアルコンソールに出力
+      echo "=== SETUP_LOG_START ===" > /dev/console
+      cat /tmp/setup-k8s.log > /dev/console 2>/dev/null || echo "No setup log available" > /dev/console
+      echo "=== SETUP_LOG_END ===" > /dev/console
+      
+      # テスト終了マーカー
+      echo "=== K8S_TEST_COMPLETED:$(date -Iseconds) ===" > /dev/console
+      
+      # システム終了
+      echo "Test completed, shutting down VM..." > /dev/console
+      shutdown -h now
+    permissions: '0755'
+
+# cloud-init完了後にテスト実行
+runcmd:
+  - /tmp/test-runner.sh
+
+# cloud-init完了メッセージ
+final_message: "K8s test cloud-init completed"
