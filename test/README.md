@@ -1,16 +1,16 @@
 # K8s Multi-Distribution Test Suite
 
-複数のLinuxディストリビューションで`setup-k8s.sh`スクリプトの動作を自動テストするためのDocker + QEMU テストフレームワーク。
+Docker + QEMU test framework for automatically testing `setup-k8s.sh` script across multiple Linux distributions.
 
-## 特徴
+## Features
 
-- **シンプル**: 1コマンドでテスト実行完了
-- **環境汚染なし**: ホストにQEMU/cloud-utilsインストール不要
-- **完全自動化**: VM起動からK8sセットアップ、結果収集まで無人実行
-- **8ディストリビューション対応**: Ubuntu、Debian、CentOS、Fedora、openSUSE、Rocky、AlmaLinux
-- **確実な結果判定**: setup-k8s.sh実行、kubelet起動、API応答まで確認
+- **Simple**: Complete test execution with a single command
+- **No host pollution**: No need to install QEMU/cloud-utils on host
+- **Fully automated**: Unattended execution from VM boot to K8s setup and result collection
+- **8 distributions supported**: Ubuntu, Debian, CentOS, Fedora, openSUSE, Rocky, AlmaLinux
+- **Reliable result verification**: Confirms setup-k8s.sh execution, kubelet startup, and API response
 
-## 対応ディストリビューション
+## Supported Distributions
 
 | Distribution | Version | Login User |
 |-------------|---------|------------|
@@ -23,49 +23,49 @@
 | rocky-linux-9 | 9 | rocky |
 | almalinux-9 | 9 | almalinux |
 
-## システム要件
+## System Requirements
 
-- Linux ホスト（Ubuntu 20.04+推奨）
+- Linux host (Ubuntu 20.04+ recommended)
 - Docker Engine 20.10+
-- `/dev/kvm` アクセス権限（KVM仮想化用）
-- 最低 8GB RAM、10GB ディスク空き容量
+- `/dev/kvm` access permissions (for KVM virtualization)
+- Minimum 8GB RAM, 10GB disk space
 
-## クイックスタート
+## Quick Start
 
-### 1. 前提条件確認
+### 1. Prerequisites Check
 
 ```bash
-# Dockerインストール確認
+# Check Docker installation
 docker --version
 
-# KVM利用可能性確認
+# Check KVM availability
 kvm-ok
 
-# /dev/kvm権限確認
+# Check /dev/kvm permissions
 ls -la /dev/kvm
 
-# 必要に応じてkvmグループに追加
+# Add to kvm group if necessary
 sudo usermod -aG kvm $USER
-# （再ログイン必要）
+# (Re-login required)
 ```
 
-### 2. テスト実行
+### 2. Run Tests
 
 ```bash
-# プロジェクトディレクトリに移動
+# Navigate to project directory
 cd setup-k8s/test
 
-# 特定ディストリビューションでテスト
+# Test specific distribution
 ./run-test.sh ubuntu-2404
 
-# 他のディストリビューション例
+# Other distribution examples
 ./run-test.sh debian-12
 ./run-test.sh centos-stream-9
 ```
 
-### 3. 結果確認
+### 3. Check Results
 
-テスト完了後、以下の形式で結果が表示されます：
+After test completion, results are displayed in the following format:
 
 ```
 ✅ Test PASSED for ubuntu-2404
@@ -75,77 +75,77 @@ Kubelet Status: active
 API Responsive: true
 ```
 
-## 使用方法詳細
+## Detailed Usage
 
-### 基本コマンド
+### Basic Commands
 
 ```bash
-# ヘルプ表示
+# Display help
 ./run-test.sh --help
 
-# サポート対象ディストリビューション一覧
+# List supported distributions
 ./run-test.sh --help
 
-# 特定ディストリビューションテスト
+# Test specific distribution
 ./run-test.sh <distro-name>
 ```
 
-### ログの確認
+### Log Inspection
 
 ```bash
-# 実行ログ確認
+# Check execution logs
 ls -la results/logs/
 tail -f results/logs/ubuntu-2404-20250101-120000.log
 
-# JSON結果確認
+# Check JSON results
 cat results/test-result.json
 ```
 
-### トラブルシューティング
+### Troubleshooting
 
 ```bash
-# コンテナ状態確認
+# Check container status
 docker-compose ps
 
-# コンテナ内確認
+# Check inside container
 docker-compose exec qemu-tools bash
 
-# 手動コンテナ再起動
+# Manual container restart
 docker-compose down
 docker-compose up -d qemu-tools
 ```
 
-## 内部動作フロー
+## Internal Workflow
 
-1. **設定読み込み**: `distro-urls.conf`から対象ディストリビューション設定取得
-2. **コンテナ起動**: QEMUツールコンテナを自動起動（必要時のみ）
-3. **イメージ取得**: クラウドイメージをダウンロード・キャッシュ
-4. **cloud-init準備**: 汎用テンプレートにsetup-k8s.shを埋め込み
-5. **QEMU起動**: VM起動、シリアルコンソール出力監視開始
-6. **テスト実行**: VM内でsetup-k8s.sh自動実行
-7. **結果収集**: kubelet状態、API応答確認
-8. **結果保存**: JSON形式で結果保存、ログファイル出力
+1. **Load configuration**: Get target distribution settings from `distro-urls.conf`
+2. **Start container**: Auto-start QEMU tools container (only when needed)
+3. **Fetch image**: Download and cache cloud images
+4. **Prepare cloud-init**: Embed setup-k8s.sh in generic template
+5. **Start QEMU**: Boot VM, start monitoring serial console output
+6. **Run test**: Auto-execute setup-k8s.sh inside VM
+7. **Collect results**: Check kubelet status, API response
+8. **Save results**: Save results in JSON format, output log files
 
-## ファイル構成
+## File Structure
 
 ```
 test/
-├── run-test.sh              # メイン実行スクリプト
-├── distro-urls.conf         # ディストリビューション設定
-├── cloud-init-template.yaml # 汎用cloud-initテンプレート
-├── docker-compose.yml       # QEMUコンテナ定義
-├── Dockerfile              # QEMU環境イメージ
-├── images/                 # クラウドイメージキャッシュ
-└── results/                # テスト結果・ログ
-    ├── logs/              # 実行ログ
-    └── test-result.json   # 最新テスト結果
+├── run-test.sh              # Main execution script
+├── distro-urls.conf         # Distribution configuration
+├── cloud-init-template.yaml # Generic cloud-init template
+├── docker-compose.yml       # QEMU container definition
+├── Dockerfile              # QEMU environment image
+├── images/                 # Cloud image cache
+└── results/                # Test results and logs
+    ├── logs/              # Execution logs
+    └── test-result.json   # Latest test result
 ```
 
-## カスタマイズ
+## Customization
 
-### New distribution追加
+### Adding New Distributions
 
-`distro-urls.conf`に以下形式で追加：
+Add to `distro-urls.conf` in the following format:
 
 ```bash
 # New distribution
@@ -153,65 +153,65 @@ newdistro-1.0=https://example.com/newdistro-1.0-cloud.qcow2
 newdistro-1.0_user=newuser
 ```
 
-### タイムアウト調整
+### Timeout Adjustment
 
-`run-test.sh`内の定数を変更：
+Modify constants in `run-test.sh`:
 
 ```bash
-TIMEOUT_TOTAL=1800    # 30分に延長
-TIMEOUT_DOWNLOAD=900  # 15分に延長
+TIMEOUT_TOTAL=1800    # Extend to 30 minutes
+TIMEOUT_DOWNLOAD=900  # Extend to 15 minutes
 ```
 
-### QEMU設定調整
+### QEMU Configuration Tuning
 
-`run-test.sh`内のQEMUコマンドを変更：
+Modify QEMU command in `run-test.sh`:
 
 ```bash
-# メモリ増量例
+# Example: Increase memory
 -m 8192 \  # 8GB RAM
 ```
 
-## よくある問題
+## Common Issues
 
-### KVMアクセスエラー
+### KVM Access Error
 ```bash
-# /dev/kvm権限設定
+# Set /dev/kvm permissions
 sudo chmod 666 /dev/kvm
 ```
 
-### ダウンロード失敗
+### Download Failure
 ```bash
-# キャッシュクリア
+# Clear cache
 rm -f images/*.qcow2
 ```
 
-### VM起動失敗
+### VM Boot Failure
 ```bash
-# コンテナ再起動
+# Restart container
 docker-compose restart qemu-tools
 ```
 
-### テストタイムアウト
-- ネットワーク速度の確認
-- タイムアウト値の調整
-- システムリソース（RAM/CPU）の確認
+### Test Timeout
+- Check network speed
+- Adjust timeout values
+- Check system resources (RAM/CPU)
 
-## 開発・拡張
+## Development & Extension
 
-### デバッグモード
+### Debug Mode
 
 ```bash
-# 詳細ログ出力
+# Verbose logging
 BASH_DEBUG=1 ./run-test.sh ubuntu-2404
 
-# 手動VM起動
+# Manual VM launch
 docker-compose exec qemu-tools bash
 qemu-system-x86_64 -machine pc,accel=kvm ...
 ```
 
-### 結果形式
+### Result Format
 
-テスト結果は以下のJSON形式で出力されます：
+Test results are output in the following JSON format:
 
 ```json
 {
@@ -224,6 +224,6 @@ qemu-system-x86_64 -machine pc,accel=kvm ...
 }
 ```
 
-## ライセンス
+## License
 
-このプロジェクトは元の`setup-k8s`プロジェクトと同じライセンスに従います。
+This project follows the same license as the original `setup-k8s` project.

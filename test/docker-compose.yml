@@ -7,17 +7,17 @@ services:
       dockerfile: Dockerfile
     container_name: k8s-qemu-tools
     
-    # QEMU KVM実行に必要な権限
+    # Required permissions for QEMU KVM execution
     privileged: true
     devices:
       - /dev/kvm:/dev/kvm
     
-    # ホストディレクトリを/sharedとしてマウント
+    # Mount host directory as /shared
     volumes:
       - .:/shared
     
-    # ネットワーク設定（VM用）
+    # Network configuration (for VM)
     network_mode: host
     
-    # バックグラウンド待機状態で維持
+    # Keep running in background wait state
     command: tail -f /dev/null

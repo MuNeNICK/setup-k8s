@@ -1,9 +1,9 @@
 FROM ubuntu:22.04
 
-# 非対話モードでapt実行
+# Run apt in non-interactive mode
 ENV DEBIAN_FRONTEND=noninteractive
 
-# QEMUとcloud-utilsのみインストール
+# Install only QEMU and cloud-utils
 RUN apt-get update && apt-get install -y \
     qemu-kvm \
     qemu-utils \
@@ -15,11 +15,11 @@ RUN apt-get update && apt-get install -y \
     openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-# 共有ディレクトリ作成
+# Create shared directories
 RUN mkdir -p /shared/images /shared/results
 
-# 作業ディレクトリ設定
+# Set working directory
 WORKDIR /shared
 
-# コンテナを待機状態で維持
+# Keep container running in wait state
 CMD ["tail", "-f", "/dev/null"]

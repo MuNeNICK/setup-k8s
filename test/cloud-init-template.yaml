@@ -7,47 +7,47 @@ users:
     shell: /bin/bash
     lock_passwd: true
 
-# システムパッケージ更新
+# Update system packages
 package_update: true
 packages:
   - curl
   - wget
   - sudo
 
-# ファイル書き込み
+# Write files
 write_files:
-  # setup-k8s.sh スクリプト（base64デコード）
+  # setup-k8s.sh script (base64 decoded)
   - path: /tmp/setup-k8s.sh
     content: {{SETUP_K8S_CONTENT}}
     encoding: base64
     permissions: '0755'
     
-  # テスト実行ラッパースクリプト
+  # Test execution wrapper script
   - path: /tmp/test-runner.sh
     content: |
       #!/bin/bash
       
-      # テスト開始マーカー（シリアルコンソールに出力）
+      # Test start marker (output to serial console)
       echo "=== K8S_TEST_START:$(date -Iseconds) ===" > /dev/console
       
-      # setup-k8s.sh実行
+      # Execute setup-k8s.sh
       echo "Starting Kubernetes setup (master node)..." > /dev/console
       /tmp/setup-k8s.sh --node-type master > /tmp/setup-k8s.log 2>&1
       SETUP_EXIT_CODE=$?
       
       echo "Setup completed with exit code: $SETUP_EXIT_CODE" > /dev/console
       
-      # エラー時はログを出力
+      # Output log on error
       if [ $SETUP_EXIT_CODE -ne 0 ]; then
         echo "=== SETUP ERROR LOG ===" > /dev/console
         cat /tmp/setup-k8s.log > /dev/console 2>/dev/null || true
         echo "=== SETUP ERROR LOG END ===" > /dev/console
       fi
       
-      # 詳細な動作確認
+      # Detailed operation verification
       echo "Verifying Kubernetes components..." > /dev/console
       
-      # kubelet状態確認
+      # Check kubelet status
       if systemctl is-active --quiet kubelet; then
         KUBELET_STATUS="active"
         echo "kubelet is active" > /dev/console
@@ -57,7 +57,7 @@ write_files:
         systemctl status kubelet > /tmp/kubelet-status.log 2>&1 || true
       fi
       
-      # kubeconfig存在確認
+      # Check kubeconfig existence
       if [ -f /etc/kubernetes/admin.conf ]; then
         KUBECONFIG_EXISTS="true"
         echo "kubeconfig exists" > /dev/console
@@ -66,7 +66,7 @@ write_files:
         echo "kubeconfig does not exist" > /dev/console
       fi
       
-      # API server応答確認
+      # Check API server response
       echo "Testing API server connectivity..." > /dev/console
       if timeout 30 kubectl get nodes --kubeconfig=/etc/kubernetes/admin.conf >/dev/null 2>&1; then
         API_RESPONSIVE="true"
@@ -74,19 +74,19 @@ write_files:
       else
         API_RESPONSIVE="false"
         echo "API server is not responsive" > /dev/console
-        # API テストログ保存
+        # Save API test log
         kubectl get nodes --kubeconfig=/etc/kubernetes/admin.conf > /tmp/api-test.log 2>&1 || true
       fi
       
-      # 最終結果判定
+      # Final result determination
       if [ "$SETUP_EXIT_CODE" -eq 0 ] && [ "$KUBELET_STATUS" = "active" ] && [ "$API_RESPONSIVE" = "true" ]; then
         FINAL_STATUS="success"
       else
         FINAL_STATUS="failed"
       fi
       
-      # テスト結果をJSON形式でシリアルコンソールに出力
-      # run-test.shがこの出力を解析する
+      # Output test result in JSON format to serial console
+      # run-test.sh will parse this output
       echo "=== K8S_TEST_RESULT_JSON_START ===" > /dev/console
       echo "{" > /dev/console
       echo "  \"status\": \"$FINAL_STATUS\"," > /dev/console
@@ -98,22 +98,22 @@ write_files:
       echo "}" > /dev/console
       echo "=== K8S_TEST_RESULT_JSON_END ===" > /dev/console
       
-      # 詳細ログもシリアルコンソールに出力
+      # Also output detailed logs to serial console
       echo "=== SETUP_LOG_START ===" > /dev/console
       cat /tmp/setup-k8s.log > /dev/console 2>/dev/null || echo "No setup log available" > /dev/console
       echo "=== SETUP_LOG_END ===" > /dev/console
       
-      # テスト終了マーカー
+      # Test completion marker
       echo "=== K8S_TEST_COMPLETED:$(date -Iseconds) ===" > /dev/console
       
-      # システム終了
+      # System shutdown
       echo "Test completed, shutting down VM..." > /dev/console
       shutdown -h now
     permissions: '0755'
 
-# cloud-init完了後にテスト実行
+# Execute test after cloud-init completion
 runcmd:
   - /tmp/test-runner.sh
 
-# cloud-init完了メッセージ
+# cloud-init completion message
 final_message: "K8s test cloud-init completed"
