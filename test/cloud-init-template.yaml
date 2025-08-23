@@ -22,6 +22,12 @@ write_files:
     encoding: base64
     permissions: '0755'
     
+  # cleanup-k8s.sh script (base64 decoded)
+  - path: /tmp/cleanup-k8s.sh
+    content: {{CLEANUP_K8S_CONTENT}}
+    encoding: base64
+    permissions: '0755'
+    
   # Test execution wrapper script
   - path: /tmp/test-runner.sh
     content: |
@@ -30,7 +36,7 @@ write_files:
       # Test start marker (output to serial console)
       echo "=== K8S_TEST_START:$(date -Iseconds) ===" > /dev/console
       
-      # Execute setup-k8s.sh
+      # Phase 1: Execute setup-k8s.sh
       echo "Starting Kubernetes setup (master node)..." > /dev/console
       /tmp/setup-k8s.sh --node-type master {{K8S_VERSION_ARG}} > /tmp/setup-k8s.log 2>&1
       SETUP_EXIT_CODE=$?
@@ -78,8 +84,91 @@ write_files:
         kubectl get nodes --kubeconfig=/etc/kubernetes/admin.conf > /tmp/api-test.log 2>&1 || true
       fi
       
-      # Final result determination
+      # Save setup test results
+      SETUP_TEST_STATUS="failed"
       if [ "$SETUP_EXIT_CODE" -eq 0 ] && [ "$KUBELET_STATUS" = "active" ] && [ "$API_RESPONSIVE" = "true" ]; then
+        SETUP_TEST_STATUS="success"
+        echo "Setup test: SUCCESS" > /dev/console
+      else
+        echo "Setup test: FAILED" > /dev/console
+      fi
+      
+      # Phase 2: Execute cleanup-k8s.sh (only if setup succeeded)
+      echo "Starting Kubernetes cleanup..." > /dev/console
+      CLEANUP_EXIT_CODE=0
+      CLEANUP_TEST_STATUS="skipped"
+      PACKAGES_REMOVED="unknown"
+      CONFIG_CLEANED="unknown"
+      SERVICES_STOPPED="unknown"
+      
+      if [ "$SETUP_TEST_STATUS" = "success" ]; then
+        # Run cleanup with force flag
+        /tmp/cleanup-k8s.sh --force > /tmp/cleanup-k8s.log 2>&1
+        CLEANUP_EXIT_CODE=$?
+        echo "Cleanup completed with exit code: $CLEANUP_EXIT_CODE" > /dev/console
+        
+        # Verify cleanup results
+        echo "Verifying cleanup..." > /dev/console
+        
+        # Check if kubelet service is stopped and disabled
+        KUBELET_ACTIVE=$(systemctl is-active kubelet 2>/dev/null || echo "inactive")
+        KUBELET_ENABLED=$(systemctl is-enabled kubelet 2>/dev/null || echo "disabled")
+        
+        if [ "$KUBELET_ACTIVE" = "active" ]; then
+          SERVICES_STOPPED="false"
+          echo "ERROR: kubelet is still active after cleanup" > /dev/console
+        elif [ "$KUBELET_ENABLED" = "enabled" ]; then
+          SERVICES_STOPPED="false"
+          echo "ERROR: kubelet is still enabled after cleanup" > /dev/console
+        else
+          SERVICES_STOPPED="true"
+          echo "Services properly stopped and disabled" > /dev/console
+        fi
+        
+        # Check if Kubernetes config files are removed
+        if [ -d "/etc/kubernetes" ] && [ "$(ls -A /etc/kubernetes 2>/dev/null)" ]; then
+          CONFIG_CLEANED="false"
+          echo "ERROR: /etc/kubernetes still exists with files" > /dev/console
+        elif [ -f "/etc/default/kubelet" ]; then
+          CONFIG_CLEANED="false"
+          echo "ERROR: /etc/default/kubelet still exists" > /dev/console
+        else
+          CONFIG_CLEANED="true"
+          echo "Configuration files properly cleaned" > /dev/console
+        fi
+        
+        # Check if Kubernetes packages are removed
+        # This check varies by distribution, so we'll do a generic check
+        PACKAGES_REMOVED="true"
+        for cmd in kubeadm kubectl kubelet; do
+          if command -v $cmd &>/dev/null; then
+            PACKAGES_REMOVED="false"
+            echo "ERROR: $cmd command still exists" > /dev/console
+            break
+          fi
+        done
+        
+        if [ "$PACKAGES_REMOVED" = "true" ]; then
+          echo "Kubernetes packages properly removed" > /dev/console
+        fi
+        
+        # Determine cleanup test status
+        if [ "$CLEANUP_EXIT_CODE" -eq 0 ] && \
+           [ "$SERVICES_STOPPED" = "true" ] && \
+           [ "$CONFIG_CLEANED" = "true" ] && \
+           [ "$PACKAGES_REMOVED" = "true" ]; then
+          CLEANUP_TEST_STATUS="success"
+          echo "Cleanup test: SUCCESS" > /dev/console
+        else
+          CLEANUP_TEST_STATUS="failed"
+          echo "Cleanup test: FAILED" > /dev/console
+        fi
+      else
+        echo "Skipping cleanup test due to setup failure" > /dev/console
+      fi
+      
+      # Final overall status
+      if [ "$SETUP_TEST_STATUS" = "success" ] && [ "$CLEANUP_TEST_STATUS" = "success" ]; then
         FINAL_STATUS="success"
       else
         FINAL_STATUS="failed"
@@ -90,10 +179,20 @@ write_files:
       echo "=== K8S_TEST_RESULT_JSON_START ===" > /dev/console
       echo "{" > /dev/console
       echo "  \"status\": \"$FINAL_STATUS\"," > /dev/console
-      echo "  \"setup_exit_code\": $SETUP_EXIT_CODE," > /dev/console
-      echo "  \"kubelet_status\": \"$KUBELET_STATUS\"," > /dev/console
-      echo "  \"kubeconfig_exists\": $KUBECONFIG_EXISTS," > /dev/console
-      echo "  \"api_responsive\": $API_RESPONSIVE," > /dev/console
+      echo "  \"setup_test\": {" > /dev/console
+      echo "    \"status\": \"$SETUP_TEST_STATUS\"," > /dev/console
+      echo "    \"exit_code\": $SETUP_EXIT_CODE," > /dev/console
+      echo "    \"kubelet_status\": \"$KUBELET_STATUS\"," > /dev/console
+      echo "    \"kubeconfig_exists\": $KUBECONFIG_EXISTS," > /dev/console
+      echo "    \"api_responsive\": $API_RESPONSIVE" > /dev/console
+      echo "  }," > /dev/console
+      echo "  \"cleanup_test\": {" > /dev/console
+      echo "    \"status\": \"$CLEANUP_TEST_STATUS\"," > /dev/console
+      echo "    \"exit_code\": $CLEANUP_EXIT_CODE," > /dev/console
+      echo "    \"services_stopped\": \"$SERVICES_STOPPED\"," > /dev/console
+      echo "    \"config_cleaned\": \"$CONFIG_CLEANED\"," > /dev/console
+      echo "    \"packages_removed\": \"$PACKAGES_REMOVED\"" > /dev/console
+      echo "  }," > /dev/console
       echo "  \"timestamp\": \"$(date -Iseconds)\"" > /dev/console
       echo "}" > /dev/console
       echo "=== K8S_TEST_RESULT_JSON_END ===" > /dev/console
@@ -102,6 +201,12 @@ write_files:
       echo "=== SETUP_LOG_START ===" > /dev/console
       cat /tmp/setup-k8s.log > /dev/console 2>/dev/null || echo "No setup log available" > /dev/console
       echo "=== SETUP_LOG_END ===" > /dev/console
+      
+      if [ "$CLEANUP_TEST_STATUS" != "skipped" ]; then
+        echo "=== CLEANUP_LOG_START ===" > /dev/console
+        cat /tmp/cleanup-k8s.log > /dev/console 2>/dev/null || echo "No cleanup log available" > /dev/console
+        echo "=== CLEANUP_LOG_END ===" > /dev/console
+      fi
       
       # Test completion marker
       echo "=== K8S_TEST_COMPLETED:$(date -Iseconds) ===" > /dev/console

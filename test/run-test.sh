@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/distro-urls.conf"
 CLOUD_INIT_TEMPLATE="$SCRIPT_DIR/cloud-init-template.yaml"
 SETUP_K8S_SCRIPT="$SCRIPT_DIR/../hack/setup-k8s.sh"
+CLEANUP_K8S_SCRIPT="$SCRIPT_DIR/../hack/cleanup-k8s.sh"
 
 # K8s version (can be overridden by command line option)
 K8S_VERSION=""
@@ -211,7 +212,14 @@ generate_cloud_init() {
         return 1
     fi
     
+    # Base64 encode cleanup-k8s.sh content
+    if [ ! -f "$CLEANUP_K8S_SCRIPT" ]; then
+        log_error "cleanup-k8s.sh not found: $CLEANUP_K8S_SCRIPT"
+        return 1
+    fi
+    
     local setup_k8s_b64=$(base64 -w 0 < "$SETUP_K8S_SCRIPT")
+    local cleanup_k8s_b64=$(base64 -w 0 < "$CLEANUP_K8S_SCRIPT")
     
     # Prepare K8s version argument
     local k8s_version_arg=""
@@ -225,6 +233,7 @@ generate_cloud_init() {
     # Process cloud-init template
     sed -e "s/{{LOGIN_USER}}/$login_user/g" \
         -e "s/{{SETUP_K8S_CONTENT}}/$setup_k8s_b64/g" \
+        -e "s/{{CLEANUP_K8S_CONTENT}}/$cleanup_k8s_b64/g" \
         -e "s/{{K8S_VERSION_ARG}}/$k8s_version_arg/g" \
         "$CLOUD_INIT_TEMPLATE" > "$temp_dir/user-data"
     
@@ -417,22 +426,46 @@ show_test_results() {
     echo "=================="
     
     # Read and display JSON content
-    local status=$(grep -o '"status": *"[^"]*"' results/test-result.json | cut -d'"' -f4)
-    local exit_code=$(grep -o '"setup_exit_code": *[0-9]*' results/test-result.json | grep -o '[0-9]*')
-    local kubelet_status=$(grep -o '"kubelet_status": *"[^"]*"' results/test-result.json | cut -d'"' -f4)
-    local api_responsive=$(grep -o '"api_responsive": *"[^"]*"' results/test-result.json | cut -d'"' -f4)
+    local overall_status=$(grep -o '"status": *"[^"]*"' results/test-result.json | head -1 | cut -d'"' -f4)
     
-    echo "Status: $status"
-    echo "Setup Exit Code: $exit_code"
-    echo "Kubelet Status: $kubelet_status"
-    echo "API Responsive: $api_responsive"
+    # Setup test results
+    echo "Setup Test:"
+    local setup_status=$(grep -A5 '"setup_test"' results/test-result.json | grep '"status"' | head -1 | cut -d'"' -f4)
+    local setup_exit_code=$(grep -A5 '"setup_test"' results/test-result.json | grep '"exit_code"' | grep -o '[0-9]*')
+    local kubelet_status=$(grep -A5 '"setup_test"' results/test-result.json | grep '"kubelet_status"' | cut -d'"' -f4)
+    local api_responsive=$(grep -A5 '"setup_test"' results/test-result.json | grep '"api_responsive"' | cut -d'"' -f4)
+    
+    echo "  Status: $setup_status"
+    echo "  Exit Code: $setup_exit_code"
+    echo "  Kubelet Status: $kubelet_status"
+    echo "  API Responsive: $api_responsive"
+    
+    # Cleanup test results
+    echo "Cleanup Test:"
+    local cleanup_status=$(grep -A5 '"cleanup_test"' results/test-result.json | grep '"status"' | head -1 | cut -d'"' -f4)
+    local cleanup_exit_code=$(grep -A5 '"cleanup_test"' results/test-result.json | grep '"exit_code"' | grep -o '[0-9]*')
+    local services_stopped=$(grep -A5 '"cleanup_test"' results/test-result.json | grep '"services_stopped"' | cut -d'"' -f4)
+    local config_cleaned=$(grep -A5 '"cleanup_test"' results/test-result.json | grep '"config_cleaned"' | cut -d'"' -f4)
+    local packages_removed=$(grep -A5 '"cleanup_test"' results/test-result.json | grep '"packages_removed"' | cut -d'"' -f4)
+    
+    echo "  Status: $cleanup_status"
+    echo "  Exit Code: $cleanup_exit_code"
+    echo "  Services Stopped: $services_stopped"
+    echo "  Config Cleaned: $config_cleaned"
+    echo "  Packages Removed: $packages_removed"
     echo "=================="
     
     # Determine results
-    if [ "$status" = "success" ] && [ "$exit_code" = "0" ]; then
-        log_success "✅ Test PASSED for $distro"
+    if [ "$overall_status" = "success" ]; then
+        log_success "✅ Test PASSED for $distro (both setup and cleanup succeeded)"
         return 0
     else
+        if [ "$setup_status" != "success" ]; then
+            log_error "❌ Setup test FAILED for $distro"
+        fi
+        if [ "$cleanup_status" != "success" ] && [ "$cleanup_status" != "skipped" ]; then
+            log_error "❌ Cleanup test FAILED for $distro"
+        fi
         log_error "❌ Test FAILED for $distro"
         return 1
     fi
@@ -482,7 +515,10 @@ test_all() {
         # Add individual test result details to summary
         if [ -f "results/test-result.json" ]; then
             echo "  Details from test-result.json:" >> "$summary_file"
-            grep -E '"status"|"setup_exit_code"|"kubelet_status"|"api_responsive"' results/test-result.json >> "$summary_file" 2>/dev/null || true
+            # Extract setup and cleanup status
+            local setup_status=$(grep -A5 '"setup_test"' results/test-result.json | grep '"status"' | head -1 | cut -d'"' -f4)
+            local cleanup_status=$(grep -A5 '"cleanup_test"' results/test-result.json | grep '"status"' | head -1 | cut -d'"' -f4)
+            echo "    Setup: $setup_status, Cleanup: $cleanup_status" >> "$summary_file"
         fi
     done
     
