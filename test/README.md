@@ -7,7 +7,7 @@ Docker + QEMU test framework for automatically testing `setup-k8s.sh` script acr
 - **Simple**: Complete test execution with a single command
 - **No host pollution**: No need to install QEMU/cloud-utils on host
 - **Fully automated**: Unattended execution from VM boot to K8s setup and result collection
-- **8 distributions supported**: Ubuntu, Debian, CentOS, Fedora, openSUSE, Rocky, AlmaLinux
+- **13 distributions/versions supported**: Ubuntu, Debian, CentOS, Fedora, openSUSE, Rocky, AlmaLinux, Arch Linux
 - **Reliable result verification**: Confirms setup-k8s.sh execution, kubelet startup, and API response
 
 ## Supported Distributions
@@ -16,12 +16,17 @@ Docker + QEMU test framework for automatically testing `setup-k8s.sh` script acr
 |-------------|---------|------------|
 | ubuntu-2404 | 24.04 LTS | ubuntu |
 | ubuntu-2204 | 22.04 LTS | ubuntu |
+| ubuntu-2004 | 20.04 LTS | ubuntu |
 | debian-12 | 12 (Bookworm) | debian |
+| debian-11 | 11 (Bullseye) | debian |
 | centos-stream-9 | Stream 9 | centos |
 | fedora-41 | 41 | fedora |
 | opensuse-leap-155 | Leap 15.5 | opensuse |
 | rocky-linux-9 | 9 | rocky |
+| rocky-linux-8 | 8 | rocky |
 | almalinux-9 | 9 | almalinux |
+| almalinux-8 | 8 | almalinux |
+| archlinux | Rolling | arch |
 
 ## System Requirements
 

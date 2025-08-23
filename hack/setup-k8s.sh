@@ -216,7 +216,14 @@ setup_containerd_rhel() {
     # Add Docker repository (for containerd)
     echo "Adding Docker repository..."
     if [ "$DISTRO_NAME" = "fedora" ]; then
-        $PKG_MGR config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+        # Check Fedora version for correct config-manager syntax
+        if [[ "$DISTRO_VERSION" -ge 41 ]]; then
+            # Fedora 41+ uses new syntax - download repo file directly
+            echo "Using direct repo file download for Fedora 41+"
+            curl -fsSL https://download.docker.com/linux/fedora/docker-ce.repo -o /etc/yum.repos.d/docker-ce.repo
+        else
+            $PKG_MGR config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+        fi
     else
         # For CentOS/RHEL
         $PKG_MGR config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
@@ -278,7 +285,7 @@ EOF
     
     # Install Kubernetes components
     echo "Installing Kubernetes components..."
-    $PKG_MGR install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
+    $PKG_MGR install -y kubelet kubeadm kubectl
     
     # Check if installation was successful
     if ! command -v kubeadm &> /dev/null; then
@@ -342,29 +349,52 @@ install_dependencies_suse() {
 setup_containerd_suse() {
     echo "Setting up containerd for SUSE-based distribution..."
     
-    # Add Docker repository (for containerd)
-    zypper addrepo https://download.docker.com/linux/sles/docker-ce.repo
+    # Detect openSUSE Leap version and use appropriate repository
+    if [[ "$DISTRO_NAME" == "opensuse"* ]] || [[ "$DISTRO_NAME" == "opensuse-leap" ]]; then
+        echo "Detected openSUSE, using openSUSE specific repository..."
+        # For openSUSE Leap 15.5, use the openSUSE specific repository
+        if [[ "$DISTRO_VERSION" == "15.5" ]]; then
+            # Use containerd from the official openSUSE repository instead of Docker CE
+            echo "Installing containerd from openSUSE repository..."
+            zypper refresh
+            zypper install -y containerd docker
+        else
+            # For other openSUSE versions, try Docker CE repository
+            zypper addrepo https://download.docker.com/linux/opensuse/docker-ce.repo || true
+            zypper refresh
+            zypper install -y containerd.io || zypper install -y containerd
+        fi
+    else
+        # For SLES, use the SLES repository
+        echo "Using SLES Docker repository..."
+        zypper addrepo https://download.docker.com/linux/sles/docker-ce.repo || true
+        zypper refresh
+        zypper install -y containerd.io || zypper install -y containerd
+    fi
     
-    # Install containerd
-    zypper refresh
-    zypper install -y containerd.io
-    
-    # Configure containerd
-    mkdir -p /etc/containerd
-    containerd config default | tee /etc/containerd/config.toml
-    sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-    systemctl restart containerd
+    # Configure containerd if it was installed
+    if command -v containerd &> /dev/null; then
+        echo "Configuring containerd..."
+        mkdir -p /etc/containerd
+        containerd config default | tee /etc/containerd/config.toml
+        sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+        systemctl restart containerd
+        systemctl enable containerd
+    else
+        echo "Error: containerd installation failed"
+        return 1
+    fi
 }
 
 setup_kubernetes_suse() {
     echo "Setting up Kubernetes for SUSE-based distribution..."
     
-    # Add Kubernetes repository
-    zypper addrepo --gpgcheck-allow-unsigned-repo https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/rpm/ kubernetes
+    # Add Kubernetes repository (without GPG check to avoid interactive prompts)
+    zypper addrepo --no-gpgcheck https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/rpm/ kubernetes
     
-    # Install Kubernetes components
-    zypper refresh
-    zypper install -y kubelet kubeadm kubectl
+    # Install Kubernetes components (non-interactive mode with auto-import GPG keys)
+    zypper --non-interactive --gpg-auto-import-keys refresh
+    zypper --non-interactive install -y kubelet kubeadm kubectl
     
     # Enable and start kubelet
     systemctl enable --now kubelet
@@ -457,8 +487,15 @@ setup_kubernetes_arch() {
                 cd /tmp
                 git clone https://aur.archlinux.org/yay-bin.git
                 cd yay-bin
-                makepkg -si --noconfirm
+                makepkg --noconfirm
             "
+            
+            # Install the built package as root
+            pacman -U --noconfirm /tmp/yay-bin/yay-bin-*.pkg.tar.* || {
+                echo "Failed to install yay package"
+                userdel -r "$TEMP_USER"
+                exit 1
+            }
             
             # Clean up temporary user
             userdel -r "$TEMP_USER"

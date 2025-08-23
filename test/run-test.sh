@@ -12,6 +12,9 @@ CONFIG_FILE="$SCRIPT_DIR/distro-urls.conf"
 CLOUD_INIT_TEMPLATE="$SCRIPT_DIR/cloud-init-template.yaml"
 SETUP_K8S_SCRIPT="$SCRIPT_DIR/../hack/setup-k8s.sh"
 
+# K8s version (can be overridden by command line option)
+K8S_VERSION=""
+
 # Timeout settings (seconds)
 TIMEOUT_TOTAL=1200    # 20 minutes
 TIMEOUT_DOWNLOAD=600  # 10 minutes
@@ -35,7 +38,12 @@ show_help() {
     cat <<EOF
 K8s Multi-Distribution Test Runner
 
-Usage: $0 <distro-name>
+Usage: $0 [OPTIONS] <distro-name>
+
+Options:
+  --all, -a                Test all distributions sequentially
+  --k8s-version <version>   Kubernetes version to test (e.g., 1.32, 1.31, 1.30)
+  --help, -h                Show this help message
 
 Supported distributions:
 EOF
@@ -44,9 +52,12 @@ EOF
     done
     echo
     echo "Examples:"
-    echo "  $0 ubuntu-2404"
-    echo "  $0 debian-12" 
-    echo "  $0 centos-stream-9"
+    echo "  $0 ubuntu-2404                        # Test single distribution with default k8s version"
+    echo "  $0 --k8s-version 1.31 ubuntu-2404     # Test with specific k8s version"
+    echo "  $0 --all                              # Test all distributions"
+    echo "  $0 --all --k8s-version 1.30           # Test all distributions with k8s v1.30"
+    echo "  $0 archlinux"
+    echo "  $0 --k8s-version 1.32 rocky-linux-8"
 }
 
 # Load configuration function
@@ -159,16 +170,24 @@ download_image() {
     
     # Check if download succeeded
     wait $download_pid
-    if [ $? -eq 0 ]; then
+    local download_status=$?
+    
+    # Check file size
+    local downloaded_size=$(stat -c%s "$image_file" 2>/dev/null || echo "0")
+    
+    if [ $download_status -eq 0 ] && [ "$downloaded_size" -gt 104857600 ]; then  # More than 100MB
         log_success "Image downloaded successfully: $image_file"
-        
-        # Check file size
-        local downloaded_size=$(stat -c%s "$image_file" 2>/dev/null || echo "0")
         log_info "Downloaded size: $((downloaded_size/1024/1024))MB"
-        
         return 0
     else
-        log_error "Failed to download image"
+        if [ $download_status -ne 0 ]; then
+            log_error "wget failed with exit code: $download_status"
+        elif [ "$downloaded_size" -eq 0 ]; then
+            log_error "Downloaded file is empty (0 bytes). URL may be invalid."
+        else
+            log_error "Downloaded file too small: $((downloaded_size/1024/1024))MB"
+        fi
+        log_error "Failed to download image from: $image_url"
         rm -f "$image_file"
         return 1
     fi
@@ -194,9 +213,19 @@ generate_cloud_init() {
     
     local setup_k8s_b64=$(base64 -w 0 < "$SETUP_K8S_SCRIPT")
     
+    # Prepare K8s version argument
+    local k8s_version_arg=""
+    if [ -n "$K8S_VERSION" ]; then
+        k8s_version_arg="--kubernetes-version $K8S_VERSION"
+        log_info "Using Kubernetes version: $K8S_VERSION"
+    else
+        log_info "Using default Kubernetes version from setup-k8s.sh"
+    fi
+    
     # Process cloud-init template
     sed -e "s/{{LOGIN_USER}}/$login_user/g" \
         -e "s/{{SETUP_K8S_CONTENT}}/$setup_k8s_b64/g" \
+        -e "s/{{K8S_VERSION_ARG}}/$k8s_version_arg/g" \
         "$CLOUD_INIT_TEMPLATE" > "$temp_dir/user-data"
     
     # Generate meta-data
@@ -299,8 +328,14 @@ run_qemu_test() {
     }
     
     # Build QEMU command
+    # Use Haswell CPU model (2013) for good compatibility and performance
+    # Can be overridden with QEMU_CPU_MODEL environment variable
+    local cpu_model="${QEMU_CPU_MODEL:-Haswell}"
+    log_info "Using CPU model: $cpu_model"
+    
     local qemu_cmd="qemu-system-x86_64 \
         -machine pc,accel=kvm:tcg \
+        -cpu $cpu_model \
         -m 4096 \
         -smp 2 \
         -nographic \
@@ -403,34 +438,152 @@ show_test_results() {
     fi
 }
 
-# Main process
-main() {
+# Test all distributions
+test_all() {
+    log_info "Starting test for all distributions"
+    
+    # Get all distributions from config
+    local distros=($(grep -E '^[^#].*=.*' "$CONFIG_FILE" | grep -v '_user=' | sed 's/=.*//' | sort))
+    local total=${#distros[@]}
+    local passed=0
+    local failed=0
+    local current=0
+    
+    # Create summary log file
+    local summary_file="results/test-all-summary-$(date +%Y%m%d-%H%M%S).log"
+    mkdir -p results
+    
+    echo "Testing $total distributions" | tee "$summary_file"
+    echo "===================" | tee -a "$summary_file"
+    echo "Start time: $(date)" | tee -a "$summary_file"
+    echo "" | tee -a "$summary_file"
+    
+    for distro in "${distros[@]}"; do
+        current=$((current + 1))
+        echo "" | tee -a "$summary_file"
+        echo -e "${BLUE}[$current/$total] Testing: $distro${NC}" | tee -a "$summary_file"
+        echo "-----------------------------------" | tee -a "$summary_file"
+        
+        local start_time=$(date +%s)
+        
+        if run_single_test "$distro"; then
+            passed=$((passed + 1))
+            local status="PASSED"
+        else
+            failed=$((failed + 1))
+            local status="FAILED"
+        fi
+        
+        local end_time=$(date +%s)
+        local duration=$((end_time - start_time))
+        
+        echo "$distro: $status (${duration}s)" | tee -a "$summary_file"
+        
+        # Add individual test result details to summary
+        if [ -f "results/test-result.json" ]; then
+            echo "  Details from test-result.json:" >> "$summary_file"
+            grep -E '"status"|"setup_exit_code"|"kubelet_status"|"api_responsive"' results/test-result.json >> "$summary_file" 2>/dev/null || true
+        fi
+    done
+    
+    # Summary
+    echo "" | tee -a "$summary_file"
+    echo -e "${BLUE}===== Test Summary =====${NC}" | tee -a "$summary_file"
+    echo "Total: $total, Passed: $passed, Failed: $failed" | tee -a "$summary_file"
+    echo "End time: $(date)" | tee -a "$summary_file"
+    echo "" | tee -a "$summary_file"
+    
+    # List all individual log files
+    echo "Individual test logs:" | tee -a "$summary_file"
+    ls -la results/logs/*.log 2>/dev/null | tail -n +2 | awk '{print "  " $9}' | tee -a "$summary_file"
+    
+    echo "" | tee -a "$summary_file"
+    echo "Summary saved to: $summary_file"
+    
+    if [ $failed -gt 0 ]; then
+        log_error "Some tests failed. Check $summary_file and results/logs/ for details"
+        return 1
+    else
+        log_success "All tests passed!"
+        return 0
+    fi
+}
+
+# Run single test
+run_single_test() {
     local distro=$1
     
-    # Check arguments
+    log_info "Starting K8s test for: $distro"
+    if [ -n "$K8S_VERSION" ]; then
+        log_info "Kubernetes version: $K8S_VERSION"
+    else
+        log_info "Kubernetes version: default (from setup-k8s.sh)"
+    fi
+    log_info "Working directory: $SCRIPT_DIR"
+    
+    # Execute each step
+    load_config "$distro" || return 1
+    ensure_container_running || return 1
+    download_image "$distro" "$IMAGE_URL" || return 1
+    generate_cloud_init "$distro" "$LOGIN_USER" || return 1
+    run_qemu_test "$distro" || return 1
+    
+    # Display results and return status
+    if show_test_results "$distro"; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Main process
+main() {
+    local run_all=false
+    local distro=""
+    
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --help|-h)
+                show_help
+                exit 0
+                ;;
+            --all|-a)
+                run_all=true
+                shift
+                ;;
+            --k8s-version)
+                K8S_VERSION="$2"
+                shift 2
+                ;;
+            -*)
+                log_error "Unknown option: $1"
+                show_help
+                exit 1
+                ;;
+            *)
+                # This should be the distribution name
+                distro=$1
+                shift
+                ;;
+        esac
+    done
+    
+    # Check if we should run all tests
+    if [ "$run_all" = true ]; then
+        test_all
+        exit $?
+    fi
+    
+    # Check arguments for single test
     if [ -z "$distro" ]; then
         log_error "Distribution name required"
         show_help
         exit 1
     fi
     
-    if [ "$distro" = "--help" ] || [ "$distro" = "-h" ]; then
-        show_help
-        exit 0
-    fi
-    
-    log_info "Starting K8s test for: $distro"
-    log_info "Working directory: $SCRIPT_DIR"
-    
-    # Execute each step
-    load_config "$distro" || exit 1
-    ensure_container_running || exit 1
-    download_image "$distro" "$IMAGE_URL" || exit 1
-    generate_cloud_init "$distro" "$LOGIN_USER" || exit 1
-    run_qemu_test "$distro" || exit 1
-    
-    # Display results and set exit code
-    if show_test_results "$distro"; then
+    # Run single test
+    if run_single_test "$distro"; then
         exit 0
     else
         exit 1
