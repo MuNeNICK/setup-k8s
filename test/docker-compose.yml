@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  qemu-tools:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: k8s-qemu-tools
+    
+    # Required permissions for QEMU KVM execution
+    privileged: true
+    devices:
+      - /dev/kvm:/dev/kvm
+    
+    # Mount host directory as /shared
+    volumes:
+      - .:/shared
+    
+    # Network configuration (for VM)
+    network_mode: host
+    
+    # Keep running in background wait state
+    command: tail -f /dev/null

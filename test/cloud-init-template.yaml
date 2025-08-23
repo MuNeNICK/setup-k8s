@@ -1,0 +1,119 @@
+#cloud-config
+# K8s Multi-Distribution Test - Universal Cloud-Init Template
+
+users:
+  - name: {{LOGIN_USER}}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: true
+
+# Update system packages
+package_update: true
+packages:
+  - curl
+  - wget
+  - sudo
+
+# Write files
+write_files:
+  # setup-k8s.sh script (base64 decoded)
+  - path: /tmp/setup-k8s.sh
+    content: {{SETUP_K8S_CONTENT}}
+    encoding: base64
+    permissions: '0755'
+    
+  # Test execution wrapper script
+  - path: /tmp/test-runner.sh
+    content: |
+      #!/bin/bash
+      
+      # Test start marker (output to serial console)
+      echo "=== K8S_TEST_START:$(date -Iseconds) ===" > /dev/console
+      
+      # Execute setup-k8s.sh
+      echo "Starting Kubernetes setup (master node)..." > /dev/console
+      /tmp/setup-k8s.sh --node-type master {{K8S_VERSION_ARG}} > /tmp/setup-k8s.log 2>&1
+      SETUP_EXIT_CODE=$?
+      
+      echo "Setup completed with exit code: $SETUP_EXIT_CODE" > /dev/console
+      
+      # Output log on error
+      if [ $SETUP_EXIT_CODE -ne 0 ]; then
+        echo "=== SETUP ERROR LOG ===" > /dev/console
+        cat /tmp/setup-k8s.log > /dev/console 2>/dev/null || true
+        echo "=== SETUP ERROR LOG END ===" > /dev/console
+      fi
+      
+      # Detailed operation verification
+      echo "Verifying Kubernetes components..." > /dev/console
+      
+      # Check kubelet status
+      if systemctl is-active --quiet kubelet; then
+        KUBELET_STATUS="active"
+        echo "kubelet is active" > /dev/console
+      else
+        KUBELET_STATUS="inactive"
+        echo "kubelet is not active" > /dev/console
+        systemctl status kubelet > /tmp/kubelet-status.log 2>&1 || true
+      fi
+      
+      # Check kubeconfig existence
+      if [ -f /etc/kubernetes/admin.conf ]; then
+        KUBECONFIG_EXISTS="true"
+        echo "kubeconfig exists" > /dev/console
+      else
+        KUBECONFIG_EXISTS="false"
+        echo "kubeconfig does not exist" > /dev/console
+      fi
+      
+      # Check API server response
+      echo "Testing API server connectivity..." > /dev/console
+      if timeout 30 kubectl get nodes --kubeconfig=/etc/kubernetes/admin.conf >/dev/null 2>&1; then
+        API_RESPONSIVE="true"
+        echo "API server is responsive" > /dev/console
+      else
+        API_RESPONSIVE="false"
+        echo "API server is not responsive" > /dev/console
+        # Save API test log
+        kubectl get nodes --kubeconfig=/etc/kubernetes/admin.conf > /tmp/api-test.log 2>&1 || true
+      fi
+      
+      # Final result determination
+      if [ "$SETUP_EXIT_CODE" -eq 0 ] && [ "$KUBELET_STATUS" = "active" ] && [ "$API_RESPONSIVE" = "true" ]; then
+        FINAL_STATUS="success"
+      else
+        FINAL_STATUS="failed"
+      fi
+      
+      # Output test result in JSON format to serial console
+      # run-test.sh will parse this output
+      echo "=== K8S_TEST_RESULT_JSON_START ===" > /dev/console
+      echo "{" > /dev/console
+      echo "  \"status\": \"$FINAL_STATUS\"," > /dev/console
+      echo "  \"setup_exit_code\": $SETUP_EXIT_CODE," > /dev/console
+      echo "  \"kubelet_status\": \"$KUBELET_STATUS\"," > /dev/console
+      echo "  \"kubeconfig_exists\": $KUBECONFIG_EXISTS," > /dev/console
+      echo "  \"api_responsive\": $API_RESPONSIVE," > /dev/console
+      echo "  \"timestamp\": \"$(date -Iseconds)\"" > /dev/console
+      echo "}" > /dev/console
+      echo "=== K8S_TEST_RESULT_JSON_END ===" > /dev/console
+      
+      # Also output detailed logs to serial console
+      echo "=== SETUP_LOG_START ===" > /dev/console
+      cat /tmp/setup-k8s.log > /dev/console 2>/dev/null || echo "No setup log available" > /dev/console
+      echo "=== SETUP_LOG_END ===" > /dev/console
+      
+      # Test completion marker
+      echo "=== K8S_TEST_COMPLETED:$(date -Iseconds) ===" > /dev/console
+      
+      # System shutdown
+      echo "Test completed, shutting down VM..." > /dev/console
+      shutdown -h now
+    permissions: '0755'
+
+# Execute test after cloud-init completion
+runcmd:
+  - /tmp/test-runner.sh
+
+# cloud-init completion message
+final_message: "K8s test cloud-init completed"
