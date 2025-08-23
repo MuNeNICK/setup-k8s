@@ -425,34 +425,39 @@ show_test_results() {
     log_info "Test Results for $distro:"
     echo "=================="
     
-    # Read and display JSON content
-    local overall_status=$(grep -o '"status": *"[^"]*"' results/test-result.json | head -1 | cut -d'"' -f4)
+    # Read JSON content into variable for better parsing
+    local json_content=$(cat results/test-result.json)
     
-    # Setup test results
+    # Parse overall status
+    local overall_status=$(echo "$json_content" | grep -o '"status": *"[^"]*"' | head -1 | cut -d'"' -f4)
+    
+    # Setup test results - parse from the setup_test block
     echo "Setup Test:"
-    local setup_status=$(grep -A5 '"setup_test"' results/test-result.json | grep '"status"' | head -1 | cut -d'"' -f4)
-    local setup_exit_code=$(grep -A5 '"setup_test"' results/test-result.json | grep '"exit_code"' | grep -o '[0-9]*')
-    local kubelet_status=$(grep -A5 '"setup_test"' results/test-result.json | grep '"kubelet_status"' | cut -d'"' -f4)
-    local api_responsive=$(grep -A5 '"setup_test"' results/test-result.json | grep '"api_responsive"' | cut -d'"' -f4)
+    local setup_block=$(echo "$json_content" | sed -n '/"setup_test":/,/^  }/p')
+    local setup_status=$(echo "$setup_block" | grep '"status"' | head -1 | cut -d'"' -f4)
+    local setup_exit_code=$(echo "$setup_block" | grep '"exit_code"' | grep -o '[0-9]*' | head -1)
+    local kubelet_status=$(echo "$setup_block" | grep '"kubelet_status"' | cut -d'"' -f4)
+    local api_responsive=$(echo "$setup_block" | grep '"api_responsive"' | sed 's/.*: *"\?\([^",]*\)"\?.*/\1/')
     
-    echo "  Status: $setup_status"
-    echo "  Exit Code: $setup_exit_code"
-    echo "  Kubelet Status: $kubelet_status"
-    echo "  API Responsive: $api_responsive"
+    echo "  Status: ${setup_status:-unknown}"
+    echo "  Exit Code: ${setup_exit_code:-unknown}"
+    echo "  Kubelet Status: ${kubelet_status:-unknown}"
+    echo "  API Responsive: ${api_responsive:-unknown}"
     
-    # Cleanup test results
+    # Cleanup test results - parse from the cleanup_test block
     echo "Cleanup Test:"
-    local cleanup_status=$(grep -A5 '"cleanup_test"' results/test-result.json | grep '"status"' | head -1 | cut -d'"' -f4)
-    local cleanup_exit_code=$(grep -A5 '"cleanup_test"' results/test-result.json | grep '"exit_code"' | grep -o '[0-9]*')
-    local services_stopped=$(grep -A5 '"cleanup_test"' results/test-result.json | grep '"services_stopped"' | cut -d'"' -f4)
-    local config_cleaned=$(grep -A5 '"cleanup_test"' results/test-result.json | grep '"config_cleaned"' | cut -d'"' -f4)
-    local packages_removed=$(grep -A5 '"cleanup_test"' results/test-result.json | grep '"packages_removed"' | cut -d'"' -f4)
+    local cleanup_block=$(echo "$json_content" | sed -n '/"cleanup_test":/,/^  }/p')
+    local cleanup_status=$(echo "$cleanup_block" | grep '"status"' | head -1 | cut -d'"' -f4)
+    local cleanup_exit_code=$(echo "$cleanup_block" | grep '"exit_code"' | grep -o '[0-9]*' | head -1)
+    local services_stopped=$(echo "$cleanup_block" | grep '"services_stopped"' | cut -d'"' -f4)
+    local config_cleaned=$(echo "$cleanup_block" | grep '"config_cleaned"' | cut -d'"' -f4)
+    local packages_removed=$(echo "$cleanup_block" | grep '"packages_removed"' | cut -d'"' -f4)
     
-    echo "  Status: $cleanup_status"
-    echo "  Exit Code: $cleanup_exit_code"
-    echo "  Services Stopped: $services_stopped"
-    echo "  Config Cleaned: $config_cleaned"
-    echo "  Packages Removed: $packages_removed"
+    echo "  Status: ${cleanup_status:-unknown}"
+    echo "  Exit Code: ${cleanup_exit_code:-unknown}"
+    echo "  Services Stopped: ${services_stopped:-unknown}"
+    echo "  Config Cleaned: ${config_cleaned:-unknown}"
+    echo "  Packages Removed: ${packages_removed:-unknown}"
     echo "=================="
     
     # Determine results
