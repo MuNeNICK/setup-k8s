@@ -85,6 +85,12 @@ common_cleanup() {
     echo "Stopping Kubernetes services..."
     systemctl stop kubelet || true
     systemctl disable kubelet || true
+
+    # Reset kubeadm if present to clean cluster state
+    if command -v kubeadm &> /dev/null; then
+        echo "Resetting kubeadm cluster state..."
+        kubeadm reset -f || true
+    fi
     
     # Remove configuration files
     echo "Removing common configuration files..."
@@ -154,6 +160,11 @@ common_cleanup() {
     else
         echo "Preserving CNI configurations as requested."
     fi
+
+    # Remove kernel modules and sysctl configurations added by setup
+    echo "Removing Kubernetes kernel module and sysctl configurations..."
+    rm -f /etc/modules-load.d/k8s.conf || true
+    rm -f /etc/sysctl.d/k8s.conf || true
     
     # Clean up .kube directory
     if [ -n "$SUDO_USER" ]; then
