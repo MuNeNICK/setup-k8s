@@ -12,6 +12,31 @@ DISTRO_NAME=""
 DISTRO_VERSION=""
 DISTRO_FAMILY=""
 
+# Helper: Get Debian/Ubuntu codename without lsb_release
+get_debian_codename() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        if [ -n "$VERSION_CODENAME" ]; then
+            echo "$VERSION_CODENAME"
+            return 0
+        fi
+        if [ -n "$UBUNTU_CODENAME" ]; then
+            echo "$UBUNTU_CODENAME"
+            return 0
+        fi
+        # Fallback mapping for some well-known VERSION_ID values
+        case "$ID:$VERSION_ID" in
+            ubuntu:24.04) echo "noble" ; return 0 ;;
+            ubuntu:22.04) echo "jammy" ; return 0 ;;
+            ubuntu:20.04) echo "focal" ; return 0 ;;
+            debian:12) echo "bookworm" ; return 0 ;;
+            debian:11) echo "bullseye" ; return 0 ;;
+        esac
+    fi
+    # Last resort
+    echo "stable"
+}
+
 # Help message
 show_help() {
     echo "Usage: $0 [options]"
@@ -88,7 +113,11 @@ detect_distribution() {
 install_dependencies_debian() {
     echo "Installing dependencies for Debian-based distribution..."
     apt-get update
-    apt-get install -y apt-transport-https ca-certificates curl software-properties-common gnupg
+    apt-get install -y \
+        apt-transport-https ca-certificates curl gnupg \
+        software-properties-common \
+        conntrack socat ethtool iproute2 iptables \
+        ebtables || apt-get install -y arptables || true
 }
 
 setup_containerd_debian() {
@@ -97,13 +126,14 @@ setup_containerd_debian() {
     # Create keyrings directory if it doesn't exist
     mkdir -p /etc/apt/keyrings
     
-    # Add Docker repository (for containerd)
+    # Add Docker repository (for containerd) without using lsb_release
+    CODENAME=$(get_debian_codename)
     if [ "$DISTRO_NAME" = "ubuntu" ]; then
         curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu ${CODENAME} stable" | tee /etc/apt/sources.list.d/docker.list
     else
         curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian ${CODENAME} stable" | tee /etc/apt/sources.list.d/docker.list
     fi
     
     # Install containerd
@@ -115,6 +145,7 @@ setup_containerd_debian() {
     containerd config default | tee /etc/containerd/config.toml
     sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
     systemctl restart containerd
+    systemctl enable containerd
 }
 
 setup_kubernetes_debian() {
@@ -179,9 +210,12 @@ install_dependencies_rhel() {
     
     echo "Using package manager: $PKG_MGR"
     
-    # Install essential packages including iptables
+    # Install essential packages including iptables and networking tools
     echo "Installing essential packages..."
-    $PKG_MGR install -y curl gnupg2 iptables iptables-services
+    if [ "$PKG_MGR" = "dnf" ]; then
+        $PKG_MGR install -y dnf-plugins-core || true
+    fi
+    $PKG_MGR install -y curl gnupg2 iptables iptables-services ethtool iproute conntrack-tools socat ebtables || true
     
     # Check if iptables was installed successfully
     if ! command -v iptables &> /dev/null; then
@@ -211,7 +245,11 @@ setup_containerd_rhel() {
     
     # Install required packages for repository management
     echo "Installing repository management tools..."
-    $PKG_MGR install -y yum-utils device-mapper-persistent-data lvm2
+    if [ "$PKG_MGR" = "dnf" ]; then
+        $PKG_MGR install -y dnf-plugins-core device-mapper-persistent-data lvm2 || true
+    else
+        $PKG_MGR install -y yum-utils device-mapper-persistent-data lvm2 || true
+    fi
     
     # Add Docker repository (for containerd)
     echo "Adding Docker repository..."
@@ -231,7 +269,12 @@ setup_containerd_rhel() {
     
     # Install containerd
     echo "Installing containerd.io package..."
-    $PKG_MGR install -y containerd.io
+    # Prefer containerd.io, allow nobest fallback for dependency resolution
+    if [ "$PKG_MGR" = "dnf" ]; then
+        $PKG_MGR install -y --setopt=install_weak_deps=False containerd.io || $PKG_MGR install -y --nobest containerd.io || true
+    else
+        $PKG_MGR install -y containerd.io || true
+    fi
     
     # Check if containerd was installed successfully
     if ! command -v containerd &> /dev/null; then
@@ -291,7 +334,11 @@ EOF
     if ! command -v kubeadm &> /dev/null; then
         echo "Error: kubeadm installation failed. Trying alternative approach..."
         # Try installing with different options
-        $PKG_MGR install -y --nogpgcheck kubelet kubeadm kubectl || true
+        if [ "$PKG_MGR" = "dnf" ]; then
+            $PKG_MGR install -y --nogpgcheck --nobest kubelet kubeadm kubectl || true
+        else
+            $PKG_MGR install -y --nogpgcheck kubelet kubeadm kubectl || true
+        fi
         
         # If still not installed, try installing from CentOS 8 repository for CentOS 9
         if ! command -v kubeadm &> /dev/null && [ "$DISTRO_NAME" = "centos" ] && [[ "$DISTRO_VERSION" == "9"* ]]; then
@@ -303,8 +350,10 @@ EOF
     # Hold packages (prevent automatic updates)
     echo "Preventing automatic updates of Kubernetes packages..."
     if command -v dnf &> /dev/null; then
+        dnf install -y 'dnf-command(versionlock)' python3-dnf-plugin-versionlock || true
         dnf versionlock add kubelet kubeadm kubectl || echo "Warning: versionlock not available, skipping"
     else
+        yum install -y yum-plugin-versionlock || true
         yum versionlock add kubelet kubeadm kubectl || echo "Warning: versionlock not available, skipping"
     fi
     
@@ -343,34 +392,16 @@ cleanup_rhel() {
 install_dependencies_suse() {
     echo "Installing dependencies for SUSE-based distribution..."
     zypper refresh
-    zypper install -y curl
+    zypper install -y curl iptables iproute2 ethtool conntrack-tools socat || true
 }
 
 setup_containerd_suse() {
     echo "Setting up containerd for SUSE-based distribution..."
     
-    # Detect openSUSE Leap version and use appropriate repository
-    if [[ "$DISTRO_NAME" == "opensuse"* ]] || [[ "$DISTRO_NAME" == "opensuse-leap" ]]; then
-        echo "Detected openSUSE, using openSUSE specific repository..."
-        # For openSUSE Leap 15.5, use the openSUSE specific repository
-        if [[ "$DISTRO_VERSION" == "15.5" ]]; then
-            # Use containerd from the official openSUSE repository instead of Docker CE
-            echo "Installing containerd from openSUSE repository..."
-            zypper refresh
-            zypper install -y containerd docker
-        else
-            # For other openSUSE versions, try Docker CE repository
-            zypper addrepo https://download.docker.com/linux/opensuse/docker-ce.repo || true
-            zypper refresh
-            zypper install -y containerd.io || zypper install -y containerd
-        fi
-    else
-        # For SLES, use the SLES repository
-        echo "Using SLES Docker repository..."
-        zypper addrepo https://download.docker.com/linux/sles/docker-ce.repo || true
-        zypper refresh
-        zypper install -y containerd.io || zypper install -y containerd
-    fi
+    # Prefer official repositories and avoid Docker CE to reduce conflicts
+    echo "Installing containerd from SUSE official repositories..."
+    zypper refresh
+    zypper install -y containerd || true
     
     # Configure containerd if it was installed
     if command -v containerd &> /dev/null; then
@@ -428,7 +459,7 @@ cleanup_suse() {
 # Arch Linux specific functions
 install_dependencies_arch() {
     echo "Installing dependencies for Arch-based distribution..."
-    pacman -Sy --noconfirm curl
+    pacman -Sy --noconfirm curl conntrack-tools socat ethtool iproute2 iptables || true
 }
 
 setup_containerd_arch() {
@@ -544,11 +575,22 @@ setup_kubernetes_arch() {
         # Get the latest stable version
         KUBE_VERSION=$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)
         echo "Downloading Kubernetes version: $KUBE_VERSION"
-        
+
+        # Detect architecture mapping for Kubernetes binaries
+        UNAME_ARCH=$(uname -m)
+        case "$UNAME_ARCH" in
+            x86_64) KARCH="amd64" ;;
+            aarch64) KARCH="arm64" ;;
+            armv7l) KARCH="arm" ;;
+            ppc64le) KARCH="ppc64le" ;;
+            s390x) KARCH="s390x" ;;
+            *) KARCH="amd64" ; echo "Unknown arch $UNAME_ARCH, defaulting to amd64" ;;
+        esac
+
         # Download and install binaries
         for binary in kubeadm kubelet kubectl; do
-            echo "Downloading $binary..."
-            curl -Lo /usr/local/bin/$binary "https://storage.googleapis.com/kubernetes-release/release/${KUBE_VERSION}/bin/linux/amd64/$binary"
+            echo "Downloading $binary for arch $KARCH..."
+            curl -Lo /usr/local/bin/$binary "https://storage.googleapis.com/kubernetes-release/release/${KUBE_VERSION}/bin/linux/${KARCH}/$binary"
             chmod +x /usr/local/bin/$binary
         done
         
@@ -665,7 +707,7 @@ install_dependencies_generic() {
     echo "- curl"
     echo "- containerd"
     echo "- kubeadm, kubelet, kubectl"
-    echo "- iptables"
+    echo "- iptables, conntrack, socat, ethtool, iproute2"
     
     # Try to install iptables if not present
     if ! command -v iptables &> /dev/null; then
@@ -681,6 +723,19 @@ install_dependencies_generic() {
         elif command -v pacman &> /dev/null; then
             pacman -Sy --noconfirm iptables
         fi
+    fi
+
+    # Try to install other useful dependencies if package manager is available
+    if command -v apt-get &> /dev/null; then
+        apt-get install -y conntrack socat ethtool iproute2 || true
+    elif command -v dnf &> /dev/null; then
+        dnf install -y conntrack-tools socat ethtool iproute || true
+    elif command -v yum &> /dev/null; then
+        yum install -y conntrack-tools socat ethtool iproute || true
+    elif command -v zypper &> /dev/null; then
+        zypper install -y conntrack-tools socat ethtool iproute2 || true
+    elif command -v pacman &> /dev/null; then
+        pacman -Sy --noconfirm conntrack-tools socat ethtool iproute2 || true
     fi
 }
 
