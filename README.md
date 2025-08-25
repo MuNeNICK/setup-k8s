@@ -122,6 +122,7 @@ curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh | su
 | --apiserver-advertise-address | API server address | --apiserver-advertise-address 192.168.1.10 |
 | --control-plane-endpoint | Control plane endpoint | --control-plane-endpoint cluster.example.com |
 | --service-cidr | Service CIDR | --service-cidr 10.96.0.0/12 |
+| --cri | Container runtime (containerd or crio) | --cri containerd |
 | --join-token | Worker join token | --join-token abcdef.1234567890abcdef |
 | --join-address | Master address | --join-address 192.168.1.10:6443 |
 | --discovery-token-hash | Discovery token hash | --discovery-token-hash sha256:abc... |
