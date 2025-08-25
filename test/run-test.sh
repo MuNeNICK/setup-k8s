@@ -10,13 +10,15 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/distro-urls.conf"
 CLOUD_INIT_TEMPLATE="$SCRIPT_DIR/cloud-init-template.yaml"
-SETUP_K8S_SCRIPT="$SCRIPT_DIR/../hack/setup-k8s.sh"
-CLEANUP_K8S_SCRIPT="$SCRIPT_DIR/../hack/cleanup-k8s.sh"
+SETUP_K8S_SCRIPT="$SCRIPT_DIR/../setup-k8s.sh"
+CLEANUP_K8S_SCRIPT="$SCRIPT_DIR/../cleanup-k8s.sh"
 
 # K8s version (can be overridden by command line option)
 K8S_VERSION=""
 # Extra args to pass to setup-k8s.sh
 SETUP_EXTRA_ARGS=()
+# Test mode (offline or online)
+TEST_MODE="offline"
 
 # Timeout settings (seconds)
 TIMEOUT_TOTAL=1200    # 20 minutes
@@ -47,6 +49,8 @@ Options:
   --all, -a                Test all distributions sequentially
   --k8s-version <version>   Kubernetes version to test (e.g., 1.32, 1.31, 1.30)
   --setup-args ARGS         Extra args for setup-k8s.sh (use quotes)
+  --online                  Run test in online mode (default: offline)
+  --offline                 Run test in offline mode (default)
   --                        Treat the rest as setup-args
   --help, -h                Show this help message
 
@@ -57,9 +61,11 @@ EOF
     done
     echo
     echo "Examples:"
-    echo "  $0 ubuntu-2404                        # Test single distribution with default k8s version"
+    echo "  $0 ubuntu-2404                        # Test single distribution offline"
+    echo "  $0 --online ubuntu-2404               # Test single distribution online"
     echo "  $0 --k8s-version 1.31 ubuntu-2404     # Test with specific k8s version"
-    echo "  $0 --all                              # Test all distributions"
+    echo "  $0 --all                              # Test all distributions offline"
+    echo "  $0 --all --online                     # Test all distributions online"
     echo "  $0 --all --k8s-version 1.30           # Test all distributions with k8s v1.30"
     echo "  $0 archlinux"
     echo "  $0 --k8s-version 1.32 rocky-linux-8"
@@ -198,6 +204,99 @@ download_image() {
     fi
 }
 
+# Generate bundled scripts for offline mode
+generate_bundled_scripts() {
+    local setup_bundle="/tmp/setup-k8s-bundle.sh"
+    local cleanup_bundle="/tmp/cleanup-k8s-bundle.sh"
+    
+    log_info "Generating bundled scripts for cloud-init (mode: $TEST_MODE)..."
+    
+    # Generate setup bundle
+    {
+        echo "#!/bin/bash"
+        echo "# Bundled setup-k8s.sh with all modules"
+        echo "set -e"
+        echo ""
+        if [ "$TEST_MODE" = "offline" ]; then
+            echo "# Force offline mode"
+            echo "OFFLINE_MODE=true"
+        else
+            echo "# Online mode"
+            echo "OFFLINE_MODE=false"
+        fi
+        echo ""
+        
+        # Include all common modules
+        for module in variables detection validation helpers networking swap; do
+            echo "# === common/${module}.sh ==="
+            cat "${SCRIPT_DIR}/../common/${module}.sh"
+            echo ""
+        done
+        
+        # Include all distro modules (removing source lines that reference other modules)
+        for distro_dir in "${SCRIPT_DIR}/../distros/"*/; do
+            if [ -d "$distro_dir" ]; then
+                distro_name=$(basename "$distro_dir")
+                echo "# === distros/${distro_name} modules ==="
+                for module_file in "$distro_dir"*.sh; do
+                    if [ -f "$module_file" ]; then
+                        echo "# === $(basename "$module_file") ==="
+                        # Remove source lines and SCRIPT_DIR declarations since everything is bundled
+                        grep -v '^source.*SCRIPT_DIR' "$module_file" | grep -v '^SCRIPT_DIR='
+                        echo ""
+                    fi
+                done
+            fi
+        done
+        
+        # Include main setup script (without shebang)
+        echo "# === Main setup-k8s.sh ==="
+        tail -n +2 "$SETUP_K8S_SCRIPT"
+    } > "$setup_bundle"
+    
+    # Generate cleanup bundle
+    {
+        echo "#!/bin/bash"
+        echo "# Bundled cleanup-k8s.sh with all modules"
+        echo "set -e"
+        echo ""
+        if [ "$TEST_MODE" = "offline" ]; then
+            echo "# Force offline mode"
+            echo "OFFLINE_MODE=true"
+        else
+            echo "# Online mode"
+            echo "OFFLINE_MODE=false"
+        fi
+        echo ""
+        
+        # Include all common modules
+        for module in variables detection validation helpers networking swap; do
+            echo "# === common/${module}.sh ==="
+            cat "${SCRIPT_DIR}/../common/${module}.sh"
+            echo ""
+        done
+        
+        # Include all distro cleanup modules (removing source lines that reference other modules)
+        for distro_dir in "${SCRIPT_DIR}/../distros/"*/; do
+            if [ -d "$distro_dir" ]; then
+                distro_name=$(basename "$distro_dir")
+                if [ -f "$distro_dir/cleanup.sh" ]; then
+                    echo "# === distros/${distro_name}/cleanup.sh ==="
+                    # Remove source lines and SCRIPT_DIR declarations since everything is bundled
+                    grep -v '^source.*SCRIPT_DIR' "$distro_dir/cleanup.sh" | grep -v '^SCRIPT_DIR='
+                    echo ""
+                fi
+            fi
+        done
+        
+        # Include main cleanup script (without shebang)
+        echo "# === Main cleanup-k8s.sh ==="
+        tail -n +2 "$CLEANUP_K8S_SCRIPT"
+    } > "$cleanup_bundle"
+    
+    log_info "Bundled scripts generated successfully"
+}
+
 # Generate cloud-init configuration
 generate_cloud_init() {
     local distro=$1
@@ -210,20 +309,25 @@ generate_cloud_init() {
     rm -rf "$temp_dir"
     mkdir -p "$temp_dir"
     
-    # Base64 encode setup-k8s.sh content
-    if [ ! -f "$SETUP_K8S_SCRIPT" ]; then
-        log_error "setup-k8s.sh not found: $SETUP_K8S_SCRIPT"
+    # Generate bundled scripts
+    log_info "Generating bundled scripts..."
+    generate_bundled_scripts
+    local setup_bundle="/tmp/setup-k8s-bundle.sh"
+    local cleanup_bundle="/tmp/cleanup-k8s-bundle.sh"
+    
+    if [ ! -f "$setup_bundle" ] || [ ! -f "$cleanup_bundle" ]; then
+        log_error "Failed to generate bundled scripts"
+        log_error "Setup bundle exists: $([ -f "$setup_bundle" ] && echo "yes" || echo "no")"
+        log_error "Cleanup bundle exists: $([ -f "$cleanup_bundle" ] && echo "yes" || echo "no")"
         return 1
     fi
     
-    # Base64 encode cleanup-k8s.sh content
-    if [ ! -f "$CLEANUP_K8S_SCRIPT" ]; then
-        log_error "cleanup-k8s.sh not found: $CLEANUP_K8S_SCRIPT"
-        return 1
-    fi
+    # Base64 encode bundled scripts
+    local setup_k8s_b64=$(base64 -w 0 < "$setup_bundle")
+    local cleanup_k8s_b64=$(base64 -w 0 < "$cleanup_bundle")
     
-    local setup_k8s_b64=$(base64 -w 0 < "$SETUP_K8S_SCRIPT")
-    local cleanup_k8s_b64=$(base64 -w 0 < "$CLEANUP_K8S_SCRIPT")
+    # Clean up bundle files
+    rm -f "$setup_bundle" "$cleanup_bundle"
     
     # Prepare K8s version argument (resolve on host if not provided)
     local k8s_version_arg=""
@@ -321,12 +425,12 @@ parse_test_output() {
     case "$line" in
         *"K8S_TEST_START:"*)
             TEST_STARTED=true
-            TEST_START_TIME=$(echo "$line" | grep -o '[0-9T:-]*')
+            TEST_START_TIME=$(echo "$line" | sed -n 's/.*K8S_TEST_START:\([0-9T:-]*\).*/\1/p')
             log_info "Test started at: $TEST_START_TIME"
             ;;
         *"K8S_TEST_COMPLETED:"*)
             TEST_COMPLETED=true
-            TEST_END_TIME=$(echo "$line" | grep -o '[0-9T:-]*')
+            TEST_END_TIME=$(echo "$line" | sed -n 's/.*K8S_TEST_COMPLETED:\([0-9T:-]*\).*/\1/p')
             log_info "Test completed at: $TEST_END_TIME"
             ;;
     esac
@@ -366,6 +470,16 @@ run_qemu_test() {
     local cpu_model="${QEMU_CPU_MODEL:-Haswell}"
     log_info "Using CPU model: $cpu_model"
     
+    # Configure network based on test mode
+    local netdev_opts="user,id=net0"
+    if [ "$TEST_MODE" = "online" ]; then
+        # Enhanced network settings for online mode with DNS and port forwarding
+        netdev_opts="user,id=net0,hostfwd=tcp::10022-:22,dns=8.8.8.8"
+        log_info "Network mode: Enhanced for online access"
+    else
+        log_info "Network mode: Basic (offline mode)"
+    fi
+    
     local qemu_cmd="qemu-system-x86_64 \
         -machine pc,accel=kvm:tcg \
         -cpu $cpu_model \
@@ -375,7 +489,7 @@ run_qemu_test() {
         -serial mon:stdio \
         -drive file=/shared/$test_image,if=virtio \
         -drive file=/shared/seed.iso,if=virtio,media=cdrom \
-        -netdev user,id=net0 \
+        -netdev $netdev_opts \
         -device virtio-net,netdev=net0"
     
     log_info "QEMU command: $qemu_cmd"
@@ -503,6 +617,7 @@ show_test_results() {
 # Test all distributions
 test_all() {
     log_info "Starting test for all distributions"
+    log_info "Test mode: $TEST_MODE"
     
     # Get all distributions from config
     local distros=($(grep -E '^[^#].*=.*' "$CONFIG_FILE" | grep -v '_user=' | sed 's/=.*//' | sort))
@@ -515,7 +630,7 @@ test_all() {
     local summary_file="results/test-all-summary-$(date +%Y%m%d-%H%M%S).log"
     mkdir -p results
     
-    echo "Testing $total distributions" | tee "$summary_file"
+    echo "Testing $total distributions in $TEST_MODE mode" | tee "$summary_file"
     echo "===================" | tee -a "$summary_file"
     echo "Start time: $(date)" | tee -a "$summary_file"
     echo "" | tee -a "$summary_file"
@@ -579,6 +694,7 @@ run_single_test() {
     local distro=$1
     
     log_info "Starting K8s test for: $distro"
+    log_info "Test mode: $TEST_MODE"
     if [ -n "$K8S_VERSION" ]; then
         log_info "Kubernetes version: $K8S_VERSION"
     else
@@ -620,6 +736,14 @@ main() {
             --k8s-version)
                 K8S_VERSION="$2"
                 shift 2
+                ;;
+            --online)
+                TEST_MODE="online"
+                shift
+                ;;
+            --offline)
+                TEST_MODE="offline"
+                shift
                 ;;
             --setup-args)
                 # Split quoted string into array

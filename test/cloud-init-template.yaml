@@ -7,12 +7,20 @@ users:
     shell: /bin/bash
     lock_passwd: true
 
-# Update system packages
+# Update system packages (only in online mode, packages already bundled for offline)
 package_update: true
 packages:
   - curl
   - wget
   - sudo
+
+# Network configuration to ensure connectivity for online mode
+network:
+  version: 2
+  ethernets:
+    ens3:
+      dhcp4: true
+      dhcp6: false
 
 # Write files
 write_files:
