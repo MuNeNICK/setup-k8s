@@ -470,15 +470,8 @@ run_qemu_test() {
     local cpu_model="${QEMU_CPU_MODEL:-Haswell}"
     log_info "Using CPU model: $cpu_model"
     
-    # Configure network based on test mode
+    # Configure network
     local netdev_opts="user,id=net0"
-    if [ "$TEST_MODE" = "online" ]; then
-        # Enhanced network settings for online mode with DNS and port forwarding
-        netdev_opts="user,id=net0,hostfwd=tcp::10022-:22,dns=8.8.8.8"
-        log_info "Network mode: Enhanced for online access"
-    else
-        log_info "Network mode: Basic (offline mode)"
-    fi
     
     local qemu_cmd="qemu-system-x86_64 \
         -machine pc,accel=kvm:tcg \
