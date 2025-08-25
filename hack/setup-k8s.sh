@@ -3,7 +3,8 @@
 set -e
 
 # Default values
-K8S_VERSION="1.32"
+K8S_VERSION=""
+K8S_VERSION_USER_SET="false"
 NODE_TYPE="master"  # Default is master node
 JOIN_TOKEN=""
 JOIN_ADDRESS=""
@@ -11,6 +12,7 @@ DISCOVERY_TOKEN_HASH=""
 DISTRO_NAME=""
 DISTRO_VERSION=""
 DISTRO_FAMILY=""
+CRI="containerd"  # containerd or crio
 
 # Helper: Get Debian/Ubuntu codename without lsb_release
 get_debian_codename() {
@@ -37,12 +39,63 @@ get_debian_codename() {
     echo "stable"
 }
 
+# Helper: configure containerd TOML with v2 layout, SystemdCgroup=true, sandbox_image
+configure_containerd_toml() {
+    echo "Generating and tuning containerd config..."
+    mkdir -p /etc/containerd
+    containerd config default > /etc/containerd/config.toml
+
+    # Ensure SystemdCgroup=true for runc
+    sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml || true
+
+    # Ensure version = 2 is present
+    if ! grep -q '^version *= *2' /etc/containerd/config.toml 2>/dev/null; then
+        sed -i '1s/^/version = 2\n/' /etc/containerd/config.toml || true
+    fi
+
+    # Set sandbox_image to registry.k8s.io/pause:3.10
+    if grep -q '^\s*sandbox_image\s*=\s*"' /etc/containerd/config.toml; then
+        sed -i 's#^\s*sandbox_image\s*=\s*".*"#  sandbox_image = "registry.k8s.io/pause:3.10"#' /etc/containerd/config.toml || true
+    else
+        # Insert under the CRI plugin section
+        awk '
+            BEGIN{inserted=0}
+            {print}
+            $0 ~ /^\[plugins\."io\.containerd\.grpc\.v1\.cri"\]/ && inserted==0 {print "  sandbox_image = \"registry.k8s.io/pause:3.10\""; inserted=1}
+        ' /etc/containerd/config.toml > /etc/containerd/config.toml.tmp 2>/dev/null && mv /etc/containerd/config.toml.tmp /etc/containerd/config.toml || true
+    fi
+
+    systemctl daemon-reload || true
+    systemctl enable containerd || true
+    systemctl restart containerd || true
+}
+
+# Helper: configure crictl runtime endpoint
+configure_crictl() {
+    local runtime="$1"  # containerd|crio
+    local endpoint=""
+    if [ "$runtime" = "containerd" ]; then
+        endpoint="unix:///run/containerd/containerd.sock"
+    else
+        endpoint="unix:///var/run/crio/crio.sock"
+    fi
+    echo "Configuring crictl at /etc/crictl.yaml (endpoint: $endpoint)"
+    cat > /etc/crictl.yaml <<EOF
+runtime-endpoint: $endpoint
+image-endpoint: $endpoint
+timeout: 10
+debug: false
+pull-image-on-create: false
+EOF
+}
+
 # Help message
 show_help() {
     echo "Usage: $0 [options]"
     echo ""
     echo "Options:"
     echo "  --node-type    Node type (master or worker)"
+    echo "  --cri          Container runtime (containerd or crio). Default: containerd"
     echo "  --pod-network-cidr   Pod network CIDR (e.g., 192.168.0.0/16)"
     echo "  --apiserver-advertise-address   API server advertise address"
     echo "  --control-plane-endpoint   Control plane endpoint"
@@ -109,6 +162,53 @@ detect_distribution() {
     esac
 }
 
+# SUSE Leap compatibility helpers for CRI-O vs Kubernetes
+get_suse_leap_supported_k8s_minor() {
+    local detected_minor=""
+    if command -v zypper &>/dev/null; then
+        detected_minor=$(zypper -q se -s 'kubernetes1.*-kubeadm' 2>/dev/null \
+            | grep -oE 'kubernetes1\.[0-9]+-kubeadm' \
+            | sed -E 's/.*kubernetes1\.([0-9]+)-kubeadm/\1/' \
+            | sort -nr | head -1 || true)
+    fi
+    if [ -z "$detected_minor" ]; then
+        local crio_minor=""
+        if rpm -q cri-o &>/dev/null; then
+            crio_minor=$(rpm -q --qf '%{VERSION}\n' cri-o 2>/dev/null | awk -F. '{print $2}' | head -1)
+        else
+            crio_minor=$(zypper -q info -s cri-o 2>/dev/null \
+                | awk '/Version/ {print $3}' \
+                | awk -F. '{print $2}' | head -1)
+        fi
+        detected_minor="$crio_minor"
+    fi
+    echo -n "$detected_minor"
+}
+
+warn_and_fail_if_suse_leap_crio_incompatible() {
+    if [ "$CRI" != "crio" ]; then return 0; fi
+    if [ "$DISTRO_NAME" != "suse" ]; then return 0; fi
+    case "$DISTRO_VERSION" in
+        15* ) : ;;
+        * ) return 0 ;;
+    esac
+    local requested_minor="${K8S_VERSION#*.}"
+    local supported_minor
+    supported_minor=$(get_suse_leap_supported_k8s_minor)
+    if [ -z "$supported_minor" ]; then
+        echo "WARNING: Could not determine latest Kubernetes minor supported on openSUSE Leap ${DISTRO_VERSION} with CRI-O."
+        echo "WARNING: Consider using containerd or switching to Tumbleweed/MicroOS for latest CRI-O."
+        return 1
+    fi
+    if [ -n "$requested_minor" ] && [ "$requested_minor" -gt "$supported_minor" ] 2>/dev/null; then
+        echo "WARNING: Requested Kubernetes v1.${requested_minor} exceeds openSUSE Leap ${DISTRO_VERSION} support with CRI-O."
+        echo "WARNING: Latest supported on Leap appears to be Kubernetes v1.${supported_minor}."
+        echo "WARNING: Setup will fail by design to avoid incompatible installation."
+        return 1
+    fi
+    return 0
+}
+
 # Debian/Ubuntu specific functions
 install_dependencies_debian() {
     echo "Installing dependencies for Debian-based distribution..."
@@ -117,7 +217,11 @@ install_dependencies_debian() {
         apt-transport-https ca-certificates curl gnupg \
         software-properties-common \
         conntrack socat ethtool iproute2 iptables \
-        ebtables || apt-get install -y arptables || true
+        ebtables || true
+    # If ebtables is unavailable, try arptables as a fallback
+    if ! dpkg -s ebtables >/dev/null 2>&1; then
+        apt-get install -y arptables || true
+    fi
 }
 
 setup_containerd_debian() {
@@ -129,10 +233,10 @@ setup_containerd_debian() {
     # Add Docker repository (for containerd) without using lsb_release
     CODENAME=$(get_debian_codename)
     if [ "$DISTRO_NAME" = "ubuntu" ]; then
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --batch --yes --dearmor -o /etc/apt/keyrings/docker.gpg
         echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu ${CODENAME} stable" | tee /etc/apt/sources.list.d/docker.list
     else
-        curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --batch --yes --dearmor -o /etc/apt/keyrings/docker.gpg
         echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian ${CODENAME} stable" | tee /etc/apt/sources.list.d/docker.list
     fi
     
@@ -141,11 +245,75 @@ setup_containerd_debian() {
     apt-get install -y containerd.io
     
     # Configure containerd
-    mkdir -p /etc/containerd
-    containerd config default | tee /etc/containerd/config.toml
-    sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-    systemctl restart containerd
-    systemctl enable containerd
+    configure_containerd_toml
+    configure_crictl containerd
+}
+
+# Helper: setup CRI-O on Debian/Ubuntu using new isv:/cri-o repositories (2025)
+setup_crio_debian() {
+    echo "Setting up CRI-O for Debian/Ubuntu..."
+
+    # Determine K8s minor series (e.g., 1.32)
+    local crio_series
+    crio_series=$(echo "$K8S_VERSION" | awk -F. '{print $1"."$2}')
+    if [ -z "$crio_series" ]; then
+        crio_series="1.32"
+    fi
+    
+    echo "Installing CRI-O v${crio_series}..."
+
+    # Ensure keyrings directory exists
+    mkdir -p /etc/apt/keyrings
+
+    # Clean any previous CRI-O sources
+    rm -f /etc/apt/sources.list.d/*cri-o*.list 2>/dev/null || true
+    rm -f /etc/apt/sources.list.d/*libcontainers*.list 2>/dev/null || true
+
+    # Use the new isv:/cri-o:/stable repository structure (available for v1.30+)
+    echo "Adding CRI-O v${crio_series} repository..."
+    
+    # Download and add GPG key
+    echo "Adding repository GPG key..."
+    curl -fsSL "https://download.opensuse.org/repositories/isv:/cri-o:/stable:/v${crio_series}/deb/Release.key" | \
+        gpg --batch --yes --dearmor -o /etc/apt/keyrings/crio-apt-keyring.gpg 2>/dev/null || {
+            echo "Failed to add GPG key for CRI-O v${crio_series}"
+            return 1
+        }
+    
+    # Add repository
+    echo "deb [signed-by=/etc/apt/keyrings/crio-apt-keyring.gpg] https://download.opensuse.org/repositories/isv:/cri-o:/stable:/v${crio_series}/deb/ /" | \
+        tee /etc/apt/sources.list.d/cri-o.list
+    
+    # Update package lists and install CRI-O
+    echo "Updating package lists..."
+    apt-get update
+    
+    echo "Installing CRI-O and related packages..."
+    apt-get install -y cri-o cri-o-runc || apt-get install -y cri-o
+    
+    # Ensure CRI-O config uses systemd cgroups and modern pause image
+    mkdir -p /etc/crio/crio.conf.d
+    cat > /etc/crio/crio.conf.d/02-kubernetes.conf <<'CRIOCONF'
+[crio.runtime]
+cgroup_manager = "systemd"
+
+[crio.image]
+pause_image = "registry.k8s.io/pause:3.10"
+CRIOCONF
+
+    # Reload and start CRI-O
+    systemctl daemon-reload || true
+    systemctl enable --now crio || true
+
+    # Configure crictl to talk to CRI-O
+    configure_crictl crio
+
+    # Quick sanity check
+    if ! systemctl is-active --quiet crio; then
+        echo "Warning: CRI-O service is not active"
+        systemctl status crio --no-pager || true
+        journalctl -u crio -n 100 --no-pager || true
+    fi
 }
 
 setup_kubernetes_debian() {
@@ -155,7 +323,7 @@ setup_kubernetes_debian() {
     mkdir -p /etc/apt/keyrings
     
     # Add Kubernetes repository
-    curl -fsSL https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/deb/Release.key | gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
     echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list
     
     apt-get update
@@ -215,7 +383,7 @@ install_dependencies_rhel() {
     if [ "$PKG_MGR" = "dnf" ]; then
         $PKG_MGR install -y dnf-plugins-core || true
     fi
-    $PKG_MGR install -y curl gnupg2 iptables iptables-services ethtool iproute conntrack-tools socat ebtables || true
+    $PKG_MGR install -y curl gnupg2 iptables iptables-services ethtool iproute conntrack-tools socat ebtables cri-tools || true
     
     # Check if iptables was installed successfully
     if ! command -v iptables &> /dev/null; then
@@ -229,6 +397,108 @@ install_dependencies_rhel() {
         $PKG_MGR install -y epel-release || true
         $PKG_MGR config-manager --set-enabled crb || $PKG_MGR config-manager --set-enabled powertools || true
     fi
+}
+
+# Helper: setup CRI-O on RHEL/CentOS/Rocky/Alma/Fedora
+get_obs_target_rhel() {
+    local target=""
+    local major=$(echo "$DISTRO_VERSION" | cut -d. -f1)
+    case "$DISTRO_NAME" in
+        centos)
+            if [[ "$DISTRO_VERSION" == 9* ]]; then target="CentOS_9_Stream"; else target="CentOS_${major}"; fi ;;
+        rhel)
+            target="RHEL_${major}" ;;
+        rocky)
+            target="Rocky_${major}" ;;
+        almalinux)
+            target="AlmaLinux_${major}" ;;
+        fedora)
+            target="Fedora_${major}" ;;
+        *)
+            target="" ;;
+    esac
+    echo -n "$target"
+}
+
+setup_crio_rhel() {
+    echo "Setting up CRI-O for RHEL-based distribution..."
+    # Determine K8s minor series (e.g., 1.32)
+    local crio_series
+    crio_series=$(echo "$K8S_VERSION" | awk -F. '{print $1"."$2}')
+    if [ -z "$crio_series" ]; then crio_series="1.32"; fi
+
+    # Determine package manager (dnf or yum)
+    local PKG_MGR
+    if command -v dnf &> /dev/null; then PKG_MGR=dnf; else PKG_MGR=yum; fi
+
+    # Clean previous repo
+    rm -f /etc/yum.repos.d/cri-o.repo 2>/dev/null || true
+
+    # Probe downwards for available repo (no hardcoded list)
+    local selected=""
+    local minor_num=$(echo "$crio_series" | cut -d. -f2)
+    for offset in $(seq 0 12); do
+        local candidate_minor=$((minor_num - offset))
+        if [ $candidate_minor -lt 10 ]; then break; fi
+        local series="1.${candidate_minor}"
+        echo "Probing CRI-O rpm repo on pkgs.k8s.io for v${series}..."
+        local pkgs_key="https://pkgs.k8s.io/addons:/cri-o:/stable:/v${series}/rpm/repodata/repomd.xml.key"
+        if curl -fsI "$pkgs_key" >/dev/null 2>&1; then
+            cat > /etc/yum.repos.d/cri-o.repo <<EOF
+[cri-o]
+name=CRI-O v${series}
+baseurl=https://pkgs.k8s.io/addons:/cri-o:/stable:/v${series}/rpm/
+enabled=1
+gpgcheck=1
+gpgkey=$pkgs_key
+EOF
+            selected="$series"
+            break
+        fi
+        echo "pkgs.k8s.io repo not available for v${series}; trying OBS..."
+        local target=$(get_obs_target_rhel)
+        if [ -n "$target" ]; then
+            local obs_base="https://download.opensuse.org/repositories/devel:/kubic:/cri-o:/${series}/${target}/"
+            local obs_key="${obs_base}repodata/repomd.xml.key"
+            if curl -fsI "$obs_key" >/dev/null 2>&1; then
+                cat > /etc/yum.repos.d/cri-o.repo <<EOF
+[cri-o]
+name=CRI-O v${series} (${target})
+baseurl=${obs_base}
+enabled=1
+gpgcheck=1
+gpgkey=${obs_key}
+EOF
+                selected="$series"
+                break
+            fi
+        fi
+    done
+
+    if [ -z "$selected" ]; then
+        echo "ERROR: No available CRI-O repository detected for ${crio_series} or lower minors on pkgs.k8s.io/OBS for $DISTRO_NAME $DISTRO_VERSION."
+        return 1
+    fi
+
+    # Install CRI-O
+    $PKG_MGR makecache -y || true
+    $PKG_MGR install -y cri-o || {
+        echo "ERROR: Failed to install cri-o from configured repository"
+        return 1
+    }
+
+    # Ensure CRI-O runs and configure crictl
+    systemctl daemon-reload || true
+    systemctl enable --now crio || true
+    configure_crictl crio
+
+    if ! systemctl is-active --quiet crio; then
+        echo "Warning: CRI-O service is not active"
+        systemctl status crio --no-pager || true
+        journalctl -u crio -n 100 --no-pager || true
+    fi
+
+    return 0
 }
 
 setup_containerd_rhel() {
@@ -292,11 +562,8 @@ setup_containerd_rhel() {
     # Configure containerd
     if command -v containerd &> /dev/null; then
         echo "Configuring containerd..."
-        mkdir -p /etc/containerd
-        containerd config default | tee /etc/containerd/config.toml
-        sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-        systemctl restart containerd
-        systemctl enable containerd
+        configure_containerd_toml
+        configure_crictl containerd
         echo "Containerd configured and restarted."
     else
         echo "Error: containerd is not installed. Kubernetes setup may fail."
@@ -392,7 +659,7 @@ cleanup_rhel() {
 install_dependencies_suse() {
     echo "Installing dependencies for SUSE-based distribution..."
     zypper refresh
-    zypper install -y curl iptables iproute2 ethtool conntrack-tools socat || true
+    zypper install -y curl iptables iproute2 ethtool conntrack-tools socat cri-tools || true
 }
 
 setup_containerd_suse() {
@@ -406,11 +673,8 @@ setup_containerd_suse() {
     # Configure containerd if it was installed
     if command -v containerd &> /dev/null; then
         echo "Configuring containerd..."
-        mkdir -p /etc/containerd
-        containerd config default | tee /etc/containerd/config.toml
-        sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-        systemctl restart containerd
-        systemctl enable containerd
+        configure_containerd_toml
+        configure_crictl containerd
     else
         echo "Error: containerd installation failed"
         return 1
@@ -459,7 +723,7 @@ cleanup_suse() {
 # Arch Linux specific functions
 install_dependencies_arch() {
     echo "Installing dependencies for Arch-based distribution..."
-    pacman -Sy --noconfirm curl conntrack-tools socat ethtool iproute2 iptables || true
+    pacman -Sy --noconfirm curl conntrack-tools socat ethtool iproute2 iptables crictl || true
 }
 
 setup_containerd_arch() {
@@ -487,6 +751,7 @@ setup_containerd_arch() {
     
     systemctl restart containerd
     systemctl enable containerd
+    configure_crictl containerd
 }
 
 setup_kubernetes_arch() {
@@ -553,7 +818,7 @@ setup_kubernetes_arch() {
         echo "Installing Kubernetes components from AUR..."
         su - "$KUBE_USER" -c "
             $AUR_HELPER -S --noconfirm --needed kubeadm-bin kubelet-bin kubectl-bin
-        "
+        " || true
         
         # Remove sudo privileges and clean up
         sed -i "/$KUBE_USER/d" /etc/sudoers
@@ -639,6 +904,94 @@ KUBEADM_CONF
     echo "Kubernetes setup completed for Arch Linux."
 }
 
+# Arch: install CRI-O via pacman or AUR fallback
+install_crio_arch() {
+    echo "Installing CRI-O on Arch..."
+    
+    # Replace iptables with iptables-nft to avoid conflicts with AUR packages
+    if pacman -Qi iptables &>/dev/null; then
+        echo "Replacing iptables with iptables-nft to resolve conflicts..."
+        pacman -Rdd --noconfirm iptables || true
+        pacman -S --noconfirm iptables-nft || true
+    fi
+    
+    # Always use AUR path to avoid repo-driven iptables-nft conflicts
+    # Ensure AUR helper yay exists
+    if ! command -v yay &>/dev/null; then
+        echo "Installing yay (AUR helper)..."
+        local TEMP_USER="aur_builder_$$"
+        useradd -m -s /bin/bash "$TEMP_USER"
+        pacman -Sy --needed --noconfirm base-devel git
+        su - "$TEMP_USER" -c "
+            cd /tmp
+            git clone https://aur.archlinux.org/yay-bin.git
+            cd yay-bin
+            makepkg --noconfirm
+        "
+        pacman -U --noconfirm /tmp/yay-bin/yay-bin-*.pkg.tar.* || {
+            echo "Failed to install yay from AUR"
+            userdel -r "$TEMP_USER"
+            return 1
+        }
+        userdel -r "$TEMP_USER" || true
+    fi
+
+    # Use a temporary unprivileged user to run yay for CRI-O
+    local CRIO_USER="crio_installer_$$"
+    useradd -m -s /bin/bash "$CRIO_USER"
+    echo "$CRIO_USER ALL=(ALL) NOPASSWD: /usr/bin/pacman" >> /etc/sudoers
+    echo "Installing CRI-O and runtime dependencies from AUR..."
+    su - "$CRIO_USER" -c "
+        yay -S --noconfirm --needed --removemake --cleanafter cri-o conmon crun cni-plugins
+    " || {
+        echo "Failed to install CRI-O from AUR"
+        sed -i "/$CRIO_USER/d" /etc/sudoers || true
+        userdel -r "$CRIO_USER" || true
+        return 1
+    }
+    sed -i "/$CRIO_USER/d" /etc/sudoers || true
+    userdel -r "$CRIO_USER" || true
+
+    # Configure CRI-O before starting
+    echo "Configuring CRI-O..."
+    mkdir -p /etc/crio /etc/crio/crio.conf.d
+    
+    # Generate default configuration if not exists
+    if [ ! -f /etc/crio/crio.conf ]; then
+        crio config > /etc/crio/crio.conf || true
+    fi
+    
+    # Create CNI configuration directory
+    mkdir -p /etc/cni/net.d
+    
+    # Enable and start CRI-O
+    systemctl daemon-reload
+    systemctl enable crio || true
+    systemctl start crio || {
+        echo "Failed to start CRI-O service. Checking status..."
+        systemctl status crio --no-pager || true
+        journalctl -xeu crio --no-pager | tail -50 || true
+        return 1
+    }
+    
+    # Wait for CRI-O to be ready
+    echo "Waiting for CRI-O to be ready..."
+    for i in {1..30}; do
+        if [ -S /var/run/crio/crio.sock ]; then
+            echo "CRI-O is ready"
+            break
+        fi
+        sleep 1
+    done
+    
+    if [ ! -S /var/run/crio/crio.sock ]; then
+        echo "CRI-O socket not found after 30 seconds"
+        return 1
+    fi
+    
+    configure_crictl crio
+}
+
 cleanup_arch() {
     echo "Cleaning up existing cluster configuration..."
     kubeadm reset -f || true
@@ -707,7 +1060,7 @@ install_dependencies_generic() {
     echo "- curl"
     echo "- containerd"
     echo "- kubeadm, kubelet, kubectl"
-    echo "- iptables, conntrack, socat, ethtool, iproute2"
+    echo "- iptables, conntrack, socat, ethtool, iproute2, crictl/cri-tools"
     
     # Try to install iptables if not present
     if ! command -v iptables &> /dev/null; then
@@ -727,15 +1080,15 @@ install_dependencies_generic() {
 
     # Try to install other useful dependencies if package manager is available
     if command -v apt-get &> /dev/null; then
-        apt-get install -y conntrack socat ethtool iproute2 || true
+        apt-get install -y conntrack socat ethtool iproute2 cri-tools || true
     elif command -v dnf &> /dev/null; then
-        dnf install -y conntrack-tools socat ethtool iproute || true
+        dnf install -y conntrack-tools socat ethtool iproute cri-tools || true
     elif command -v yum &> /dev/null; then
-        yum install -y conntrack-tools socat ethtool iproute || true
+        yum install -y conntrack-tools socat ethtool iproute cri-tools || true
     elif command -v zypper &> /dev/null; then
-        zypper install -y conntrack-tools socat ethtool iproute2 || true
+        zypper install -y conntrack-tools socat ethtool iproute2 cri-tools || true
     elif command -v pacman &> /dev/null; then
-        pacman -Sy --noconfirm conntrack-tools socat ethtool iproute2 || true
+        pacman -Sy --noconfirm conntrack-tools socat ethtool iproute2 crictl || true
     fi
 }
 
@@ -746,10 +1099,8 @@ setup_containerd_generic() {
     
     # Try to configure containerd if it's installed
     if command -v containerd &> /dev/null; then
-        mkdir -p /etc/containerd
-        containerd config default | tee /etc/containerd/config.toml
-        sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-        systemctl restart containerd
+        configure_containerd_toml
+        configure_crictl containerd
     else
         echo "containerd not found. Please install it manually."
     fi
@@ -795,12 +1146,17 @@ while [[ $# -gt 0 ]]; do
         --help)
             show_help
             ;;
+        --cri)
+            CRI=$2
+            shift 2
+            ;;
         --node-type)
             NODE_TYPE=$2
             shift 2
             ;;
         --kubernetes-version)
             K8S_VERSION=$2
+            K8S_VERSION_USER_SET="true"
             shift 2
             ;;
         --join-token)
@@ -846,9 +1202,22 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+if [ -z "$K8S_VERSION" ]; then
+    echo "Determining latest stable Kubernetes minor version..."
+    STABLE_VER=$(curl -fsSL https://dl.k8s.io/release/stable.txt 2>/dev/null || true)
+    if echo "$STABLE_VER" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
+        K8S_VERSION=$(echo "$STABLE_VER" | sed -E 's/^v([0-9]+\.[0-9]+)\..*/\1/')
+        echo "Using detected stable Kubernetes minor: ${K8S_VERSION}"
+    else
+        K8S_VERSION="1.32"
+        echo "Warning: Could not detect stable version; falling back to ${K8S_VERSION}"
+    fi
+fi
+
 echo "Starting Kubernetes initialization script..."
 echo "Node type: ${NODE_TYPE}"
-echo "Kubernetes Version: ${K8S_VERSION}"
+echo "Kubernetes Version (minor): ${K8S_VERSION}"
+echo "Container Runtime: ${CRI}"
 
 # Detect distribution
 detect_distribution
@@ -947,26 +1316,62 @@ sysctl --system
 case "$DISTRO_NAME" in
     debian|ubuntu)
         install_dependencies_debian
-        setup_containerd_debian
+        if [ "$CRI" = "containerd" ]; then
+            setup_containerd_debian
+        elif [ "$CRI" = "crio" ]; then
+            setup_crio_debian
+        else
+            echo "Unsupported CRI: $CRI"; exit 1
+        fi
         setup_kubernetes_debian
         cleanup_debian
         ;;
     centos|rhel|fedora|rocky|almalinux)
         echo "Setting up RHEL/Fedora based distribution..."
         install_dependencies_rhel
-        setup_containerd_rhel
+        if [ "$CRI" = "containerd" ]; then
+            setup_containerd_rhel
+        elif [ "$CRI" = "crio" ]; then
+            echo "CRI-O selected. Attempting installation..."
+            if ! setup_crio_rhel; then
+                echo "ERROR: CRI-O installation failed or repository unavailable for $DISTRO_NAME $DISTRO_VERSION"
+                exit 1
+            fi
+        else
+            echo "Unsupported CRI: $CRI"; exit 1
+        fi
         setup_kubernetes_rhel
         cleanup_rhel
         ;;
     suse|opensuse*)
         install_dependencies_suse
-        setup_containerd_suse
+        if [ "$CRI" = "containerd" ]; then
+            setup_containerd_suse
+        elif [ "$CRI" = "crio" ]; then
+            if ! warn_and_fail_if_suse_leap_crio_incompatible; then
+                exit 1
+            fi
+            echo "CRI-O selected. Attempting installation..."
+            zypper refresh
+            zypper install -y cri-o || echo "CRI-O may require specific repositories on your SUSE version."
+            systemctl enable --now crio || true
+            configure_crictl crio
+        else
+            echo "Unsupported CRI: $CRI"; exit 1
+        fi
         setup_kubernetes_suse
         cleanup_suse
         ;;
     arch|manjaro)
         install_dependencies_arch
-        setup_containerd_arch
+        if [ "$CRI" = "containerd" ]; then
+            setup_containerd_arch
+        elif [ "$CRI" = "crio" ]; then
+            echo "CRI-O selected. Attempting installation..."
+            install_crio_arch || { echo "ERROR: Failed to install CRI-O on Arch"; exit 1; }
+        else
+            echo "Unsupported CRI: $CRI"; exit 1
+        fi
         setup_kubernetes_arch
         cleanup_arch
         ;;
@@ -982,6 +1387,10 @@ esac
 if [[ "$NODE_TYPE" == "master" ]]; then
     # Initialize master node
     echo "Initializing master node..."
+    # Append CRI socket if CRI-O is selected
+    if [ "$CRI" = "crio" ]; then
+        KUBEADM_ARGS="$KUBEADM_ARGS --cri-socket unix:///var/run/crio/crio.sock"
+    fi
     echo "Using kubeadm init arguments: $KUBEADM_ARGS"
     kubeadm init $KUBEADM_ARGS
 
@@ -1014,7 +1423,11 @@ if [[ "$NODE_TYPE" == "master" ]]; then
 else
     # Join worker node
     echo "Joining worker node to cluster..."
-    kubeadm join ${JOIN_ADDRESS} --token ${JOIN_TOKEN} --discovery-token-ca-cert-hash ${DISCOVERY_TOKEN_HASH}
+    JOIN_ARGS="${JOIN_ADDRESS} --token ${JOIN_TOKEN} --discovery-token-ca-cert-hash ${DISCOVERY_TOKEN_HASH}"
+    if [ "$CRI" = "crio" ]; then
+        JOIN_ARGS="$JOIN_ARGS --cri-socket unix:///var/run/crio/crio.sock"
+    fi
+    kubeadm join $JOIN_ARGS
     
     echo "Worker node has joined the cluster!"
 fi

@@ -86,6 +86,14 @@ common_cleanup() {
     systemctl stop kubelet || true
     systemctl disable kubelet || true
 
+    # Stop CRI runtimes where safe
+    # Do not stop containerd to avoid impacting Docker; we only reset its config later.
+    if systemctl list-unit-files | grep -q '^crio\.service'; then
+        echo "Stopping and disabling CRI-O service..."
+        systemctl stop crio || true
+        systemctl disable crio || true
+    fi
+
     # Reset kubeadm if present to clean cluster state
     if command -v kubeadm &> /dev/null; then
         echo "Resetting kubeadm cluster state..."
@@ -179,6 +187,12 @@ common_cleanup() {
     echo "Cleanup: Removing .kube directory and config for root user at $ROOT_HOME"
     rm -rf "$ROOT_HOME/.kube" || true
     rm -f "$ROOT_HOME/.kube/config" || true
+
+    # Remove crictl configuration
+    if [ -f /etc/crictl.yaml ]; then
+        echo "Removing crictl configuration..."
+        rm -f /etc/crictl.yaml || true
+    fi
     
     # Clean up all users' .kube/config files
     for user_home in /home/*; do
@@ -229,21 +243,21 @@ cleanup_debian() {
     
     # First round: Remove packages normally
     echo "Removing packages (first round)..."
-    apt-get remove -y kubeadm kubectl kubelet kubernetes-cni || true
+    apt-get remove -y kubeadm kubectl kubelet kubernetes-cni cri-o cri-o-runc || true
     
     # Second round: Purge packages
     echo "Purging packages (second round)..."
-    apt-get purge -y kubeadm kubectl kubelet kubernetes-cni || true
+    apt-get purge -y kubeadm kubectl kubelet kubernetes-cni cri-o cri-o-runc || true
     
     # Third round: Force purge with dpkg
     echo "Force purging packages (third round)..."
-    for pkg in kubeadm kubectl kubelet kubernetes-cni; do
+    for pkg in kubeadm kubectl kubelet kubernetes-cni cri-o cri-o-runc; do
         dpkg --force-all --purge $pkg 2>/dev/null || true
     done
     
     # Fourth round: Clean up any remaining configuration packages
     echo "Cleaning up remaining configurations..."
-    dpkg -l | awk '/^rc.*kube|kubernetes/ {print $2}' | xargs -r dpkg --force-all --purge
+    dpkg -l | awk '/^rc.*(kube|kubernetes|cri-o)/ {print $2}' | xargs -r dpkg --force-all --purge
     
     # Clean up dependencies
     echo "Removing unnecessary dependencies..."
@@ -323,6 +337,8 @@ cleanup_rhel() {
     # Remove packages
     echo "Removing Kubernetes packages..."
     $PKG_MGR remove -y kubeadm kubectl kubelet kubernetes-cni || true
+    echo "Removing CRI-O package if installed..."
+    $PKG_MGR remove -y cri-o || true
     
     # Clean up dependencies
     echo "Removing unnecessary dependencies..."
@@ -381,6 +397,8 @@ cleanup_suse() {
     # Remove packages
     echo "Removing Kubernetes packages..."
     zypper remove -y kubeadm kubectl kubelet kubernetes-cni || true
+    echo "Removing CRI-O package if installed..."
+    zypper remove -y cri-o || true
     
     # Clean up dependencies
     echo "Removing unnecessary dependencies..."
@@ -436,6 +454,12 @@ cleanup_arch() {
             pacman -Rns --noconfirm $pkg || true
         fi
     done
+
+    # Remove CRI-O package if installed
+    if pacman -Qi cri-o &>/dev/null; then
+        echo "Removing cri-o..."
+        pacman -Rns --noconfirm cri-o || true
+    fi
     
     # Remove binaries from /usr/local/bin if they exist
     echo "Removing Kubernetes binaries from /usr/local/bin..."
@@ -529,23 +553,23 @@ cleanup_generic() {
     # Try to remove packages using common package managers
     if command -v apt-get &> /dev/null; then
         echo "Attempting to remove packages with apt-get..."
-        apt-get remove -y kubeadm kubectl kubelet kubernetes-cni || true
-        apt-get purge -y kubeadm kubectl kubelet kubernetes-cni || true
+        apt-get remove -y kubeadm kubectl kubelet kubernetes-cni cri-o cri-o-runc || true
+        apt-get purge -y kubeadm kubectl kubelet kubernetes-cni cri-o cri-o-runc || true
         apt-get autoremove -y || true
     elif command -v dnf &> /dev/null; then
         echo "Attempting to remove packages with dnf..."
-        dnf remove -y kubeadm kubectl kubelet kubernetes-cni || true
+        dnf remove -y kubeadm kubectl kubelet kubernetes-cni cri-o || true
         dnf autoremove -y || true
     elif command -v yum &> /dev/null; then
         echo "Attempting to remove packages with yum..."
-        yum remove -y kubeadm kubectl kubelet kubernetes-cni || true
+        yum remove -y kubeadm kubectl kubelet kubernetes-cni cri-o || true
         yum autoremove -y || true
     elif command -v zypper &> /dev/null; then
         echo "Attempting to remove packages with zypper..."
-        zypper remove -y kubeadm kubectl kubelet kubernetes-cni || true
+        zypper remove -y kubeadm kubectl kubelet kubernetes-cni cri-o || true
     elif command -v pacman &> /dev/null; then
         echo "Attempting to remove packages with pacman..."
-        pacman -Rns --noconfirm kubeadm kubectl kubelet || true
+        pacman -Rns --noconfirm kubeadm kubectl kubelet cri-o || true
     else
         echo "No supported package manager found. Please remove Kubernetes packages manually."
     fi

@@ -38,7 +38,7 @@ write_files:
       
       # Phase 1: Execute setup-k8s.sh
       echo "Starting Kubernetes setup (master node)..." > /dev/console
-      /tmp/setup-k8s.sh --node-type master {{K8S_VERSION_ARG}} > /tmp/setup-k8s.log 2>&1
+      /tmp/setup-k8s.sh --node-type master {{K8S_VERSION_ARG}} {{SETUP_EXTRA_ARGS}} > /tmp/setup-k8s.log 2>&1
       SETUP_EXIT_CODE=$?
       
       echo "Setup completed with exit code: $SETUP_EXIT_CODE" > /dev/console

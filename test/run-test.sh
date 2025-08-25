@@ -15,6 +15,8 @@ CLEANUP_K8S_SCRIPT="$SCRIPT_DIR/../hack/cleanup-k8s.sh"
 
 # K8s version (can be overridden by command line option)
 K8S_VERSION=""
+# Extra args to pass to setup-k8s.sh
+SETUP_EXTRA_ARGS=()
 
 # Timeout settings (seconds)
 TIMEOUT_TOTAL=1200    # 20 minutes
@@ -44,6 +46,8 @@ Usage: $0 [OPTIONS] <distro-name>
 Options:
   --all, -a                Test all distributions sequentially
   --k8s-version <version>   Kubernetes version to test (e.g., 1.32, 1.31, 1.30)
+  --setup-args ARGS         Extra args for setup-k8s.sh (use quotes)
+  --                        Treat the rest as setup-args
   --help, -h                Show this help message
 
 Supported distributions:
@@ -221,20 +225,40 @@ generate_cloud_init() {
     local setup_k8s_b64=$(base64 -w 0 < "$SETUP_K8S_SCRIPT")
     local cleanup_k8s_b64=$(base64 -w 0 < "$CLEANUP_K8S_SCRIPT")
     
-    # Prepare K8s version argument
+    # Prepare K8s version argument (resolve on host if not provided)
     local k8s_version_arg=""
+    local setup_extra_args_str=""
+    if [ -z "$K8S_VERSION" ]; then
+        log_info "Resolving latest stable Kubernetes minor on host..."
+        local stable_txt
+        stable_txt=$(curl -fsSL https://dl.k8s.io/release/stable.txt 2>/dev/null || true)
+        if echo "$stable_txt" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
+            K8S_VERSION=$(echo "$stable_txt" | sed -E 's/^v([0-9]+\.[0-9]+)\..*/\1/')
+            log_success "Detected stable minor: $K8S_VERSION"
+        else
+            K8S_VERSION="1.32"
+            log_warn "Failed to detect stable version; falling back to $K8S_VERSION"
+        fi
+    fi
     if [ -n "$K8S_VERSION" ]; then
         k8s_version_arg="--kubernetes-version $K8S_VERSION"
         log_info "Using Kubernetes version: $K8S_VERSION"
     else
         log_info "Using default Kubernetes version from setup-k8s.sh"
     fi
+
+    # Join extra args with spaces, escape sed-sensitive chars minimally
+    if [ ${#SETUP_EXTRA_ARGS[@]} -gt 0 ]; then
+        setup_extra_args_str="${SETUP_EXTRA_ARGS[*]}"
+        log_info "Passing extra setup args: $setup_extra_args_str"
+    fi
     
-    # Process cloud-init template
-    sed -e "s/{{LOGIN_USER}}/$login_user/g" \
-        -e "s/{{SETUP_K8S_CONTENT}}/$setup_k8s_b64/g" \
-        -e "s/{{CLEANUP_K8S_CONTENT}}/$cleanup_k8s_b64/g" \
-        -e "s/{{K8S_VERSION_ARG}}/$k8s_version_arg/g" \
+    # Process cloud-init template (use a safe delimiter to avoid '/' conflicts)
+    sed -e "s|{{LOGIN_USER}}|$login_user|g" \
+        -e "s|{{SETUP_K8S_CONTENT}}|$setup_k8s_b64|g" \
+        -e "s|{{CLEANUP_K8S_CONTENT}}|$cleanup_k8s_b64|g" \
+        -e "s|{{K8S_VERSION_ARG}}|$k8s_version_arg|g" \
+        -e "s|{{SETUP_EXTRA_ARGS}}|$setup_extra_args_str|g" \
         "$CLOUD_INIT_TEMPLATE" > "$temp_dir/user-data"
     
     # Generate meta-data
@@ -596,6 +620,19 @@ main() {
             --k8s-version)
                 K8S_VERSION="$2"
                 shift 2
+                ;;
+            --setup-args)
+                # Split quoted string into array
+                IFS=' ' read -r -a SETUP_EXTRA_ARGS <<< "$2"
+                shift 2
+                ;;
+            --)
+                shift
+                # Everything after -- goes into SETUP_EXTRA_ARGS as-is
+                while [[ $# -gt 0 ]]; do
+                    SETUP_EXTRA_ARGS+=("$1")
+                    shift
+                done
                 ;;
             -*)
                 log_error "Unknown option: $1"
