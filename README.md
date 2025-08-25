@@ -68,28 +68,37 @@ For unsupported distributions, the scripts will attempt to use generic methods b
 
 Download and run the installation script:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh | sudo bash -s -- [options]
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- [options]
 ```
 
 Manual download and inspection:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh -o setup-k8s.sh
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh -o setup-k8s.sh
 less setup-k8s.sh
 chmod +x setup-k8s.sh
+sudo ./setup-k8s.sh [options]
 ```
 
 ### Master Node Installation
 
-Basic setup:
+Basic setup with default containerd:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh | sudo bash -s -- --node-type master
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- --node-type master
+```
+
+Setup with CRI-O runtime:
+```bash
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- \
+  --node-type master \
+  --cri crio
 ```
 
 Advanced setup:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh | sudo bash -s -- \
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- \
   --node-type master \
   --kubernetes-version 1.29 \
+  --cri containerd \
   --pod-network-cidr 192.168.0.0/16 \
   --apiserver-advertise-address 192.168.1.10 \
   --service-cidr 10.96.0.0/12
@@ -105,12 +114,15 @@ kubeadm token create --print-join-command
 
 Join worker node:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh | sudo bash -s -- \
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- \
   --node-type worker \
+  --cri containerd \
   --join-token <token> \
   --join-address <address> \
   --discovery-token-hash <hash>
 ```
+
+Note: The worker node must use the same CRI as the master node.
 
 ### Installation Options Reference
 
@@ -133,7 +145,7 @@ curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/setup-k8s.sh | su
 
 Execute the cleanup script:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/cleanup-k8s.sh | sudo bash -s -- [options]
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/cleanup-k8s.sh | sudo bash -s -- [options]
 ```
 
 ### Worker Node Cleanup
@@ -146,7 +158,7 @@ kubectl delete node <worker-node-name>
 
 2. Run cleanup on worker:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/cleanup-k8s.sh | sudo bash -s -- --node-type worker
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/cleanup-k8s.sh | sudo bash -s -- --node-type worker
 ```
 
 ### Master Node Cleanup
@@ -156,7 +168,7 @@ curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/cleanup-k8s.sh | 
 1. Ensure all worker nodes are removed first
 2. Run cleanup:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/hack/cleanup-k8s.sh | sudo bash -s -- --node-type master
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/cleanup-k8s.sh | sudo bash -s -- --node-type master
 ```
 
 ### Cleanup Options Reference
@@ -195,20 +207,24 @@ kubectl get pods --all-namespaces
 ### Debian/Ubuntu
 - The scripts use apt/apt-get for package management
 - Packages are held using apt-mark to prevent automatic updates
+- Both containerd and CRI-O are fully supported
 
 ### RHEL/CentOS/Fedora
 - The scripts automatically detect and use dnf or yum as appropriate
 - For RHEL, you may need to enable additional repositories
 - Package version locking is handled via versionlock
+- CRI-O support requires appropriate repository configuration
 
 ### SUSE
 - The scripts use zypper for package management
 - For SLES, you may need a subscription for some repositories
+- Container runtime support varies by SUSE version
 
 ### Arch Linux
 - The scripts use pacman for package management
 - Kubernetes packages may need to be installed from the AUR on some systems
 - For AUR packages, you may need to manually install an AUR helper like yay or paru
+- CRI-O installation may require AUR helper
 
 ## Troubleshooting
 
@@ -248,26 +264,26 @@ If the script fails to detect your distribution correctly:
 
 | Distribution | Version | Test Date | Status | Notes |
 |-------------|---------|-----------|---------|-------|
-| Ubuntu | 24.04 LTS | 2025-08-23 | ✅ Tested | |
-| Ubuntu | 22.04 LTS | 2025-08-23 | ✅ Tested | |
-| Ubuntu | 20.04 LTS | 2025-08-23 | ✅ Tested | |
-| Debian | 12 (Bookworm) | 2025-08-23 | ✅ Tested | |
-| Debian | 11 (Bullseye) | 2025-08-23 | ✅ Tested | |
-| RHEL | 9 | 2025-03-05 | 🚫 Untested | Subscription required |
-| RHEL | 8 | 2025-03-05 | 🚫 Untested | Subscription required |
-| CentOS | 7 | 2025-03-05 | 🚫 Untested | EOL |
-| CentOS Stream | 9 | 2025-08-23 | ✅ Tested | |
-| CentOS Stream | 8 | 2025-03-05 | 🚫 Untested | EOL |
-| Rocky Linux | 9 | 2025-08-23 | ✅ Tested | |
-| Rocky Linux | 8 | 2025-08-23 | ⚠️ Partial | Kernel 4.18 - K8s 1.28 only¹ |
-| AlmaLinux | 9 | 2025-08-23 | ✅ Tested | |
-| AlmaLinux | 8 | 2025-08-23 | ⚠️ Partial | Kernel 4.18 - K8s 1.28 only¹ |
-| Fedora | 41 | 2025-08-23 | ✅ Tested | |
-| Fedora | 39 | 2025-03-05 | 🚫 Untested | EOL |
-| openSUSE | Leap 15.5 | 2025-08-23 | ✅ Tested | |
-| SLES | 15 SP5 | 2025-03-05 | 🚫 Untested | Subscription required |
-| Arch Linux | Rolling | 2025-08-23 | ✅ Tested | |
-| Manjaro | Rolling | 2025-03-05 | 🚫 Untested | No cloud image |
+| Ubuntu | 24.04 LTS | 2025-08-25 | ✅ Tested | |
+| Ubuntu | 22.04 LTS | 2025-08-25 | ✅ Tested | |
+| Ubuntu | 20.04 LTS | 2025-08-25 | ✅ Tested | |
+| Debian | 12 (Bookworm) | 2025-08-25 | ✅ Tested | |
+| Debian | 11 (Bullseye) | 2025-08-25 | ✅ Tested | |
+| RHEL | 9 | 2025-08-25 | 🚫 Untested | Subscription required |
+| RHEL | 8 | 2025-08-25 | 🚫 Untested | Subscription required |
+| CentOS | 7 | 2025-08-25 | 🚫 Untested | EOL |
+| CentOS Stream | 9 | 2025-08-25 | ✅ Tested | |
+| CentOS Stream | 8 | 2025-08-25 | 🚫 Untested | EOL |
+| Rocky Linux | 9 | 2025-08-25 | ✅ Tested | |
+| Rocky Linux | 8 | 2025-08-25 | ⚠️ Partial | Kernel 4.18 - K8s 1.28 only¹ |
+| AlmaLinux | 9 | 2025-08-25 | ✅ Tested | |
+| AlmaLinux | 8 | 2025-08-25 | ⚠️ Partial | Kernel 4.18 - K8s 1.28 only¹ |
+| Fedora | 41 | 2025-08-25 | ✅ Tested | |
+| Fedora | 39 | 2025-08-25 | 🚫 Untested | EOL |
+| openSUSE | Leap 15.5 | 2025-08-25 | ✅ Tested | |
+| SLES | 15 SP5 | 2025-08-25 | 🚫 Untested | Subscription required |
+| Arch Linux | Rolling | 2025-08-25 | ✅ Tested | |
+| Manjaro | Rolling | 2025-08-25 | 🚫 Untested | No cloud image |
 
 Status Legend:
 - ✅ Tested: Fully tested and working
