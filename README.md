@@ -205,26 +205,20 @@ kubectl get pods --all-namespaces
 ## Distribution-Specific Notes
 
 ### Debian/Ubuntu
-- The scripts use apt/apt-get for package management
+- Uses apt/apt-get for package management
 - Packages are held using apt-mark to prevent automatic updates
-- Both containerd and CRI-O are fully supported
 
 ### RHEL/CentOS/Fedora
-- The scripts automatically detect and use dnf or yum as appropriate
-- For RHEL, you may need to enable additional repositories
-- Package version locking is handled via versionlock
-- CRI-O support requires appropriate repository configuration
+- Automatically detects and uses dnf or yum
+- Package version locking handled via versionlock plugin
 
 ### SUSE
-- The scripts use zypper for package management
-- For SLES, you may need a subscription for some repositories
-- Container runtime support varies by SUSE version
+- Uses zypper for package management
+- SLES may require subscription for repositories
 
 ### Arch Linux
-- The scripts use pacman for package management
-- Kubernetes packages may need to be installed from the AUR on some systems
-- For AUR packages, you may need to manually install an AUR helper like yay or paru
-- CRI-O installation may require AUR helper
+- Uses pacman and AUR (Arch User Repository)
+- Automatically installs yay AUR helper if needed
 
 ## Troubleshooting
 
