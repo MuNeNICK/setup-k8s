@@ -144,11 +144,7 @@ main() {
     if [ "$CRI" = "containerd" ]; then
         setup_containerd_${DISTRO_FAMILY}
     elif [ "$CRI" = "crio" ]; then
-        if [ "$DISTRO_FAMILY" = "arch" ]; then
-            install_crio_arch
-        else
-            setup_crio_${DISTRO_FAMILY}
-        fi
+        setup_crio_${DISTRO_FAMILY}
     else
         echo "Unsupported CRI: $CRI"
         exit 1

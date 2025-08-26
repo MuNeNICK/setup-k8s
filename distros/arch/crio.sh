@@ -4,8 +4,8 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../../common/helpers.sh"
 
-# Arch: install CRI-O via pacman or AUR fallback
-install_crio_arch() {
+# Arch: setup CRI-O via pacman or AUR fallback
+setup_crio_arch() {
     echo "Installing CRI-O on Arch..."
     
     # Ensure iptables-nft is installed (should already be done in dependencies.sh for CRI-O)
