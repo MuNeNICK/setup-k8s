@@ -148,7 +148,7 @@ controlPlaneEndpoint: $CP_ENDPOINT
 EOF
     fi
 
-    # Add KubeProxyConfiguration for IPVS mode
+    # Add KubeProxyConfiguration for non-default proxy modes
     if [ "$PROXY_MODE" = "ipvs" ]; then
         cat >> "$config_file" <<EOF
 ---
@@ -159,6 +159,13 @@ ipvs:
   scheduler: "rr"
   strictARP: true
 EOF
+    elif [ "$PROXY_MODE" = "nftables" ]; then
+        cat >> "$config_file" <<EOF
+---
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+mode: nftables
+EOF
     fi
     
     echo "$config_file"
@@ -168,8 +175,8 @@ EOF
 initialize_master() {
     echo "Initializing master node..."
     
-    # Generate configuration file if IPVS mode or complex config needed
-    if [ "$PROXY_MODE" = "ipvs" ] || [ -n "$KUBEADM_ARGS" ]; then
+    # Generate configuration file if non-default proxy mode or complex config needed
+    if [ "$PROXY_MODE" != "iptables" ] || [ -n "$KUBEADM_ARGS" ]; then
         CONFIG_FILE=$(generate_kubeadm_config)
         echo "Using kubeadm configuration file: $CONFIG_FILE"
         kubeadm init --config "$CONFIG_FILE"

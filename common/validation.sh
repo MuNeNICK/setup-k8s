@@ -47,9 +47,29 @@ validate_cri() {
 
 # Validate proxy mode selection
 validate_proxy_mode() {
-    if [[ "$PROXY_MODE" != "iptables" && "$PROXY_MODE" != "ipvs" ]]; then
-        echo "Error: Proxy mode must be either 'iptables' or 'ipvs'"
+    if [[ "$PROXY_MODE" != "iptables" && "$PROXY_MODE" != "ipvs" && "$PROXY_MODE" != "nftables" ]]; then
+        echo "Error: Proxy mode must be 'iptables', 'ipvs', or 'nftables'"
         exit 1
+    fi
+    
+    # Check Kubernetes version requirement for nftables
+    if [[ "$PROXY_MODE" == "nftables" ]]; then
+        # Extract major and minor version numbers
+        local k8s_major=$(echo "$K8S_VERSION" | cut -d. -f1)
+        local k8s_minor=$(echo "$K8S_VERSION" | cut -d. -f2)
+        
+        # nftables requires Kubernetes 1.29 or higher
+        if [[ "$k8s_major" -lt 1 ]] || [[ "$k8s_major" -eq 1 && "$k8s_minor" -lt 29 ]]; then
+            echo "Error: nftables proxy mode requires Kubernetes 1.29 or higher"
+            echo "Current version: $K8S_VERSION"
+            echo "Please use --kubernetes-version 1.29 or higher, or choose a different proxy mode"
+            exit 1
+        fi
+        
+        # Warn if using alpha version
+        if [[ "$k8s_major" -eq 1 && "$k8s_minor" -lt 31 ]]; then
+            echo "Warning: nftables is in alpha status in Kubernetes $K8S_VERSION (beta from 1.31+)"
+        fi
     fi
 }
 
@@ -60,7 +80,7 @@ show_setup_help() {
     echo "Options:"
     echo "  --node-type    Node type (master or worker)"
     echo "  --cri          Container runtime (containerd or crio). Default: containerd"
-    echo "  --proxy-mode   Kube-proxy mode (iptables or ipvs). Default: iptables"
+    echo "  --proxy-mode   Kube-proxy mode (iptables, ipvs, or nftables). Default: iptables"
     echo "  --pod-network-cidr   Pod network CIDR (e.g., 192.168.0.0/16)"
     echo "  --apiserver-advertise-address   API server advertise address"
     echo "  --control-plane-endpoint   Control plane endpoint"

@@ -18,6 +18,12 @@ install_dependencies_debian() {
         apt-get install -y ipvsadm ipset || true
     fi
     
+    # Install nftables package only if nftables mode is selected
+    if [ "$PROXY_MODE" = "nftables" ]; then
+        echo "Installing nftables package for nftables proxy mode..."
+        apt-get install -y nftables || true
+    fi
+    
     # If ebtables is unavailable, try arptables as a fallback
     if ! dpkg -s ebtables >/dev/null 2>&1; then
         apt-get install -y arptables || true

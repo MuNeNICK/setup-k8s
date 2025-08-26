@@ -8,11 +8,16 @@ source "${SCRIPT_DIR}/../../common/helpers.sh"
 install_crio_arch() {
     echo "Installing CRI-O on Arch..."
     
-    # Replace iptables with iptables-nft to avoid conflicts with AUR packages
-    if pacman -Qi iptables &>/dev/null; then
-        echo "Replacing iptables with iptables-nft to resolve conflicts..."
-        pacman -Rdd --noconfirm iptables || true
+    # Ensure iptables-nft is installed (should already be done in dependencies.sh for CRI-O)
+    if ! pacman -Qi iptables-nft &>/dev/null; then
+        # If somehow iptables-nft is not installed yet, install it now
+        if pacman -Qi iptables &>/dev/null; then
+            echo "Replacing iptables with iptables-nft to resolve conflicts..."
+            pacman -Rdd --noconfirm iptables || true
+        fi
         pacman -S --noconfirm iptables-nft || true
+    else
+        echo "iptables-nft already installed (as expected for CRI-O)"
     fi
     
     # Always use AUR path to avoid repo-driven iptables-nft conflicts

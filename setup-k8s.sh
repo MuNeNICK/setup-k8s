@@ -134,6 +134,11 @@ main() {
         check_ipvs_availability
     fi
     
+    # Check nftables availability if nftables mode is requested
+    if [ "$PROXY_MODE" = "nftables" ]; then
+        check_nftables_availability
+    fi
+    
     # Setup container runtime
     echo "Setting up container runtime: ${CRI}..."
     if [ "$CRI" = "containerd" ]; then

@@ -112,6 +112,15 @@ curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo ba
   --pod-network-cidr 192.168.0.0/16
 ```
 
+Setup with nftables mode (requires K8s 1.29+):
+```bash
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- \
+  --node-type master \
+  --proxy-mode nftables \
+  --kubernetes-version 1.31 \
+  --pod-network-cidr 192.168.0.0/16
+```
+
 ### Worker Node Installation
 
 Obtain join information from master node:
@@ -137,7 +146,7 @@ Note: The worker node must use the same CRI as the master node.
 | Option | Description | Example |
 |--------|-------------|---------|
 | --node-type | Type of node (master/worker) | --node-type master |
-| --proxy-mode | Kube-proxy mode (iptables/ipvs) | --proxy-mode ipvs |
+| --proxy-mode | Kube-proxy mode (iptables/ipvs/nftables) | --proxy-mode nftables |
 | --kubernetes-version | Kubernetes version (1.28, 1.29, 1.30, 1.31, 1.32) | --kubernetes-version 1.28 |
 | --pod-network-cidr | Pod network CIDR | --pod-network-cidr 192.168.0.0/16 |
 | --apiserver-advertise-address | API server address | --apiserver-advertise-address 192.168.1.10 |
@@ -193,26 +202,50 @@ curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/cleanup-k8s.sh | sudo 
 
 ### Proxy Mode
 
-The script supports two kube-proxy modes:
+The script supports three kube-proxy modes:
 
 #### iptables (default)
 - Default mode that uses iptables for service proxy
-- Works on all systems with iptables support
+- Works on all Kubernetes versions
 - Lower CPU usage for small to medium clusters
+- Most compatible with existing network plugins
 
 #### IPVS
 - High-performance mode using IP Virtual Server
 - Better for large clusters (1000+ services)
 - Provides multiple load balancing algorithms
+- Works on all Kubernetes versions
 - Requires kernel modules: ip_vs, ip_vs_rr, ip_vs_wrr, ip_vs_sh
 - Requires packages: ipvsadm, ipset
 
-To use IPVS mode:
+#### nftables (K8s 1.29+)
+- Next-generation packet filtering framework
+- **Best performance** for large clusters (5000+ services)
+- Significantly faster rule updates than iptables
+- More efficient packet processing in kernel
+- Alpha in K8s 1.29-1.30, Beta in K8s 1.31+
+- Requires kernel >= 3.13 (>= 4.14 recommended)
+- Requires packages: nftables
+- **Note**: NodePort services only accessible on default IPs (security improvement)
+
+##### Performance Comparison
+In clusters with 5000-10000 services:
+- nftables p50 latency matches iptables p01 latency
+- nftables processes rule changes 10x faster than iptables
+
+##### Usage Examples
+
+IPVS mode:
 ```bash
 ./setup-k8s.sh --node-type master --proxy-mode ipvs
 ```
 
-Note: If IPVS prerequisites are not met, the script will automatically fall back to iptables mode.
+nftables mode (requires K8s 1.29+):
+```bash
+./setup-k8s.sh --node-type master --proxy-mode nftables --kubernetes-version 1.31
+```
+
+**Note**: If prerequisites are not met, the script will automatically fall back to iptables mode.
 
 ### CNI Setup
 Install a Container Network Interface (CNI) plugin:
@@ -285,6 +318,31 @@ kubectl get configmap -n kube-system kube-proxy -o yaml | grep mode
 ```bash
 sudo ipvsadm -Ln
 ```
+
+### nftables Mode Issues
+- Check kernel module availability:
+```bash
+lsmod | grep nf_tables
+```
+- Verify nft is installed:
+```bash
+which nft
+```
+- Check kernel version (>= 3.13 required):
+```bash
+uname -r
+```
+- View nftables rules:
+```bash
+sudo nft list ruleset
+```
+- Check Kubernetes version supports nftables (>= 1.29):
+```bash
+kubectl version --short
+```
+- If NodePort services are not accessible:
+  - nftables mode only allows NodePort on default IPs
+  - Use the node's primary IP address, not 127.0.0.1
 
 ### Cleanup Issues
 - Ensure proper node drainage

@@ -28,6 +28,12 @@ install_dependencies_rhel() {
         $PKG_MGR install -y ipvsadm ipset || true
     fi
     
+    # Install nftables package only if nftables mode is selected
+    if [ "$PROXY_MODE" = "nftables" ]; then
+        echo "Installing nftables package for nftables proxy mode..."
+        $PKG_MGR install -y nftables || true
+    fi
+    
     # Check if iptables was installed successfully
     if ! command -v iptables &> /dev/null; then
         echo "Warning: iptables installation failed. Trying alternative package..."

@@ -11,7 +11,7 @@ DISTRO_NAME=""
 DISTRO_VERSION=""
 DISTRO_FAMILY=""
 CRI="containerd"  # Container runtime interface (containerd, crio, etc.)
-PROXY_MODE="iptables"  # iptables or ipvs
+PROXY_MODE="iptables"  # iptables, ipvs, or nftables (nftables requires K8s 1.29+)
 
 # Additional variables for cleanup
 FORCE=false

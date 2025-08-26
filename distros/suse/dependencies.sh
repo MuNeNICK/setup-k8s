@@ -13,4 +13,10 @@ install_dependencies_suse() {
         echo "Installing IPVS packages for IPVS proxy mode..."
         zypper install -y ipvsadm ipset || true
     fi
+    
+    # Install nftables package only if nftables mode is selected
+    if [ "$PROXY_MODE" = "nftables" ]; then
+        echo "Installing nftables package for nftables proxy mode..."
+        zypper install -y nftables || true
+    fi
 }

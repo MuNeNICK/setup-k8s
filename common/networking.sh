@@ -31,6 +31,29 @@ EOF
         modprobe ip_vs_sh || true
         modprobe nf_conntrack || true
     fi
+    
+    # Add nftables modules if nftables mode is selected
+    if [ "$PROXY_MODE" = "nftables" ]; then
+        echo "Enabling nftables kernel modules..."
+        cat >> /etc/modules-load.d/k8s.conf <<EOF
+nf_tables
+nf_tables_ipv4
+nf_tables_ipv6
+nft_chain_nat_ipv4
+nft_chain_nat_ipv6
+nf_nat
+nf_conntrack
+EOF
+        
+        # Load nftables modules
+        modprobe nf_tables || true
+        modprobe nf_tables_ipv4 || true
+        modprobe nf_tables_ipv6 || true
+        modprobe nft_chain_nat_ipv4 || true
+        modprobe nft_chain_nat_ipv6 || true
+        modprobe nf_nat || true
+        modprobe nf_conntrack || true
+    fi
 }
 
 # Configure network settings
@@ -58,6 +81,12 @@ reset_iptables() {
     if command -v ipvsadm &> /dev/null; then
         echo "Resetting IPVS rules..."
         ipvsadm -C || true
+    fi
+    
+    # Reset nftables rules if nft is available
+    if command -v nft &> /dev/null; then
+        echo "Resetting nftables rules..."
+        nft flush ruleset || true
     fi
 }
 
@@ -88,6 +117,48 @@ check_ipvs_availability() {
     if [ "$ipvs_available" = false ] && [ "$PROXY_MODE" = "ipvs" ]; then
         echo "Error: IPVS mode requested but IPVS prerequisites are not met"
         echo "Please ensure ipvsadm and ipset are installed and IPVS kernel modules are available"
+        echo "Falling back to iptables mode..."
+        PROXY_MODE="iptables"
+    fi
+    
+    return 0
+}
+
+# Check nftables availability
+check_nftables_availability() {
+    local nftables_available=true
+    
+    echo "Checking nftables availability..."
+    
+    # Note if iptables-nft is being used (common on Arch with CRI-O)
+    if command -v iptables &> /dev/null && iptables --version 2>/dev/null | grep -q nf_tables; then
+        echo "Note: iptables-nft detected (iptables using nftables backend)"
+    fi
+    
+    # Check if nftables modules can be loaded
+    if ! modprobe -n nf_tables &>/dev/null; then
+        echo "Warning: nftables kernel module not available"
+        nftables_available=false
+    fi
+    
+    # Check if nft command is installed
+    if ! command -v nft &> /dev/null; then
+        echo "Warning: nft command not found"
+        nftables_available=false
+    fi
+    
+    # Check kernel version (nftables requires >= 3.13, recommended >= 4.14)
+    local kernel_version=$(uname -r | cut -d. -f1,2 | tr -d .)
+    if [ "$kernel_version" -lt 313 ]; then
+        echo "Warning: Kernel version too old for nftables (requires >= 3.13)"
+        nftables_available=false
+    elif [ "$kernel_version" -lt 414 ]; then
+        echo "Warning: Kernel version $kernel_version may have limited nftables support (>= 4.14 recommended)"
+    fi
+    
+    if [ "$nftables_available" = false ] && [ "$PROXY_MODE" = "nftables" ]; then
+        echo "Error: nftables mode requested but prerequisites are not met"
+        echo "Please ensure nftables package is installed and kernel supports nftables"
         echo "Falling back to iptables mode..."
         PROXY_MODE="iptables"
     fi
