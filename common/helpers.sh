@@ -281,3 +281,52 @@ show_versions() {
     kubectl version --client || true
     kubeadm version || true
 }
+
+# === Cleanup helper functions ===
+
+# Stop Kubernetes services
+stop_kubernetes_services() {
+    echo "Stopping Kubernetes services..."
+    systemctl stop kubelet || true
+    systemctl disable kubelet || true
+}
+
+# Stop CRI services
+stop_cri_services() {
+    echo "Checking and stopping CRI services..."
+    
+    # Stop CRI-O if present
+    if systemctl list-unit-files | grep -q '^crio\.service'; then
+        echo "Stopping and disabling CRI-O service..."
+        systemctl stop crio || true
+        systemctl disable crio || true
+    fi
+    
+    # Note: containerd is not stopped to avoid impacting Docker
+    # Only its configuration will be reset later with reset_containerd_config()
+}
+
+# Remove Kubernetes configuration files
+remove_kubernetes_configs() {
+    echo "Removing Kubernetes configuration files..."
+    rm -f /etc/default/kubelet
+    rm -rf /etc/kubernetes
+    rm -rf /etc/systemd/system/kubelet.service.d
+}
+
+# Reset Kubernetes cluster state
+reset_kubernetes_cluster() {
+    if command -v kubeadm &> /dev/null; then
+        echo "Resetting kubeadm cluster state..."
+        kubeadm reset -f || true
+    fi
+}
+
+# Conditionally cleanup CNI
+cleanup_cni_conditionally() {
+    if [ "$PRESERVE_CNI" = false ]; then
+        cleanup_cni
+    else
+        echo "Preserving CNI configurations as requested."
+    fi
+}

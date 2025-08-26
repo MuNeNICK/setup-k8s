@@ -106,40 +106,21 @@ main() {
     # Check Docker warning
     check_docker_warning
     
-    # Stop services first
-    echo "Stopping Kubernetes services..."
-    systemctl stop kubelet || true
-    systemctl disable kubelet || true
+    # Stop Kubernetes and CRI services
+    stop_kubernetes_services
+    stop_cri_services
     
-    # Stop CRI runtimes where safe
-    # Do not stop containerd to avoid impacting Docker; we only reset its config later.
-    if systemctl list-unit-files | grep -q '^crio\.service'; then
-        echo "Stopping and disabling CRI-O service..."
-        systemctl stop crio || true
-        systemctl disable crio || true
-    fi
+    # Reset cluster state
+    reset_kubernetes_cluster
     
-    # Reset kubeadm if present to clean cluster state
-    if command -v kubeadm &> /dev/null; then
-        echo "Resetting kubeadm cluster state..."
-        kubeadm reset -f || true
-    fi
-    
-    # Remove configuration files
-    echo "Removing common configuration files..."
-    rm -f /etc/default/kubelet
-    rm -rf /etc/kubernetes
-    rm -rf /etc/systemd/system/kubelet.service.d
+    # Remove Kubernetes configurations
+    remove_kubernetes_configs
     
     # Restore zram swap if it was disabled
     restore_zram_swap
     
-    # Clean up CNI configurations if not preserving
-    if [ "$PRESERVE_CNI" = false ]; then
-        cleanup_cni
-    else
-        echo "Preserving CNI configurations as requested."
-    fi
+    # Clean up CNI configurations conditionally
+    cleanup_cni_conditionally
     
     # Remove kernel modules and sysctl configurations
     cleanup_network_configs
