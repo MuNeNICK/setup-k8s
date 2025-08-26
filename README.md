@@ -104,6 +104,14 @@ curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo ba
   --service-cidr 10.96.0.0/12
 ```
 
+Setup with IPVS mode for better performance:
+```bash
+curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- \
+  --node-type master \
+  --proxy-mode ipvs \
+  --pod-network-cidr 192.168.0.0/16
+```
+
 ### Worker Node Installation
 
 Obtain join information from master node:
@@ -129,6 +137,7 @@ Note: The worker node must use the same CRI as the master node.
 | Option | Description | Example |
 |--------|-------------|---------|
 | --node-type | Type of node (master/worker) | --node-type master |
+| --proxy-mode | Kube-proxy mode (iptables/ipvs) | --proxy-mode ipvs |
 | --kubernetes-version | Kubernetes version (1.28, 1.29, 1.30, 1.31, 1.32) | --kubernetes-version 1.28 |
 | --pod-network-cidr | Pod network CIDR | --pod-network-cidr 192.168.0.0/16 |
 | --apiserver-advertise-address | API server address | --apiserver-advertise-address 192.168.1.10 |
@@ -181,6 +190,29 @@ curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/cleanup-k8s.sh | sudo 
 | --help | Show help message | --help |
 
 ## Post-Installation Configuration
+
+### Proxy Mode
+
+The script supports two kube-proxy modes:
+
+#### iptables (default)
+- Default mode that uses iptables for service proxy
+- Works on all systems with iptables support
+- Lower CPU usage for small to medium clusters
+
+#### IPVS
+- High-performance mode using IP Virtual Server
+- Better for large clusters (1000+ services)
+- Provides multiple load balancing algorithms
+- Requires kernel modules: ip_vs, ip_vs_rr, ip_vs_wrr, ip_vs_sh
+- Requires packages: ipvsadm, ipset
+
+To use IPVS mode:
+```bash
+./setup-k8s.sh --node-type master --proxy-mode ipvs
+```
+
+Note: If IPVS prerequisites are not met, the script will automatically fall back to iptables mode.
 
 ### CNI Setup
 Install a Container Network Interface (CNI) plugin:
@@ -235,6 +267,24 @@ journalctl -xeu kubelet
 - Verify network connectivity
 - Check token expiration (24-hour default)
 - Confirm firewall settings
+
+### IPVS Mode Issues
+- Check kernel module availability:
+```bash
+lsmod | grep ip_vs
+```
+- Verify ipvsadm is installed:
+```bash
+which ipvsadm
+```
+- Check kube-proxy mode:
+```bash
+kubectl get configmap -n kube-system kube-proxy -o yaml | grep mode
+```
+- View IPVS rules:
+```bash
+sudo ipvsadm -Ln
+```
 
 ### Cleanup Issues
 - Ensure proper node drainage

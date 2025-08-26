@@ -56,15 +56,29 @@ configure_containerd_toml() {
     systemctl restart containerd || true
 }
 
+# Helper: Get CRI socket path based on runtime
+get_cri_socket() {
+    case "$CRI" in
+        containerd)
+            echo "unix:///run/containerd/containerd.sock"
+            ;;
+        crio)
+            echo "unix:///var/run/crio/crio.sock"
+            ;;
+        docker)
+            echo "unix:///var/run/dockershim.sock"
+            ;;
+        *)
+            # Default to containerd if unknown
+            echo "unix:///run/containerd/containerd.sock"
+            ;;
+    esac
+}
+
 # Helper: configure crictl runtime endpoint
 configure_crictl() {
-    local runtime="$1"  # containerd|crio
-    local endpoint=""
-    if [ "$runtime" = "containerd" ]; then
-        endpoint="unix:///run/containerd/containerd.sock"
-    else
-        endpoint="unix:///var/run/crio/crio.sock"
-    fi
+    local runtime="$1"  # containerd|crio|docker
+    local endpoint=$(get_cri_socket)
     echo "Configuring crictl at /etc/crictl.yaml (endpoint: $endpoint)"
     cat > /etc/crictl.yaml <<EOF
 runtime-endpoint: $endpoint
@@ -75,15 +89,100 @@ pull-image-on-create: false
 EOF
 }
 
+# Helper: Generate kubeadm configuration for IPVS mode
+generate_kubeadm_config() {
+    local config_file="/tmp/kubeadm-config.yaml"
+    
+    echo "Generating kubeadm configuration..." >&2
+    
+    # Start with base configuration
+    cat > "$config_file" <<EOF
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: InitConfiguration
+EOF
+
+    # Add CRI socket if not using default containerd
+    if [ "$CRI" != "containerd" ]; then
+        local cri_socket=$(get_cri_socket)
+        cat >> "$config_file" <<EOF
+nodeRegistration:
+  criSocket: $cri_socket
+EOF
+    fi
+
+    # Add ClusterConfiguration
+    cat >> "$config_file" <<EOF
+---
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: ClusterConfiguration
+EOF
+
+    # Parse KUBEADM_ARGS and add to config
+    if echo "$KUBEADM_ARGS" | grep -q "pod-network-cidr"; then
+        POD_CIDR=$(echo "$KUBEADM_ARGS" | sed -n 's/.*--pod-network-cidr \([^ ]*\).*/\1/p')
+        cat >> "$config_file" <<EOF
+networking:
+  podSubnet: $POD_CIDR
+EOF
+    fi
+    
+    if echo "$KUBEADM_ARGS" | grep -q "service-cidr"; then
+        SERVICE_CIDR=$(echo "$KUBEADM_ARGS" | sed -n 's/.*--service-cidr \([^ ]*\).*/\1/p')
+        cat >> "$config_file" <<EOF
+  serviceSubnet: $SERVICE_CIDR
+EOF
+    fi
+    
+    if echo "$KUBEADM_ARGS" | grep -q "apiserver-advertise-address"; then
+        API_ADDR=$(echo "$KUBEADM_ARGS" | sed -n 's/.*--apiserver-advertise-address \([^ ]*\).*/\1/p')
+        cat >> "$config_file" <<EOF
+apiServer:
+  advertiseAddress: $API_ADDR
+EOF
+    fi
+    
+    if echo "$KUBEADM_ARGS" | grep -q "control-plane-endpoint"; then
+        CP_ENDPOINT=$(echo "$KUBEADM_ARGS" | sed -n 's/.*--control-plane-endpoint \([^ ]*\).*/\1/p')
+        cat >> "$config_file" <<EOF
+controlPlaneEndpoint: $CP_ENDPOINT
+EOF
+    fi
+
+    # Add KubeProxyConfiguration for IPVS mode
+    if [ "$PROXY_MODE" = "ipvs" ]; then
+        cat >> "$config_file" <<EOF
+---
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+mode: ipvs
+ipvs:
+  scheduler: "rr"
+  strictARP: true
+EOF
+    fi
+    
+    echo "$config_file"
+}
+
 # Helper: Initialize Kubernetes cluster (master node)
 initialize_master() {
     echo "Initializing master node..."
-    # Append CRI socket if CRI-O is selected
-    if [ "$CRI" = "crio" ]; then
-        KUBEADM_ARGS="$KUBEADM_ARGS --cri-socket unix:///var/run/crio/crio.sock"
+    
+    # Generate configuration file if IPVS mode or complex config needed
+    if [ "$PROXY_MODE" = "ipvs" ] || [ -n "$KUBEADM_ARGS" ]; then
+        CONFIG_FILE=$(generate_kubeadm_config)
+        echo "Using kubeadm configuration file: $CONFIG_FILE"
+        kubeadm init --config "$CONFIG_FILE"
+        rm -f "$CONFIG_FILE"
+    else
+        # Simple init for default iptables mode with no extra args
+        if [ "$CRI" != "containerd" ]; then
+            local cri_socket=$(get_cri_socket)
+            kubeadm init --cri-socket "$cri_socket"
+        else
+            kubeadm init
+        fi
     fi
-    echo "Using kubeadm init arguments: $KUBEADM_ARGS"
-    kubeadm init $KUBEADM_ARGS
 
     # Configure kubectl
     echo "Configuring kubectl..."
@@ -116,8 +215,9 @@ initialize_master() {
 join_worker() {
     echo "Joining worker node to cluster..."
     JOIN_ARGS="${JOIN_ADDRESS} --token ${JOIN_TOKEN} --discovery-token-ca-cert-hash ${DISCOVERY_TOKEN_HASH}"
-    if [ "$CRI" = "crio" ]; then
-        JOIN_ARGS="$JOIN_ARGS --cri-socket unix:///var/run/crio/crio.sock"
+    if [ "$CRI" != "containerd" ]; then
+        local cri_socket=$(get_cri_socket)
+        JOIN_ARGS="$JOIN_ARGS --cri-socket $cri_socket"
     fi
     kubeadm join $JOIN_ARGS
     

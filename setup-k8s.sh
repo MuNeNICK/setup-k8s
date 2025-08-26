@@ -101,10 +101,12 @@ main() {
     validate_node_type
     validate_worker_args
     validate_cri
+    validate_proxy_mode
     
     echo "Starting Kubernetes initialization script..."
     echo "Node type: ${NODE_TYPE}"
     echo "Container Runtime: ${CRI}"
+    echo "Proxy mode: ${PROXY_MODE}"
     
     # Detect distribution (if not already detected)
     if [ -z "$DISTRO_FAMILY" ]; then
@@ -126,6 +128,11 @@ main() {
     # Install dependencies
     echo "Installing dependencies..."
     install_dependencies_${DISTRO_FAMILY}
+    
+    # Check IPVS availability if IPVS mode is requested
+    if [ "$PROXY_MODE" = "ipvs" ]; then
+        check_ipvs_availability
+    fi
     
     # Setup container runtime
     echo "Setting up container runtime: ${CRI}..."

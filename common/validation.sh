@@ -28,8 +28,27 @@ validate_worker_args() {
 
 # Validate CRI selection
 validate_cri() {
-    if [[ "$CRI" != "containerd" && "$CRI" != "crio" ]]; then
-        echo "Error: CRI must be either 'containerd' or 'crio'"
+    # List of supported CRIs
+    local supported_cris=("containerd" "crio")
+    local is_supported=false
+    
+    for supported in "${supported_cris[@]}"; do
+        if [[ "$CRI" == "$supported" ]]; then
+            is_supported=true
+            break
+        fi
+    done
+    
+    if [[ "$is_supported" == false ]]; then
+        echo "Error: Unsupported CRI '$CRI'. Supported options are: ${supported_cris[*]}"
+        exit 1
+    fi
+}
+
+# Validate proxy mode selection
+validate_proxy_mode() {
+    if [[ "$PROXY_MODE" != "iptables" && "$PROXY_MODE" != "ipvs" ]]; then
+        echo "Error: Proxy mode must be either 'iptables' or 'ipvs'"
         exit 1
     fi
 }
@@ -41,6 +60,7 @@ show_setup_help() {
     echo "Options:"
     echo "  --node-type    Node type (master or worker)"
     echo "  --cri          Container runtime (containerd or crio). Default: containerd"
+    echo "  --proxy-mode   Kube-proxy mode (iptables or ipvs). Default: iptables"
     echo "  --pod-network-cidr   Pod network CIDR (e.g., 192.168.0.0/16)"
     echo "  --apiserver-advertise-address   API server advertise address"
     echo "  --control-plane-endpoint   Control plane endpoint"
@@ -95,6 +115,10 @@ parse_setup_args() {
                 ;;
             --discovery-token-hash)
                 DISCOVERY_TOKEN_HASH=$2
+                shift 2
+                ;;
+            --proxy-mode)
+                PROXY_MODE=$2
                 shift 2
                 ;;
             --pod-network-cidr|--apiserver-advertise-address|--control-plane-endpoint|--service-cidr)

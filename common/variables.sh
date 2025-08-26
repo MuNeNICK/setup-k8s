@@ -10,7 +10,8 @@ DISCOVERY_TOKEN_HASH=""
 DISTRO_NAME=""
 DISTRO_VERSION=""
 DISTRO_FAMILY=""
-CRI="containerd"  # containerd or crio
+CRI="containerd"  # Container runtime interface (containerd, crio, etc.)
+PROXY_MODE="iptables"  # iptables or ipvs
 
 # Additional variables for cleanup
 FORCE=false

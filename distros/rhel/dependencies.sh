@@ -18,7 +18,15 @@ install_dependencies_rhel() {
     if [ "$PKG_MGR" = "dnf" ]; then
         $PKG_MGR install -y dnf-plugins-core || true
     fi
+    
+    # Install base dependencies
     $PKG_MGR install -y curl gnupg2 iptables iptables-services ethtool iproute conntrack-tools socat ebtables cri-tools || true
+    
+    # Install IPVS packages only if IPVS mode is selected
+    if [ "$PROXY_MODE" = "ipvs" ]; then
+        echo "Installing IPVS packages for IPVS proxy mode..."
+        $PKG_MGR install -y ipvsadm ipset || true
+    fi
     
     # Check if iptables was installed successfully
     if ! command -v iptables &> /dev/null; then
