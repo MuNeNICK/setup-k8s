@@ -25,51 +25,67 @@ setup_kubernetes_arch() {
             # Install base-devel and git if not present
             pacman -Sy --needed --noconfirm base-devel git
             
-            # Clone and build yay as the temporary user
+            # Clone and build yay as the temporary user with retry logic
+            YAY_BUILD_SUCCESS=false
             su - "$TEMP_USER" -c "
                 cd /tmp
-                git clone https://aur.archlinux.org/yay-bin.git
-                cd yay-bin
-                makepkg --noconfirm
-            "
-            
-            # Install the built package as root
-            pacman -U --noconfirm /tmp/yay-bin/yay-bin-*.pkg.tar.* || {
-                echo "Failed to install yay package"
-                userdel -r "$TEMP_USER"
+                # Try to clone with retry logic for network issues
+                for attempt in 1 2 3; do
+                    if git clone https://aur.archlinux.org/yay-bin.git 2>/dev/null; then
+                        cd yay-bin
+                        if makepkg --noconfirm; then
+                            exit 0
+                        fi
+                    fi
+                    echo \"Attempt \$attempt failed. Retrying in 5 seconds...\"
+                    sleep 5
+                done
                 exit 1
-            }
+            " && YAY_BUILD_SUCCESS=true
+            
+            # Install the built package as root if successful
+            if [ "$YAY_BUILD_SUCCESS" = true ] && [ -f /tmp/yay-bin/yay-bin-*.pkg.tar.* ]; then
+                pacman -U --noconfirm /tmp/yay-bin/yay-bin-*.pkg.tar.* || YAY_BUILD_SUCCESS=false
+            fi
+            
+            if [ "$YAY_BUILD_SUCCESS" = false ]; then
+                echo "Failed to install yay package, will fallback to direct binary download"
+            fi
             
             # Clean up temporary user
-            userdel -r "$TEMP_USER"
+            userdel -r "$TEMP_USER" 2>/dev/null || true
             
             if command -v yay &> /dev/null; then
                 AUR_HELPER="yay"
                 echo "yay installed successfully."
             else
-                echo "Failed to install yay. Please install Kubernetes components manually."
-                exit 1
+                echo "yay installation failed. Will try direct binary download later."
+                AUR_HELPER=""
             fi
         fi
         
-        echo "Using AUR helper: $AUR_HELPER"
-        
-        # Create another temporary user for installing Kubernetes packages
-        KUBE_USER="kube_installer_$$"
-        useradd -m -s /bin/bash "$KUBE_USER"
-        
-        # Give the temporary user sudo privileges without password for pacman
-        echo "$KUBE_USER ALL=(ALL) NOPASSWD: /usr/bin/pacman" >> /etc/sudoers
-        
-        # Install Kubernetes components as the temporary user
-        echo "Installing Kubernetes components from AUR..."
-        su - "$KUBE_USER" -c "
-            $AUR_HELPER -S --noconfirm --needed kubeadm-bin kubelet-bin kubectl-bin
-        " || true
-        
-        # Remove sudo privileges and clean up
-        sed -i "/$KUBE_USER/d" /etc/sudoers
-        userdel -r "$KUBE_USER"
+        if [ -n "$AUR_HELPER" ]; then
+            echo "Using AUR helper: $AUR_HELPER"
+            
+            # Create another temporary user for installing Kubernetes packages
+            KUBE_USER="kube_installer_$$"
+            useradd -m -s /bin/bash "$KUBE_USER"
+            
+            # Give the temporary user sudo privileges without password for pacman
+            echo "$KUBE_USER ALL=(ALL) NOPASSWD: /usr/bin/pacman" >> /etc/sudoers
+            
+            # Install Kubernetes components as the temporary user
+            echo "Installing Kubernetes components from AUR..."
+            su - "$KUBE_USER" -c "
+                $AUR_HELPER -S --noconfirm --needed kubeadm-bin kubelet-bin kubectl-bin
+            " || true
+            
+            # Remove sudo privileges and clean up
+            sed -i "/$KUBE_USER/d" /etc/sudoers
+            userdel -r "$KUBE_USER"
+        else
+            echo "No AUR helper available. Will use direct binary download."
+        fi
         
     else
         # If not running as root (should not happen since we check at the beginning of the script)
