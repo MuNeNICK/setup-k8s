@@ -475,8 +475,8 @@ run_qemu_test() {
     local cpu_model="${QEMU_CPU_MODEL:-Haswell}"
     log_info "Using CPU model: $cpu_model"
     
-    # Configure network
-    local netdev_opts="user,id=net0"
+    # Configure network with DNS
+    local netdev_opts="user,id=net0,dns=8.8.8.8"
     
     local qemu_cmd="qemu-system-x86_64 \
         -machine pc,accel=kvm:tcg \
@@ -617,7 +617,7 @@ test_all() {
     log_info "Starting test for all distributions"
     log_info "Test mode: $TEST_MODE"
     if [ "$TEST_MODE" = "online" ]; then
-        log_info "Script source: GitHub (https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/)"
+        log_info "Script source: GitHub (https://raw.github.com/MuNeNICK/setup-k8s/main/)"
     else
         log_info "Script source: Bundled (all modules included)"
     fi
@@ -699,7 +699,7 @@ run_single_test() {
     log_info "Starting K8s test for: $distro"
     log_info "Test mode: $TEST_MODE"
     if [ "$TEST_MODE" = "online" ]; then
-        log_info "Script source: GitHub (https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/)"
+        log_info "Script source: GitHub (https://raw.github.com/MuNeNICK/setup-k8s/main/)"
     else
         log_info "Script source: Bundled (all modules included)"
     fi

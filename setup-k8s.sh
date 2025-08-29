@@ -6,7 +6,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Default GitHub base URL (can be overridden)
-GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main}"
+GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.github.com/MuNeNICK/setup-k8s/main}"
 
 # Check if running in offline mode
 OFFLINE_MODE="${OFFLINE_MODE:-false}"
@@ -184,7 +184,4 @@ main() {
     echo "Setup completed successfully!"
 }
 
-# If script is run directly (not sourced), execute main
-if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
-    main "$@"
-fi
+main "$@"

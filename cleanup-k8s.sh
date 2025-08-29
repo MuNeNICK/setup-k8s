@@ -146,7 +146,4 @@ main() {
     echo "Cleanup complete! Please reboot the system for all changes to take effect."
 }
 
-# If script is run directly (not sourced), execute main
-if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
-    main "$@"
-fi
+main "$@"

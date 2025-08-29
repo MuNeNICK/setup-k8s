@@ -56,7 +56,7 @@ write_files:
           
           # First check network connectivity
           echo "Checking network connectivity to GitHub..." > /dev/console
-          if ! curl -fsSL --connect-timeout 10 --max-time 30 https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/README.md > /dev/null 2>&1; then
+          if ! curl -fsSL --connect-timeout 10 --max-time 30 https://raw.github.com/MuNeNICK/setup-k8s/main/README.md > /dev/null 2>&1; then
               echo "ERROR: Cannot connect to GitHub. Network connectivity check failed." > /dev/console
               echo "ERROR: Cannot connect to GitHub" > /tmp/setup-k8s.log
               SETUP_EXIT_CODE=1
@@ -66,7 +66,7 @@ write_files:
               # Download the script first to check if it's successful
               echo "Downloading setup-k8s.sh from GitHub..." > /dev/console
               if curl -fsSL --connect-timeout 10 --max-time 60 \
-                     https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/setup-k8s.sh \
+                     https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh \
                      -o /tmp/setup-k8s-online.sh 2>/tmp/curl-error.log; then
                   
                   # Check if file was actually downloaded and not empty
@@ -167,7 +167,7 @@ write_files:
             # Download the cleanup script first
             echo "Downloading cleanup-k8s.sh from GitHub..." > /dev/console
             if curl -fsSL --connect-timeout 10 --max-time 60 \
-                   https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/cleanup-k8s.sh \
+                   https://raw.github.com/MuNeNICK/setup-k8s/main/cleanup-k8s.sh \
                    -o /tmp/cleanup-k8s-online.sh 2>/tmp/curl-cleanup-error.log; then
                 
                 # Check if file was actually downloaded and not empty
