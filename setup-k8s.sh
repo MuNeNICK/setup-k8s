@@ -53,13 +53,16 @@ load_modules() {
     # Detect distribution first
     detect_distribution
     
+    # Store DISTRO_FAMILY in a local variable to ensure it persists
+    local distro_family_local="$DISTRO_FAMILY"
+    
     # Download distribution-specific modules
-    echo "Downloading modules for $DISTRO_FAMILY..." >&2
+    echo "Downloading modules for $distro_family_local..." >&2
     local distro_modules=(dependencies containerd crio kubernetes cleanup)
     for module in "${distro_modules[@]}"; do
-        echo "  - Downloading distros/$DISTRO_FAMILY/${module}.sh" >&2
-        if ! curl -fsSL "${GITHUB_BASE_URL}/distros/$DISTRO_FAMILY/${module}.sh" > "$temp_dir/${DISTRO_FAMILY}_${module}.sh"; then
-            echo "Error: Failed to download distros/$DISTRO_FAMILY/${module}.sh" >&2
+        echo "  - Downloading distros/$distro_family_local/${module}.sh" >&2
+        if ! curl -fsSL "${GITHUB_BASE_URL}/distros/$distro_family_local/${module}.sh" > "$temp_dir/${distro_family_local}_${module}.sh"; then
+            echo "Error: Failed to download distros/$distro_family_local/${module}.sh" >&2
             return 1
         fi
     done
@@ -70,7 +73,7 @@ load_modules() {
         source "$temp_dir/${module}.sh"
     done
     for module in "${distro_modules[@]}"; do
-        source "$temp_dir/${DISTRO_FAMILY}_${module}.sh"
+        source "$temp_dir/${distro_family_local}_${module}.sh"
     done
     
     echo "All modules loaded successfully" >&2
