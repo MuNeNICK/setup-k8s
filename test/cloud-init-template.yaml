@@ -44,10 +44,60 @@ write_files:
       # Test start marker (output to serial console)
       echo "=== K8S_TEST_START:$(date -Iseconds) ===" > /dev/console
       
+      # Detect test mode
+      TEST_MODE="{{TEST_MODE}}"
+      echo "Test mode: $TEST_MODE" > /dev/console
+      
       # Phase 1: Execute setup-k8s.sh
       echo "Starting Kubernetes setup (master node)..." > /dev/console
-      /tmp/setup-k8s.sh --node-type master {{K8S_VERSION_ARG}} {{SETUP_EXTRA_ARGS}} > /tmp/setup-k8s.log 2>&1
-      SETUP_EXIT_CODE=$?
+      
+      if [ "$TEST_MODE" = "online" ]; then
+          echo "Running in online mode - downloading from GitHub..." > /dev/console
+          
+          # First check network connectivity
+          echo "Checking network connectivity to GitHub..." > /dev/console
+          if ! curl -fsSL --connect-timeout 10 --max-time 30 https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/README.md > /dev/null 2>&1; then
+              echo "ERROR: Cannot connect to GitHub. Network connectivity check failed." > /dev/console
+              echo "ERROR: Cannot connect to GitHub" > /tmp/setup-k8s.log
+              SETUP_EXIT_CODE=1
+          else
+              echo "Network connectivity to GitHub confirmed" > /dev/console
+              
+              # Download the script first to check if it's successful
+              echo "Downloading setup-k8s.sh from GitHub..." > /dev/console
+              if curl -fsSL --connect-timeout 10 --max-time 60 \
+                     https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/setup-k8s.sh \
+                     -o /tmp/setup-k8s-online.sh 2>/tmp/curl-error.log; then
+                  
+                  # Check if file was actually downloaded and not empty
+                  if [ -s /tmp/setup-k8s-online.sh ]; then
+                      echo "Script downloaded successfully ($(wc -l < /tmp/setup-k8s-online.sh) lines)" > /dev/console
+                      chmod +x /tmp/setup-k8s-online.sh
+                      
+                      # Execute the downloaded script
+                      echo "Executing downloaded script..." > /dev/console
+                      /tmp/setup-k8s-online.sh --node-type master {{K8S_VERSION_ARG}} {{SETUP_EXTRA_ARGS}} > /tmp/setup-k8s.log 2>&1
+                      SETUP_EXIT_CODE=$?
+                  else
+                      echo "ERROR: Downloaded script is empty" > /dev/console
+                      echo "ERROR: Downloaded script is empty" > /tmp/setup-k8s.log
+                      SETUP_EXIT_CODE=1
+                  fi
+              else
+                  echo "ERROR: Failed to download script from GitHub" > /dev/console
+                  echo "Curl error output:" > /dev/console
+                  cat /tmp/curl-error.log > /dev/console 2>/dev/null || true
+                  echo "ERROR: Failed to download script from GitHub" > /tmp/setup-k8s.log
+                  cat /tmp/curl-error.log >> /tmp/setup-k8s.log 2>/dev/null || true
+                  SETUP_EXIT_CODE=1
+              fi
+          fi
+      else
+          echo "Running in offline mode - using bundled script..." > /dev/console
+          # Use the bundled script for offline mode
+          /tmp/setup-k8s.sh --node-type master {{K8S_VERSION_ARG}} {{SETUP_EXTRA_ARGS}} > /tmp/setup-k8s.log 2>&1
+          SETUP_EXIT_CODE=$?
+      fi
       
       echo "Setup completed with exit code: $SETUP_EXIT_CODE" > /dev/console
       
@@ -111,8 +161,43 @@ write_files:
       
       if [ "$SETUP_TEST_STATUS" = "success" ]; then
         # Run cleanup with force flag
-        /tmp/cleanup-k8s.sh --force > /tmp/cleanup-k8s.log 2>&1
-        CLEANUP_EXIT_CODE=$?
+        if [ "$TEST_MODE" = "online" ]; then
+            echo "Running cleanup in online mode - downloading from GitHub..." > /dev/console
+            
+            # Download the cleanup script first
+            echo "Downloading cleanup-k8s.sh from GitHub..." > /dev/console
+            if curl -fsSL --connect-timeout 10 --max-time 60 \
+                   https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/cleanup-k8s.sh \
+                   -o /tmp/cleanup-k8s-online.sh 2>/tmp/curl-cleanup-error.log; then
+                
+                # Check if file was actually downloaded and not empty
+                if [ -s /tmp/cleanup-k8s-online.sh ]; then
+                    echo "Cleanup script downloaded successfully ($(wc -l < /tmp/cleanup-k8s-online.sh) lines)" > /dev/console
+                    chmod +x /tmp/cleanup-k8s-online.sh
+                    
+                    # Execute the downloaded script
+                    echo "Executing downloaded cleanup script..." > /dev/console
+                    /tmp/cleanup-k8s-online.sh --force > /tmp/cleanup-k8s.log 2>&1
+                    CLEANUP_EXIT_CODE=$?
+                else
+                    echo "ERROR: Downloaded cleanup script is empty" > /dev/console
+                    echo "ERROR: Downloaded cleanup script is empty" > /tmp/cleanup-k8s.log
+                    CLEANUP_EXIT_CODE=1
+                fi
+            else
+                echo "ERROR: Failed to download cleanup script from GitHub" > /dev/console
+                echo "Curl error output:" > /dev/console
+                cat /tmp/curl-cleanup-error.log > /dev/console 2>/dev/null || true
+                echo "ERROR: Failed to download cleanup script from GitHub" > /tmp/cleanup-k8s.log
+                cat /tmp/curl-cleanup-error.log >> /tmp/cleanup-k8s.log 2>/dev/null || true
+                CLEANUP_EXIT_CODE=1
+            fi
+        else
+            echo "Running cleanup in offline mode - using bundled script..." > /dev/console
+            # Use the bundled cleanup script for offline mode
+            /tmp/cleanup-k8s.sh --force > /tmp/cleanup-k8s.log 2>&1
+            CLEANUP_EXIT_CODE=$?
+        fi
         echo "Cleanup completed with exit code: $CLEANUP_EXIT_CODE" > /dev/console
         
         # Verify cleanup results

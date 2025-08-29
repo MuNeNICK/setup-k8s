@@ -49,8 +49,8 @@ Options:
   --all, -a                Test all distributions sequentially
   --k8s-version <version>   Kubernetes version to test (e.g., 1.32, 1.31, 1.30)
   --setup-args ARGS         Extra args for setup-k8s.sh (use quotes)
-  --online                  Run test in online mode (default: offline)
-  --offline                 Run test in offline mode (default)
+  --online                  Run test in online mode (fetch script from GitHub)
+  --offline                 Run test in offline mode with bundled scripts (default)
   --                        Treat the rest as setup-args
   --help, -h                Show this help message
 
@@ -61,14 +61,18 @@ EOF
     done
     echo
     echo "Examples:"
-    echo "  $0 ubuntu-2404                        # Test single distribution offline"
-    echo "  $0 --online ubuntu-2404               # Test single distribution online"
+    echo "  $0 ubuntu-2404                        # Test single distribution offline (bundled)"
+    echo "  $0 --online ubuntu-2404               # Test single distribution online (GitHub)"
     echo "  $0 --k8s-version 1.31 ubuntu-2404     # Test with specific k8s version"
     echo "  $0 --all                              # Test all distributions offline"
     echo "  $0 --all --online                     # Test all distributions online"
     echo "  $0 --all --k8s-version 1.30           # Test all distributions with k8s v1.30"
     echo "  $0 archlinux"
     echo "  $0 --k8s-version 1.32 rocky-linux-8"
+    echo
+    echo "Test Modes:"
+    echo "  Online:  Downloads setup-k8s.sh from GitHub during test execution"
+    echo "  Offline: Uses pre-bundled script with all modules included"
 }
 
 # Load configuration function
@@ -211,20 +215,17 @@ generate_bundled_scripts() {
     
     log_info "Generating bundled scripts for cloud-init (mode: $TEST_MODE)..."
     
-    # Generate setup bundle
-    {
-        echo "#!/bin/bash"
-        echo "# Bundled setup-k8s.sh with all modules"
-        echo "set -e"
-        echo ""
-        if [ "$TEST_MODE" = "offline" ]; then
+    # Only generate bundled scripts in offline mode
+    if [ "$TEST_MODE" = "offline" ]; then
+        # Generate setup bundle
+        {
+            echo "#!/bin/bash"
+            echo "# Bundled setup-k8s.sh with all modules"
+            echo "set -e"
+            echo ""
             echo "# Force offline mode"
             echo "OFFLINE_MODE=true"
-        else
-            echo "# Online mode"
-            echo "OFFLINE_MODE=false"
-        fi
-        echo ""
+            echo ""
         
         # Include all common modules
         for module in variables detection validation helpers networking swap; do
@@ -249,52 +250,55 @@ generate_bundled_scripts() {
             fi
         done
         
-        # Include main setup script (without shebang)
-        echo "# === Main setup-k8s.sh ==="
-        tail -n +2 "$SETUP_K8S_SCRIPT"
-    } > "$setup_bundle"
-    
-    # Generate cleanup bundle
-    {
-        echo "#!/bin/bash"
-        echo "# Bundled cleanup-k8s.sh with all modules"
-        echo "set -e"
-        echo ""
-        if [ "$TEST_MODE" = "offline" ]; then
+            # Include main setup script (without shebang)
+            echo "# === Main setup-k8s.sh ==="
+            tail -n +2 "$SETUP_K8S_SCRIPT"
+        } > "$setup_bundle"
+        
+        # Generate cleanup bundle
+        {
+            echo "#!/bin/bash"
+            echo "# Bundled cleanup-k8s.sh with all modules"
+            echo "set -e"
+            echo ""
             echo "# Force offline mode"
             echo "OFFLINE_MODE=true"
-        else
-            echo "# Online mode"
-            echo "OFFLINE_MODE=false"
-        fi
-        echo ""
-        
-        # Include all common modules
-        for module in variables detection validation helpers networking swap; do
-            echo "# === common/${module}.sh ==="
-            cat "${SCRIPT_DIR}/../common/${module}.sh"
             echo ""
-        done
-        
-        # Include all distro cleanup modules (removing source lines that reference other modules)
-        for distro_dir in "${SCRIPT_DIR}/../distros/"*/; do
-            if [ -d "$distro_dir" ]; then
-                distro_name=$(basename "$distro_dir")
-                if [ -f "$distro_dir/cleanup.sh" ]; then
-                    echo "# === distros/${distro_name}/cleanup.sh ==="
-                    # Remove source lines and SCRIPT_DIR declarations since everything is bundled
-                    grep -v '^source.*SCRIPT_DIR' "$distro_dir/cleanup.sh" | grep -v '^SCRIPT_DIR='
-                    echo ""
+            
+            # Include all common modules
+            for module in variables detection validation helpers networking swap; do
+                echo "# === common/${module}.sh ==="
+                cat "${SCRIPT_DIR}/../common/${module}.sh"
+                echo ""
+            done
+            
+            # Include all distro cleanup modules (removing source lines that reference other modules)
+            for distro_dir in "${SCRIPT_DIR}/../distros/"*/; do
+                if [ -d "$distro_dir" ]; then
+                    distro_name=$(basename "$distro_dir")
+                    if [ -f "$distro_dir/cleanup.sh" ]; then
+                        echo "# === distros/${distro_name}/cleanup.sh ==="
+                        # Remove source lines and SCRIPT_DIR declarations since everything is bundled
+                        grep -v '^source.*SCRIPT_DIR' "$distro_dir/cleanup.sh" | grep -v '^SCRIPT_DIR='
+                        echo ""
+                    fi
                 fi
-            fi
-        done
+            done
+            
+            # Include main cleanup script (without shebang)
+            echo "# === Main cleanup-k8s.sh ==="
+            tail -n +2 "$CLEANUP_K8S_SCRIPT"
+        } > "$cleanup_bundle"
         
-        # Include main cleanup script (without shebang)
-        echo "# === Main cleanup-k8s.sh ==="
-        tail -n +2 "$CLEANUP_K8S_SCRIPT"
-    } > "$cleanup_bundle"
-    
-    log_info "Bundled scripts generated successfully"
+        log_info "Bundled scripts generated successfully for offline mode"
+    else
+        # For online mode, create empty files or minimal scripts
+        echo "#!/bin/bash" > "$setup_bundle"
+        echo "echo 'Online mode - should use curl'" >> "$setup_bundle"
+        echo "#!/bin/bash" > "$cleanup_bundle"
+        echo "echo 'Online mode - should use curl'" >> "$cleanup_bundle"
+        log_info "Placeholder scripts created for online mode"
+    fi
 }
 
 # Generate cloud-init configuration
@@ -309,8 +313,8 @@ generate_cloud_init() {
     rm -rf "$temp_dir"
     mkdir -p "$temp_dir"
     
-    # Generate bundled scripts
-    log_info "Generating bundled scripts..."
+    # Generate bundled scripts (for offline mode) or placeholders (for online mode)
+    log_info "Generating scripts for $TEST_MODE mode..."
     generate_bundled_scripts
     local setup_bundle="/tmp/setup-k8s-bundle.sh"
     local cleanup_bundle="/tmp/cleanup-k8s-bundle.sh"
@@ -363,6 +367,7 @@ generate_cloud_init() {
         -e "s|{{CLEANUP_K8S_CONTENT}}|$cleanup_k8s_b64|g" \
         -e "s|{{K8S_VERSION_ARG}}|$k8s_version_arg|g" \
         -e "s|{{SETUP_EXTRA_ARGS}}|$setup_extra_args_str|g" \
+        -e "s|{{TEST_MODE}}|$TEST_MODE|g" \
         "$CLOUD_INIT_TEMPLATE" > "$temp_dir/user-data"
     
     # Generate meta-data
@@ -611,6 +616,11 @@ show_test_results() {
 test_all() {
     log_info "Starting test for all distributions"
     log_info "Test mode: $TEST_MODE"
+    if [ "$TEST_MODE" = "online" ]; then
+        log_info "Script source: GitHub (https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/)"
+    else
+        log_info "Script source: Bundled (all modules included)"
+    fi
     
     # Get all distributions from config
     local distros=($(grep -E '^[^#].*=.*' "$CONFIG_FILE" | grep -v '_user=' | sed 's/=.*//' | sort))
@@ -688,6 +698,11 @@ run_single_test() {
     
     log_info "Starting K8s test for: $distro"
     log_info "Test mode: $TEST_MODE"
+    if [ "$TEST_MODE" = "online" ]; then
+        log_info "Script source: GitHub (https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/)"
+    else
+        log_info "Script source: Bundled (all modules included)"
+    fi
     if [ -n "$K8S_VERSION" ]; then
         log_info "Kubernetes version: $K8S_VERSION"
     else
