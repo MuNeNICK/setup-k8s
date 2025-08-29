@@ -53,10 +53,13 @@ load_modules() {
     # Detect distribution first
     detect_distribution
     
+    # Store DISTRO_FAMILY in a local variable to ensure it persists
+    local distro_family_local="$DISTRO_FAMILY"
+    
     # Download distribution-specific cleanup module
-    echo "Downloading cleanup module for $DISTRO_FAMILY..." >&2
-    if ! curl -fsSL "${GITHUB_BASE_URL}/distros/$DISTRO_FAMILY/cleanup.sh" > "$temp_dir/${DISTRO_FAMILY}_cleanup.sh"; then
-        echo "Error: Failed to download distros/$DISTRO_FAMILY/cleanup.sh" >&2
+    echo "Downloading cleanup module for $distro_family_local..." >&2
+    if ! curl -fsSL "${GITHUB_BASE_URL}/distros/$distro_family_local/cleanup.sh" > "$temp_dir/${distro_family_local}_cleanup.sh"; then
+        echo "Error: Failed to download distros/$distro_family_local/cleanup.sh" >&2
         return 1
     fi
     
@@ -65,7 +68,7 @@ load_modules() {
     for module in "${common_modules[@]}"; do
         source "$temp_dir/${module}.sh"
     done
-    source "$temp_dir/${DISTRO_FAMILY}_cleanup.sh"
+    source "$temp_dir/${distro_family_local}_cleanup.sh"
     
     echo "All modules loaded successfully" >&2
     return 0
