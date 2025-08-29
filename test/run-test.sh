@@ -475,8 +475,8 @@ run_qemu_test() {
     local cpu_model="${QEMU_CPU_MODEL:-Haswell}"
     log_info "Using CPU model: $cpu_model"
     
-    # Configure network with DNS
-    local netdev_opts="user,id=net0,dns=8.8.8.8"
+    # Configure network
+    local netdev_opts="user,id=net0"
     
     local qemu_cmd="qemu-system-x86_64 \
         -machine pc,accel=kvm:tcg \
