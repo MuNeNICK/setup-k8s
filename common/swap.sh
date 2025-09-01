@@ -80,47 +80,39 @@ restore_zram_swap() {
     if [ "$DISTRO_NAME" = "fedora" ] || [ "$DISTRO_NAME" = "arch" ] || [ "$DISTRO_NAME" = "manjaro" ]; then
         echo "Restoring zram swap services..."
         
-        # Stop and disable all potential zram swap services
+        # Unmask the services that were masked during setup
         for service in zram-swap.service systemd-zram-setup@zram0.service dev-zram0.swap; do
-            # Unmask the service during cleanup to restore normal system state
             echo "Unmasking $service if it was masked..."
             systemctl unmask $service 2>/dev/null || true
         done
         
-        # Remove any zram-generator custom configuration
+        # Remove any disable configuration we created
         if [ -d /etc/systemd/zram-generator.conf.d ]; then
-            echo "Removing zram swap configuration..."
+            echo "Removing zram disable configuration..."
             rm -rf /etc/systemd/zram-generator.conf.d
         fi
         
-        # Unload zram kernel module if loaded
-        if lsmod | grep -q zram; then
-            echo "Unloading zram kernel module..."
-            swapoff -a  # Make sure all swap is off before unloading
-            modprobe -r zram || true
+        # Reload systemd to pick up changes
+        systemctl daemon-reload
+        
+        # Try to enable and start zram services
+        for service in zram-swap.service systemd-zram-setup@zram0.service; do
+            if systemctl list-unit-files | grep -q "^$service"; then
+                echo "Enabling and starting $service..."
+                systemctl enable $service 2>/dev/null || true
+                systemctl start $service 2>/dev/null || true
+            fi
+        done
+        
+        # Load zram module if it's not loaded
+        if ! lsmod | grep -q zram; then
+            echo "Loading zram kernel module..."
+            modprobe zram 2>/dev/null || true
         fi
         
-        # Make sure all swap is disabled
-        echo "Making sure all swap is disabled..."
-        swapoff -a
+        # Trigger systemd-managed swap units
+        systemctl start swap.target 2>/dev/null || true
         
-        # Find and disable all swap entries
-        echo "Checking for any remaining active swap..."
-        if [ -n "$(swapon --show 2>/dev/null)" ]; then
-            echo "Additional swap devices found, disabling them individually:"
-            swapon --show
-            for swap_device in $(swapon --show=NAME --noheadings 2>/dev/null); do
-                echo "Disabling swap on $swap_device"
-                swapoff "$swap_device" || true
-            done
-        fi
-        
-        # Verify swap is truly off
-        if [ -n "$(swapon --show 2>/dev/null)" ]; then
-            echo "WARNING: Some swap devices could not be disabled:"
-            swapon --show
-        else
-            echo "All swap has been successfully disabled."
-        fi
+        echo "zram swap restoration completed."
     fi
 }

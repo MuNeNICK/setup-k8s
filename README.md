@@ -68,12 +68,12 @@ For unsupported distributions, the scripts will attempt to use generic methods b
 
 Download and run the installation script:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- [options]
+curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- [options]
 ```
 
 Manual download and inspection:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh -o setup-k8s.sh
+curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/setup-k8s.sh -o setup-k8s.sh
 less setup-k8s.sh
 chmod +x setup-k8s.sh
 sudo ./setup-k8s.sh [options]
@@ -83,19 +83,19 @@ sudo ./setup-k8s.sh [options]
 
 Basic setup with default containerd:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- --node-type master
+curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- --node-type master
 ```
 
 Setup with CRI-O runtime:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- \
   --node-type master \
   --cri crio
 ```
 
 Advanced setup:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- \
   --node-type master \
   --kubernetes-version 1.29 \
   --cri containerd \
@@ -106,7 +106,7 @@ curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo ba
 
 Setup with IPVS mode for better performance:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- \
   --node-type master \
   --proxy-mode ipvs \
   --pod-network-cidr 192.168.0.0/16
@@ -114,7 +114,7 @@ curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo ba
 
 Setup with nftables mode (requires K8s 1.29+):
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- \
   --node-type master \
   --proxy-mode nftables \
   --kubernetes-version 1.31 \
@@ -131,7 +131,7 @@ kubeadm token create --print-join-command
 
 Join worker node:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- \
   --node-type worker \
   --cri containerd \
   --join-token <token> \
@@ -166,7 +166,7 @@ Note: The worker node must use the same CRI as the master node.
 
 Execute the cleanup script:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/cleanup-k8s.sh | sudo bash -s -- [options]
+curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/cleanup-k8s.sh | sudo bash -s -- [options]
 ```
 
 ### Worker Node Cleanup
@@ -179,7 +179,7 @@ kubectl delete node <worker-node-name>
 
 2. Run cleanup on worker:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/cleanup-k8s.sh | sudo bash -s -- --node-type worker
+curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/cleanup-k8s.sh | sudo bash -s -- --node-type worker
 ```
 
 ### Master Node Cleanup
@@ -189,7 +189,7 @@ curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/cleanup-k8s.sh | sudo 
 1. Ensure all worker nodes are removed first
 2. Run cleanup:
 ```bash
-curl -fsSL https://raw.github.com/MuNeNICK/setup-k8s/main/cleanup-k8s.sh | sudo bash -s -- --node-type master
+curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/cleanup-k8s.sh | sudo bash -s -- --node-type master
 ```
 
 ### Cleanup Options Reference

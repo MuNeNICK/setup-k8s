@@ -90,6 +90,12 @@ validate_proxy_mode() {
     
     # Check Kubernetes version requirement for nftables
     if [[ "$PROXY_MODE" == "nftables" ]]; then
+        # Check if K8S_VERSION is set
+        if [[ -z "$K8S_VERSION" ]]; then
+            echo "Warning: Kubernetes version not yet determined, skipping nftables version check"
+            return 0
+        fi
+        
         # Extract major and minor version numbers
         local k8s_major=$(echo "$K8S_VERSION" | cut -d. -f1)
         local k8s_minor=$(echo "$K8S_VERSION" | cut -d. -f2)

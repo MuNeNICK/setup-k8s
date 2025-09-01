@@ -228,7 +228,7 @@ generate_bundled_scripts() {
             echo ""
         
         # Include all common modules
-        for module in variables detection validation helpers networking swap; do
+        for module in variables detection validation helpers networking swap completion helm; do
             echo "# === common/${module}.sh ==="
             cat "${SCRIPT_DIR}/../common/${module}.sh"
             echo ""
@@ -266,7 +266,7 @@ generate_bundled_scripts() {
             echo ""
             
             # Include all common modules
-            for module in variables detection validation helpers networking swap; do
+            for module in variables detection validation helpers networking swap completion helm; do
                 echo "# === common/${module}.sh ==="
                 cat "${SCRIPT_DIR}/../common/${module}.sh"
                 echo ""
@@ -326,9 +326,9 @@ generate_cloud_init() {
         return 1
     fi
     
-    # Base64 encode bundled scripts
-    local setup_k8s_b64=$(base64 -w 0 < "$setup_bundle")
-    local cleanup_k8s_b64=$(base64 -w 0 < "$cleanup_bundle")
+    # Base64 encode bundled scripts to temporary files
+    base64 -w 0 < "$setup_bundle" > "$temp_dir/setup_k8s.b64"
+    base64 -w 0 < "$cleanup_bundle" > "$temp_dir/cleanup_k8s.b64"
     
     # Clean up bundle files
     rm -f "$setup_bundle" "$cleanup_bundle"
@@ -361,14 +361,34 @@ generate_cloud_init() {
         log_info "Passing extra setup args: $setup_extra_args_str"
     fi
     
-    # Process cloud-init template (use a safe delimiter to avoid '/' conflicts)
-    sed -e "s|{{LOGIN_USER}}|$login_user|g" \
-        -e "s|{{SETUP_K8S_CONTENT}}|$setup_k8s_b64|g" \
-        -e "s|{{CLEANUP_K8S_CONTENT}}|$cleanup_k8s_b64|g" \
-        -e "s|{{K8S_VERSION_ARG}}|$k8s_version_arg|g" \
-        -e "s|{{SETUP_EXTRA_ARGS}}|$setup_extra_args_str|g" \
-        -e "s|{{TEST_MODE}}|$TEST_MODE|g" \
-        "$CLOUD_INIT_TEMPLATE" > "$temp_dir/user-data"
+    # Process cloud-init template with awk to handle large content
+    awk -v login_user="$login_user" \
+        -v k8s_version_arg="$k8s_version_arg" \
+        -v setup_extra_args_str="$setup_extra_args_str" \
+        -v test_mode="$TEST_MODE" \
+        -v setup_k8s_file="$temp_dir/setup_k8s.b64" \
+        -v cleanup_k8s_file="$temp_dir/cleanup_k8s.b64" '
+    {
+        line = $0
+        gsub(/\{\{LOGIN_USER\}\}/, login_user, line)
+        gsub(/\{\{K8S_VERSION_ARG\}\}/, k8s_version_arg, line)
+        gsub(/\{\{SETUP_EXTRA_ARGS\}\}/, setup_extra_args_str, line)
+        gsub(/\{\{TEST_MODE\}\}/, test_mode, line)
+        
+        if (match(line, /\{\{SETUP_K8S_CONTENT\}\}/)) {
+            getline setup_content < setup_k8s_file
+            close(setup_k8s_file)
+            gsub(/\{\{SETUP_K8S_CONTENT\}\}/, setup_content, line)
+        }
+        
+        if (match(line, /\{\{CLEANUP_K8S_CONTENT\}\}/)) {
+            getline cleanup_content < cleanup_k8s_file
+            close(cleanup_k8s_file)
+            gsub(/\{\{CLEANUP_K8S_CONTENT\}\}/, cleanup_content, line)
+        }
+        
+        print line
+    }' "$CLOUD_INIT_TEMPLATE" > "$temp_dir/user-data"
     
     # Generate meta-data
     cat > "$temp_dir/meta-data" <<EOF

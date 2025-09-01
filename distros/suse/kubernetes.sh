@@ -8,11 +8,14 @@ source "${SCRIPT_DIR}/../../common/variables.sh"
 setup_kubernetes_suse() {
     echo "Setting up Kubernetes for SUSE-based distribution..."
     
-    # Add Kubernetes repository (without GPG check to avoid interactive prompts)
-    zypper addrepo --no-gpgcheck https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/rpm/ kubernetes
+    # Import GPG key for Kubernetes repository
+    rpm --import https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/rpm/repodata/repomd.xml.key
     
-    # Install Kubernetes components (non-interactive mode with auto-import GPG keys)
-    zypper --non-interactive --gpg-auto-import-keys refresh
+    # Add Kubernetes repository with GPG check enabled
+    zypper addrepo --gpgcheck https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/rpm/ kubernetes
+    
+    # Install Kubernetes components (non-interactive mode)
+    zypper --non-interactive refresh
     zypper --non-interactive install -y kubelet kubeadm kubectl
     
     # Enable and start kubelet

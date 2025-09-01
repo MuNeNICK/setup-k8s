@@ -4,73 +4,28 @@
 
 # Install Helm
 install_helm() {
-    echo "Installing Helm package manager..."
+    echo "Installing Helm package manager using official installer..."
     
-    # Detect architecture
-    local arch=$(uname -m)
-    case "$arch" in
-        x86_64) arch="amd64" ;;
-        aarch64) arch="arm64" ;;
-        armv7l) arch="arm" ;;
-        *) 
-            echo "Unsupported architecture for Helm: $arch"
-            return 1
-            ;;
-    esac
-    
-    # Get latest version
-    echo "Fetching latest Helm version..."
-    local helm_version=$(curl -s https://api.github.com/repos/helm/helm/releases/latest | grep tag_name | cut -d '"' -f 4)
-    
-    if [ -z "$helm_version" ]; then
-        echo "Failed to fetch Helm version, using default"
-        helm_version="v3.13.0"  # Fallback version
-    fi
-    
-    local download_url="https://get.helm.sh/helm-${helm_version}-linux-${arch}.tar.gz"
-    echo "Downloading Helm ${helm_version} for ${arch}..."
-    echo "Download URL: $download_url"
-    
-    # Create temporary directory
-    local temp_dir=$(mktemp -d)
-    cd "$temp_dir"
-    
-    # Download and extract
-    if curl -fsSL -o helm.tar.gz "$download_url"; then
-        tar -zxf helm.tar.gz
-        if [ -f "linux-${arch}/helm" ]; then
-            mv "linux-${arch}/helm" /usr/local/bin/helm
-            chmod +x /usr/local/bin/helm
-            echo "Helm installed successfully to /usr/local/bin/helm"
+    # Use the official Helm installer script
+    if curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash; then
+        echo "Helm installed successfully"
+        
+        # Verify installation
+        if helm version --short &>/dev/null; then
+            echo "Helm version: $(helm version --short)"
+            
+            # Add stable repo
+            echo "Adding Helm stable repository..."
+            helm repo add stable https://charts.helm.sh/stable 2>/dev/null || true
+            helm repo update 2>/dev/null || true
+            
+            return 0
         else
-            echo "Error: Helm binary not found in archive"
-            cd - > /dev/null
-            rm -rf "$temp_dir"
+            echo "Error: Helm installation verification failed"
             return 1
         fi
     else
-        echo "Error: Failed to download Helm"
-        cd - > /dev/null
-        rm -rf "$temp_dir"
-        return 1
-    fi
-    
-    # Cleanup
-    cd - > /dev/null
-    rm -rf "$temp_dir"
-    
-    # Verify installation
-    if helm version --short &>/dev/null; then
-        echo "Helm version: $(helm version --short)"
-        
-        # Add stable repo
-        echo "Adding Helm stable repository..."
-        helm repo add stable https://charts.helm.sh/stable 2>/dev/null || true
-        helm repo update 2>/dev/null || true
-        
-        return 0
-    else
-        echo "Error: Helm installation verification failed"
+        echo "Error: Failed to install Helm using official installer"
         return 1
     fi
 }

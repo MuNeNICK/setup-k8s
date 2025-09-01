@@ -6,7 +6,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Default GitHub base URL (can be overridden)
-GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.github.com/MuNeNICK/setup-k8s/main}"
+GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main}"
 
 # Check if running in offline mode
 OFFLINE_MODE="${OFFLINE_MODE:-false}"
@@ -104,13 +104,7 @@ main() {
     validate_node_type
     validate_worker_args
     validate_cri
-    validate_proxy_mode
     validate_completion_options
-    
-    echo "Starting Kubernetes initialization script..."
-    echo "Node type: ${NODE_TYPE}"
-    echo "Container Runtime: ${CRI}"
-    echo "Proxy mode: ${PROXY_MODE}"
     
     # Detect distribution (if not already detected)
     if [ -z "$DISTRO_FAMILY" ]; then
@@ -119,6 +113,14 @@ main() {
     
     # Determine Kubernetes version
     determine_k8s_version
+    
+    # Validate proxy mode after K8S_VERSION is determined
+    validate_proxy_mode
+    
+    echo "Starting Kubernetes initialization script..."
+    echo "Node type: ${NODE_TYPE}"
+    echo "Container Runtime: ${CRI}"
+    echo "Proxy mode: ${PROXY_MODE}"
     echo "Kubernetes Version (minor): ${K8S_VERSION}"
     
     # Disable swap
