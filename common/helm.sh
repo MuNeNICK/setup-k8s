@@ -4,30 +4,12 @@
 
 # Install Helm
 install_helm() {
-    echo "Installing Helm package manager using official installer..."
+    echo "Installing Helm package manager..."
     
-    # Use the official Helm installer script
-    if curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash; then
-        echo "Helm installed successfully"
-        
-        # Verify installation
-        if helm version --short &>/dev/null; then
-            echo "Helm version: $(helm version --short)"
-            
-            # Add stable repo
-            echo "Adding Helm stable repository..."
-            helm repo add stable https://charts.helm.sh/stable 2>/dev/null || true
-            helm repo update 2>/dev/null || true
-            
-            return 0
-        else
-            echo "Error: Helm installation verification failed"
-            return 1
-        fi
-    else
-        echo "Error: Failed to install Helm using official installer"
-        return 1
-    fi
+    # Download and run the official installer
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+    
+    return $?
 }
 
 # Setup Helm for a specific user
