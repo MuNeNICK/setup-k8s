@@ -19,3 +19,8 @@ PRESERVE_CNI=false
 
 # Arguments that will be passed to kubeadm
 KUBEADM_ARGS=""
+
+# Shell completion variables
+ENABLE_COMPLETION=true  # Enable shell completion setup for kubectl, kubeadm, etc.
+INSTALL_HELM=false  # Install Helm package manager
+COMPLETION_SHELLS="auto"  # auto, bash, zsh, fish, or comma-separated list

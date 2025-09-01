@@ -45,6 +45,42 @@ validate_cri() {
     fi
 }
 
+# Validate shell completion options
+validate_completion_options() {
+    # Validate ENABLE_COMPLETION is boolean
+    if [[ "$ENABLE_COMPLETION" != "true" && "$ENABLE_COMPLETION" != "false" ]]; then
+        echo "Error: --enable-completion must be 'true' or 'false'"
+        exit 1
+    fi
+    
+    # Validate INSTALL_HELM is boolean
+    if [[ "$INSTALL_HELM" != "true" && "$INSTALL_HELM" != "false" ]]; then
+        echo "Error: --install-helm must be 'true' or 'false'"
+        exit 1
+    fi
+    
+    # Validate COMPLETION_SHELLS
+    if [[ "$COMPLETION_SHELLS" != "auto" ]]; then
+        # Check if it's a valid shell or comma-separated list of shells
+        local valid_shells=("bash" "zsh" "fish")
+        IFS=',' read -ra shells <<< "$COMPLETION_SHELLS"
+        for shell in "${shells[@]}"; do
+            shell=$(echo "$shell" | tr -d ' ')  # Remove spaces
+            local is_valid=false
+            for valid in "${valid_shells[@]}"; do
+                if [[ "$shell" == "$valid" ]]; then
+                    is_valid=true
+                    break
+                fi
+            done
+            if [[ "$is_valid" == false ]]; then
+                echo "Error: Invalid shell '$shell' in --completion-shells. Valid options are: ${valid_shells[*]} or 'auto'"
+                exit 1
+            fi
+        done
+    fi
+}
+
 # Validate proxy mode selection
 validate_proxy_mode() {
     if [[ "$PROXY_MODE" != "iptables" && "$PROXY_MODE" != "ipvs" && "$PROXY_MODE" != "nftables" ]]; then
@@ -89,6 +125,9 @@ show_setup_help() {
     echo "  --join-token    Join token for worker nodes"
     echo "  --join-address  Master node address for worker nodes"
     echo "  --discovery-token-hash  Discovery token hash for worker nodes"
+    echo "  --enable-completion  Enable shell completion setup (default: true)"
+    echo "  --completion-shells  Shells to configure (auto, bash, zsh, fish, or comma-separated)"
+    echo "  --install-helm     Install Helm package manager (default: false)"
     echo "  --help            Display this help message"
     exit 0
 }
@@ -139,6 +178,18 @@ parse_setup_args() {
                 ;;
             --proxy-mode)
                 PROXY_MODE=$2
+                shift 2
+                ;;
+            --enable-completion)
+                ENABLE_COMPLETION=$2
+                shift 2
+                ;;
+            --install-helm)
+                INSTALL_HELM=$2
+                shift 2
+                ;;
+            --completion-shells)
+                COMPLETION_SHELLS=$2
                 shift 2
                 ;;
             --pod-network-cidr|--apiserver-advertise-address|--control-plane-endpoint|--service-cidr)

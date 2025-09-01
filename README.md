@@ -156,6 +156,9 @@ Note: The worker node must use the same CRI as the master node.
 | --join-token | Worker join token | --join-token abcdef.1234567890abcdef |
 | --join-address | Master address | --join-address 192.168.1.10:6443 |
 | --discovery-token-hash | Discovery token hash | --discovery-token-hash sha256:abc... |
+| --enable-completion | Enable shell completion setup (default: true) | --enable-completion false |
+| --completion-shells | Shells to configure (auto/bash/zsh/fish) | --completion-shells bash,zsh |
+| --install-helm | Install Helm package manager | --install-helm true |
 
 ## Cleanup Guide
 

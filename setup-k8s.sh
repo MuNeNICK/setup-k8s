@@ -36,7 +36,7 @@ load_modules() {
     
     # Download common modules
     echo "Downloading common modules..." >&2
-    local common_modules=(variables detection validation helpers networking swap)
+    local common_modules=(variables detection validation helpers networking swap completion helm)
     for module in "${common_modules[@]}"; do
         echo "  - Downloading common/${module}.sh" >&2
         if ! curl -fsSL "${GITHUB_BASE_URL}/common/${module}.sh" > "$temp_dir/${module}.sh"; then
@@ -105,6 +105,7 @@ main() {
     validate_worker_args
     validate_cri
     validate_proxy_mode
+    validate_completion_options
     
     echo "Starting Kubernetes initialization script..."
     echo "Node type: ${NODE_TYPE}"
@@ -183,6 +184,12 @@ main() {
     
     # Show installed versions
     show_versions
+    
+    # Setup Helm if requested
+    setup_helm
+    
+    # Setup shell completions
+    setup_k8s_shell_completion
     
     echo "Setup completed successfully!"
 }

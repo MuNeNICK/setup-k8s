@@ -36,7 +36,7 @@ load_modules() {
     
     # Download common modules
     echo "Downloading common modules..." >&2
-    local common_modules=(variables detection validation helpers networking swap)
+    local common_modules=(variables detection validation helpers networking swap completion helm)
     for module in "${common_modules[@]}"; do
         echo "  - Downloading common/${module}.sh" >&2
         if ! curl -fsSL "${GITHUB_BASE_URL}/common/${module}.sh" > "$temp_dir/${module}.sh"; then
@@ -148,6 +148,12 @@ main() {
     
     # Perform distribution-specific cleanup
     cleanup_${DISTRO_FAMILY}
+    
+    # Cleanup shell completions
+    cleanup_kubernetes_completions
+    
+    # Cleanup Helm if it was installed
+    cleanup_helm
     
     echo "Cleanup complete! Please reboot the system for all changes to take effect."
 }
