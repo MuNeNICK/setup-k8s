@@ -1,9 +1,6 @@
 # Test artifacts
-images/*.qcow2
-images/*.img
-images/*-test.qcow2
-results/logs/*.log
-results/*.json
+images/
+results/
 seed.iso
 seed-debug.iso
 cloud-init-temp/

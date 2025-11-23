@@ -12,6 +12,11 @@ CONFIG_FILE="$SCRIPT_DIR/distro-urls.conf"
 CLOUD_INIT_TEMPLATE="$SCRIPT_DIR/cloud-init-template.yaml"
 SETUP_K8S_SCRIPT="$SCRIPT_DIR/../setup-k8s.sh"
 CLEANUP_K8S_SCRIPT="$SCRIPT_DIR/../cleanup-k8s.sh"
+DOCKER_VM_RUNNER_IMAGE="${DOCKER_VM_RUNNER_IMAGE:-ghcr.io/munenick/docker-vm-runner:latest}"
+VM_IMAGES_DIR="${VM_IMAGES_DIR:-$SCRIPT_DIR/images}"
+VM_STATE_DIR="${VM_STATE_DIR:-$VM_IMAGES_DIR/state}"
+CLOUD_INIT_DIR="$SCRIPT_DIR/results/cloud-init"
+CLOUD_INIT_USER_DATA="$CLOUD_INIT_DIR/user-data.yaml"
 
 # K8s version (can be overridden by command line option)
 K8S_VERSION=""
@@ -22,8 +27,6 @@ TEST_MODE="offline"
 
 # Timeout settings (seconds)
 TIMEOUT_TOTAL=1200    # 20 minutes
-TIMEOUT_DOWNLOAD=600  # 10 minutes
-TIMEOUT_QEMU_START=60 # 1 minute
 
 # Colors for logging
 RED='\033[0;31m'
@@ -75,6 +78,15 @@ EOF
     echo "  Offline: Uses pre-bundled script with all modules included"
 }
 
+# Prepare directories expected by docker-vm-runner (/images, /var/lib/docker-vm-runner)
+prepare_runner_directories() {
+    mkdir -p "$VM_IMAGES_DIR" "$VM_IMAGES_DIR/base" "$VM_IMAGES_DIR/vms" "$VM_STATE_DIR"
+}
+
+prepare_vm_runner_environment() {
+    prepare_runner_directories
+}
+
 # Load configuration function
 load_config() {
     local distro=$1
@@ -103,110 +115,6 @@ load_config() {
     return 0
 }
 
-# Check and start container
-ensure_container_running() {
-    log_info "Checking QEMU container status..."
-    
-    # Check if container is running
-    if docker ps --format "{{.Names}}" | grep -q "k8s-qemu-tools"; then
-        log_info "QEMU container is already running"
-    else
-        log_info "Starting QEMU container..."
-        cd "$SCRIPT_DIR"
-        docker-compose up -d qemu-tools
-        
-        # Wait for startup completion
-        log_info "Waiting for container to be ready..."
-        for i in {1..10}; do
-            if docker-compose exec -T qemu-tools echo "Container ready" >/dev/null 2>&1; then
-                log_success "QEMU container is ready"
-                break
-            fi
-            sleep 2
-        done
-        
-        if [ $i -eq 10 ]; then
-            log_error "Container failed to start properly"
-            return 1
-        fi
-    fi
-    
-    return 0
-}
-
-# Download image
-download_image() {
-    local distro=$1
-    local image_url=$2
-    local image_file="images/${distro}.qcow2"
-    
-    log_info "Checking cloud image: $image_file"
-    
-    # Check existing image
-    if [ -f "$image_file" ]; then
-        local file_size=$(stat -c%s "$image_file" 2>/dev/null || echo "0")
-        if [ "$file_size" -gt 104857600 ]; then  # More than 100MB
-            log_info "Using cached image: $image_file ($((file_size/1024/1024))MB)"
-            return 0
-        else
-            log_warn "Cached image too small, re-downloading..."
-            rm -f "$image_file"
-        fi
-    fi
-    
-    # Create directory
-    mkdir -p "$(dirname "$image_file")"
-    
-    # Execute download
-    log_info "Downloading cloud image: $image_url"
-    log_info "This may take several minutes..."
-    
-    cd "$SCRIPT_DIR"
-    
-    # Start download in background and monitor progress
-    docker-compose exec -T qemu-tools bash -c "
-        wget --progress=bar:force:noscroll -O '/shared/$image_file' '$image_url' 2>&1 | \
-        stdbuf -o0 -e0 sed 's/^/[DOWNLOAD] /'
-    " &
-    local download_pid=$!
-    
-    # Monitor download progress
-    local monitor_count=0
-    while kill -0 $download_pid 2>/dev/null; do
-        if [ -f "$image_file" ]; then
-            local current_size=$(stat -c%s "$image_file" 2>/dev/null || echo "0")
-            if [ $((monitor_count % 5)) -eq 0 ] && [ "$current_size" -gt 0 ]; then
-                log_info "Downloaded: $((current_size/1024/1024))MB"
-            fi
-        fi
-        monitor_count=$((monitor_count + 1))
-        sleep 1
-    done
-    
-    # Check if download succeeded
-    wait $download_pid
-    local download_status=$?
-    
-    # Check file size
-    local downloaded_size=$(stat -c%s "$image_file" 2>/dev/null || echo "0")
-    
-    if [ $download_status -eq 0 ] && [ "$downloaded_size" -gt 104857600 ]; then  # More than 100MB
-        log_success "Image downloaded successfully: $image_file"
-        log_info "Downloaded size: $((downloaded_size/1024/1024))MB"
-        return 0
-    else
-        if [ $download_status -ne 0 ]; then
-            log_error "wget failed with exit code: $download_status"
-        elif [ "$downloaded_size" -eq 0 ]; then
-            log_error "Downloaded file is empty (0 bytes). URL may be invalid."
-        else
-            log_error "Downloaded file too small: $((downloaded_size/1024/1024))MB"
-        fi
-        log_error "Failed to download image from: $image_url"
-        rm -f "$image_file"
-        return 1
-    fi
-}
 
 # Generate bundled scripts for offline mode
 generate_bundled_scripts() {
@@ -390,32 +298,11 @@ generate_cloud_init() {
         print line
     }' "$CLOUD_INIT_TEMPLATE" > "$temp_dir/user-data"
     
-    # Generate meta-data
-    cat > "$temp_dir/meta-data" <<EOF
-instance-id: k8s-test-${distro}-$(date +%s)
-local-hostname: k8s-test-${distro}
-EOF
-    
-    # Generate seed.iso (execute in container, access via /shared)
-    log_info "Creating seed.iso..."
-    cd "$SCRIPT_DIR"
-    docker-compose exec -T qemu-tools genisoimage \
-        -output "/shared/seed.iso" \
-        -volid cidata \
-        -joliet \
-        -rock \
-        "/shared/$temp_dir/user-data" \
-        "/shared/$temp_dir/meta-data" >/dev/null 2>&1
-    
-    if [ $? -eq 0 ]; then
-        log_success "cloud-init configuration generated: seed.iso"
-        rm -rf "$temp_dir"
-        return 0
-    else
-        log_error "Failed to generate seed.iso"
-        rm -rf "$temp_dir"
-        return 1
-    fi
+    mkdir -p "$CLOUD_INIT_DIR"
+    mv "$temp_dir/user-data" "$CLOUD_INIT_USER_DATA"
+    rm -rf "$temp_dir"
+    log_success "cloud-init configuration generated: $CLOUD_INIT_USER_DATA"
+    return 0
 }
 
 # Parse test results
@@ -462,110 +349,95 @@ parse_test_output() {
 }
 
 # Execute and monitor QEMU
-run_qemu_test() {
+run_vm_container() {
     local distro=$1
-    local image_file="images/${distro}.qcow2"
+    local container_name="k8s-vm-${distro}-$(date +%s)"
     local log_file="results/logs/${distro}-$(date +%Y%m%d-%H%M%S).log"
-    
-    log_info "Starting QEMU VM test for: $distro"
-    
-    # Clean up existing QEMU processes
-    log_info "Cleaning up existing QEMU processes..."
-    docker-compose exec -T qemu-tools pkill -9 qemu-system-x86_64 2>/dev/null || true
-    sleep 2
-    
-    # Create results and log directories
-    mkdir -p results/logs
+
+    log_info "Starting docker-vm-runner for: $distro"
+    mkdir -p results/logs "$CLOUD_INIT_DIR"
     rm -f results/test-result.json
-    
-    # Create test image (expand and copy original)
-    local test_image="images/${distro}-test.qcow2"
-    log_info "Creating test image with expanded size..."
-    docker-compose exec -T qemu-tools bash -c "
-        cp /shared/$image_file /shared/$test_image
-        qemu-img resize /shared/$test_image 10G
-    " || {
-        log_error "Failed to create test image"
+
+    if ! command -v script >/dev/null 2>&1; then
+        log_error "'script' command not found (util-linux). Install it to stream VM console output."
         return 1
-    }
-    
-    # Build QEMU command
-    # Use Haswell CPU model (2013) for good compatibility and performance
-    # Can be overridden with QEMU_CPU_MODEL environment variable
-    local cpu_model="${QEMU_CPU_MODEL:-Haswell}"
-    log_info "Using CPU model: $cpu_model"
-    
-    # Configure network
-    local netdev_opts="user,id=net0"
-    
-    local qemu_cmd="qemu-system-x86_64 \
-        -machine pc,accel=kvm:tcg \
-        -cpu $cpu_model \
-        -m 4096 \
-        -smp 2 \
-        -nographic \
-        -serial mon:stdio \
-        -drive file=/shared/$test_image,if=virtio \
-        -drive file=/shared/seed.iso,if=virtio,media=cdrom \
-        -netdev $netdev_opts \
-        -device virtio-net,netdev=net0"
-    
-    log_info "QEMU command: $qemu_cmd"
-    log_info "Monitor output in: $log_file"
-    
-    # Initialize monitoring variables
+    fi
+
+    local fifo
+    fifo=$(mktemp -u)
+    mkfifo "$fifo"
+
+    local docker_cmd=(docker run --rm -it
+        --name "$container_name"
+        --hostname "$container_name"
+        --device /dev/kvm:/dev/kvm
+        -v "$VM_IMAGES_DIR:/images"
+        -v "$VM_STATE_DIR:/var/lib/docker-vm-runner"
+        -v "$CLOUD_INIT_DIR:/cloud-init:ro"
+        -e "DISTRO=$distro"
+        -e "CLOUD_INIT_USER_DATA=/cloud-init/user-data.yaml"
+        -e "GUEST_NAME=$container_name")
+    docker_cmd+=("$DOCKER_VM_RUNNER_IMAGE")
+    local docker_cmd_str
+    printf -v docker_cmd_str '%q ' "${docker_cmd[@]}"
+    docker_cmd_str=${docker_cmd_str% }
+
     TEST_STARTED=false
     TEST_COMPLETED=false
     JSON_CAPTURE=false
     JSON_CONTENT=""
-    
-    # Set trap for cleanup
-    cleanup_qemu() {
-        log_info "Cleaning up QEMU process..."
-        docker-compose exec -T qemu-tools pkill -9 qemu-system-x86_64 2>/dev/null || true
-    }
-    trap cleanup_qemu EXIT INT TERM
-    
-    # Start QEMU and monitor output
     local start_time=$(date +%s)
-    cd "$SCRIPT_DIR"
-    
-    # Start QEMU in background and save PID
-    docker-compose exec -T qemu-tools bash -c "$qemu_cmd" 2>&1 | \
-    while IFS= read -r line; do
-        # Record to log file
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $line" | tee -a "$log_file"
-        
-        # Parse test results
+    local completed=false
+    local timed_out=false
+
+    cleanup_vm() {
+        docker stop "$container_name" >/dev/null 2>&1 || true
+        rm -f "$fifo"
+    }
+    trap cleanup_vm EXIT INT TERM
+
+    log_info "Container command: $docker_cmd_str"
+    script -q -c "$docker_cmd_str" /dev/null >"$fifo" 2>&1 &
+    local docker_pid=$!
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        local timestamp="[$(date '+%Y-%m-%d %H:%M:%S')]"
+        printf '%s %s\n' "$timestamp" "$line" | tee -a "$log_file"
         parse_test_output "$line"
-        
-        # Check timeout
+
         local current_time=$(date +%s)
         local elapsed=$((current_time - start_time))
-        
         if [ $elapsed -gt $TIMEOUT_TOTAL ]; then
             log_error "Test timeout after ${TIMEOUT_TOTAL}s"
+            timed_out=true
+            docker stop "$container_name" >/dev/null 2>&1 || true
             break
         fi
-        
-        # Check test completion
+
         if [ "$TEST_COMPLETED" = true ] && [ -f "results/test-result.json" ]; then
             log_success "Test execution completed"
+            completed=true
+            docker stop "$container_name" >/dev/null 2>&1 || true
             break
         fi
-    done
-    
-    # Ensure QEMU process termination
-    log_info "Terminating QEMU process..."
-    docker-compose exec -T qemu-tools pkill -9 qemu-system-x86_64 2>/dev/null || true
-    
-    # Delete test image
-    log_info "Cleaning up test image..."
-    rm -f "images/${distro}-test.qcow2"
-    
-    # Remove trap
+    done <"$fifo"
+
+    wait $docker_pid
+    local docker_status=$?
+
     trap - EXIT INT TERM
-    
+    rm -f "$fifo"
+
+    if [ "$timed_out" = true ]; then
+        log_error "docker-vm-runner stopped due to timeout"
+        return 1
+    fi
+
+    if [ $docker_status -ne 0 ] && [ "$completed" = false ]; then
+        log_error "docker-vm-runner exited with status $docker_status"
+        return 1
+    fi
+
     return 0
 }
 
@@ -732,10 +604,9 @@ run_single_test() {
     
     # Execute each step
     load_config "$distro" || return 1
-    ensure_container_running || return 1
-    download_image "$distro" "$IMAGE_URL" || return 1
+    prepare_vm_runner_environment || return 1
     generate_cloud_init "$distro" "$LOGIN_USER" || return 1
-    run_qemu_test "$distro" || return 1
+    run_vm_container "$distro" || return 1
     
     # Display results and return status
     if show_test_results "$distro"; then

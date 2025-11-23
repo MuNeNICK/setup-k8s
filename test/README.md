@@ -1,6 +1,6 @@
 # K8s Multi-Distribution Test Suite
 
-Docker + QEMU test framework for automatically testing `setup-k8s.sh` script across multiple Linux distributions.
+Docker + QEMU test framework that validates `setup-k8s.sh` across multiple Linux distributions. VM lifecycle management relies on the published [`ghcr.io/munenick/docker-vm-runner`](https://github.com/MuNeNICK/docker-vm-runner) image, so contributors can run identical environments without custom tooling.
 
 ## Features
 
@@ -33,6 +33,7 @@ Docker + QEMU test framework for automatically testing `setup-k8s.sh` script acr
 - Linux host (Ubuntu 20.04+ recommended)
 - Docker Engine 20.10+
 - `/dev/kvm` access permissions (for KVM virtualization)
+- `script` command from util-linux (used to stream the VM serial console)
 - Minimum 8GB RAM, 10GB disk space
 
 ## Quick Start
@@ -80,6 +81,21 @@ Kubelet Status: active
 API Responsive: true
 ```
 
+## docker-vm-runner integration
+
+- `run-test.sh` launches the public `ghcr.io/munenick/docker-vm-runner:latest` image. Override via `DOCKER_VM_RUNNER_IMAGE` to test new builds.
+- `test/images/` is bind-mounted to `/images` inside the container. Cached QCOW2 images live under `images/base/`; per-test writable disks live under `images/vms/`.
+- `test/images/state/` stores libvirt metadata and certificates (`/var/lib/docker-vm-runner` inside the container). Delete this directory to reset docker-vm-runner state between runs.
+- `results/cloud-init/user-data.yaml` contains the rendered cloud-init payload that is mounted into the VM via docker-vm-runner.
+
+Environment overrides:
+
+| Variable | Purpose |
+| --- | --- |
+| `DOCKER_VM_RUNNER_IMAGE` | Container image tag to run (default `ghcr.io/munenick/docker-vm-runner:latest`). |
+| `VM_IMAGES_DIR` | Host directory bound to `/images`. |
+| `VM_STATE_DIR` | Host directory bound to `/var/lib/docker-vm-runner`. |
+
 ## Detailed Usage
 
 ### Basic Commands
@@ -109,27 +125,28 @@ cat results/test-result.json
 ### Troubleshooting
 
 ```bash
-# Check container status
-docker-compose ps
+# Tail the most recent log
+tail -f results/logs/<distro>-*.log
 
-# Check inside container
-docker-compose exec qemu-tools bash
+# If a test hangs, look for running containers named k8s-vm-*
+docker ps | grep k8s-vm-
+docker logs -f <container-name>
 
-# Manual container restart
-docker-compose down
-docker-compose up -d qemu-tools
+# Abort a stuck VM
+docker stop <container-name>
+
+# Pull the latest docker-vm-runner image
+docker pull ghcr.io/munenick/docker-vm-runner:latest
 ```
 
 ## Internal Workflow
 
-1. **Load configuration**: Get target distribution settings from `distro-urls.conf`
-2. **Start container**: Auto-start QEMU tools container (only when needed)
-3. **Fetch image**: Download and cache cloud images
-4. **Prepare cloud-init**: Embed setup-k8s.sh in generic template
-5. **Start QEMU**: Boot VM, start monitoring serial console output
-6. **Run test**: Auto-execute setup-k8s.sh inside VM
-7. **Collect results**: Check kubelet status, API response
-8. **Save results**: Save results in JSON format, output log files
+1. **Load configuration**: Read distro/image metadata from `distro-urls.conf`.
+2. **Prepare docker-vm-runner**: Pull (or build) the container image and create the shared `/images` cache directories.
+3. **Render cloud-init**: Bundle `setup-k8s.sh`/`cleanup-k8s.sh` into `results/cloud-init/user-data.yaml`.
+4. **Launch VM container**: Run docker-vm-runner with `/dev/kvm`, mount caches, and feed the rendered cloud-init payload.
+5. **Stream console output**: Attach via `script` so the guest serial console is visible and parsed for JSON markers.
+6. **Collect results**: Save structured JSON output plus log files under `results/`.
 
 ## File Structure
 
@@ -138,12 +155,12 @@ test/
 ├── run-test.sh              # Main execution script
 ├── distro-urls.conf         # Distribution configuration
 ├── cloud-init-template.yaml # Generic cloud-init template
-├── docker-compose.yml       # QEMU container definition
-├── Dockerfile              # QEMU environment image
-├── images/                 # Cloud image cache
-└── results/                # Test results and logs
-    ├── logs/              # Execution logs
-    └── test-result.json   # Latest test result
+├── images/                 # Cloud image cache (base/, vms/, state/)
+└── results/                # Test artifacts
+    ├── cloud-init/user-data.yaml # Rendered payload fed into docker-vm-runner
+    ├── logs/                    # Execution logs streamed from the VM console
+    └── test-result.json         # Latest JSON summary
+
 ```
 
 ## Customization
@@ -164,17 +181,11 @@ Modify constants in `run-test.sh`:
 
 ```bash
 TIMEOUT_TOTAL=1800    # Extend to 30 minutes
-TIMEOUT_DOWNLOAD=900  # Extend to 15 minutes
 ```
 
-### QEMU Configuration Tuning
+### VM Configuration Tuning
 
-Modify QEMU command in `run-test.sh`:
-
-```bash
-# Example: Increase memory
--m 8192 \  # 8GB RAM
-```
+`docker-vm-runner` exposes resource settings through environment variables (e.g., `MEMORY`, `CPUS`, `DISK_SIZE`). Add extra `-e` entries to the `docker_cmd` array in `run-test.sh` when you need to tweak these values for all tests.
 
 ## Common Issues
 
@@ -186,14 +197,15 @@ sudo chmod 666 /dev/kvm
 
 ### Download Failure
 ```bash
-# Clear cache
-rm -f images/*.qcow2
+# Clear cached base images (docker-vm-runner will re-download)
+rm -f images/base/*.qcow2
 ```
 
 ### VM Boot Failure
 ```bash
-# Restart container
-docker-compose restart qemu-tools
+# Remove working disks/state and rerun the test
+rm -rf images/vms/*
+rm -rf images/state/*
 ```
 
 ### Test Timeout
@@ -209,9 +221,14 @@ docker-compose restart qemu-tools
 # Verbose logging
 BASH_DEBUG=1 ./run-test.sh ubuntu-2404
 
-# Manual VM launch
-docker-compose exec qemu-tools bash
-qemu-system-x86_64 -machine pc,accel=kvm ...
+# Manual VM launch using docker-vm-runner
+cd setup-k8s/test
+DOCKER_VM_RUNNER_IMAGE=docker-vm-runner:local \
+docker run --rm -it \
+  --device /dev/kvm:/dev/kvm \
+  -v "$PWD/images:/images" \
+  -v "$PWD/images/state:/var/lib/docker-vm-runner" \
+  "$DOCKER_VM_RUNNER_IMAGE" bash
 ```
 
 ### Result Format
