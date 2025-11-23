@@ -1,0 +1,53 @@
+name: Daily Distro Tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * *'
+
+concurrency:
+  group: distro-tests
+  cancel-in-progress: false
+
+jobs:
+  distro-tests:
+    runs-on: [self-hosted, linux, kvm]
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        distro:
+          - ubuntu-2404
+          - ubuntu-2204
+          - ubuntu-2004
+          - debian-12
+          - debian-11
+          - centos-stream-9
+          - fedora-41
+          - opensuse-leap-155
+          - rocky-linux-9
+          - rocky-linux-8
+          - almalinux-9
+          - almalinux-8
+          - archlinux
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run setup-k8s test
+        working-directory: test
+        env:
+          BASH_DEBUG: '0'
+        run: |
+          set -euo pipefail
+          ./run-test.sh ${{ matrix.distro }}
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.distro }}
+          path: |
+            test/results/logs
+            test/results/test-result.json
+          if-no-files-found: ignore

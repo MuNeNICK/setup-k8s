@@ -1,0 +1,96 @@
+name: Ubuntu Option Tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 3 * * *'
+
+jobs:
+  ubuntu-option-tests:
+    runs-on: [self-hosted, linux, kvm]
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu2404-online-latest
+            distro: ubuntu-2404
+            mode: online
+            k8s_version: ""
+            setup_args: ""
+          - name: ubuntu2404-offline-default
+            distro: ubuntu-2404
+            mode: offline
+            k8s_version: ""
+            setup_args: ""
+          - name: ubuntu2404-ipvs-crio
+            distro: ubuntu-2404
+            mode: offline
+            k8s_version: ""
+            setup_args: "--proxy-mode ipvs --cri crio"
+          - name: ubuntu2404-nftables-k130
+            distro: ubuntu-2404
+            mode: offline
+            k8s_version: "1.30"
+            setup_args: "--proxy-mode nftables"
+          - name: ubuntu2404-helm-completion
+            distro: ubuntu-2404
+            mode: offline
+            k8s_version: ""
+            setup_args: "--install-helm true --completion-shells bash"
+          - name: ubuntu2204-custom-k8s
+            distro: ubuntu-2204
+            mode: offline
+            k8s_version: "1.31"
+            setup_args: "--install-helm false"
+          - name: ubuntu2204-cri-containerd-ipvs
+            distro: ubuntu-2204
+            mode: offline
+            k8s_version: ""
+            setup_args: "--proxy-mode ipvs --cri containerd"
+          - name: ubuntu2004-legacy-k128
+            distro: ubuntu-2004
+            mode: offline
+            k8s_version: "1.28"
+            setup_args: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run setup-k8s option test
+        working-directory: test
+        env:
+          MODE: ${{ matrix.mode }}
+          SETUP_ARGS: ${{ matrix.setup_args }}
+          K8S_VERSION: ${{ matrix.k8s_version }}
+          DISTRO: ${{ matrix.distro }}
+        run: |
+          set -euo pipefail
+          mode_flag=""
+          if [ "$MODE" = "online" ]; then
+            mode_flag="--online"
+          else
+            mode_flag="--offline"
+          fi
+
+          k8s_flag=""
+          if [ -n "$K8S_VERSION" ]; then
+            k8s_flag="--k8s-version $K8S_VERSION"
+          fi
+
+          setup_flag=()
+          if [ -n "$SETUP_ARGS" ]; then
+            setup_flag=(--setup-args "$SETUP_ARGS")
+          fi
+
+          ./run-test.sh $mode_flag $k8s_flag "${setup_flag[@]}" "$DISTRO"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.name }}
+          path: |
+            test/results/logs
+            test/results/test-result.json
+          if-no-files-found: ignore
