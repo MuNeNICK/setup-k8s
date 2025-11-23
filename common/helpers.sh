@@ -34,8 +34,8 @@ configure_containerd_toml() {
     # Ensure SystemdCgroup=true for runc
     sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml || true
 
-    # Ensure version = 2 is present
-    if ! grep -q '^version *= *2' /etc/containerd/config.toml 2>/dev/null; then
+    # Only inject a version header when the generated config lacks one
+    if ! grep -q '^version *= *[0-9]' /etc/containerd/config.toml 2>/dev/null; then
         sed -i '1s/^/version = 2\n/' /etc/containerd/config.toml || true
     fi
 
@@ -53,7 +53,7 @@ configure_containerd_toml() {
 
     systemctl daemon-reload || true
     systemctl enable containerd || true
-    systemctl restart containerd || true
+    systemctl restart containerd
 }
 
 # Helper: Get CRI socket path based on runtime

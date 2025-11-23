@@ -2,6 +2,9 @@
 
 set -e
 
+# Ensure SUDO_USER is defined even when script runs as root without sudo
+SUDO_USER="${SUDO_USER:-}"
+
 # Get the directory where the script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
