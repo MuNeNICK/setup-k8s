@@ -79,6 +79,20 @@ chmod +x setup-k8s.sh
 sudo ./setup-k8s.sh [options]
 ```
 
+### Web Installer (--gui)
+
+Prefer configuring from a browser? Launch the lightweight web UI:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | \
+  sudo bash -s -- --gui
+```
+
+This starts a local HTTP server (default: `http://127.0.0.1:8080`) that mirrors the CLI
+options. Once you submit the form, the script continues in the terminal with the selected
+configuration. Change the bind address or port via `GUI_BIND_ADDRESS` / `GUI_PORT`, and
+ensure `python3` is installed for the web UI to run.
+
 ### Master Node Installation
 
 Basic setup with default containerd:
@@ -159,6 +173,7 @@ Note: The worker node must use the same CRI as the master node.
 | --enable-completion | Enable shell completion setup (default: true) | --enable-completion false |
 | --completion-shells | Shells to configure (auto/bash/zsh/fish) | --completion-shells bash,zsh |
 | --install-helm | Install Helm package manager | --install-helm true |
+| --gui | Launch the browser-based installer (requires python3) | --gui |
 
 ## Cleanup Guide
 

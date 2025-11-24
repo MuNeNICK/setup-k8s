@@ -14,12 +14,21 @@ GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.githubusercontent.com/MuNeNICK/s
 # Check if running in offline mode
 OFFLINE_MODE="${OFFLINE_MODE:-false}"
 
-# Parse early arguments for offline mode
+# GUI mode configuration (optional)
+GUI_MODE="${GUI_MODE:-false}"
+GUI_BIND_ADDRESS="${GUI_BIND_ADDRESS:-127.0.0.1}"
+GUI_PORT="${GUI_PORT:-8080}"
+
+# Parse early arguments for offline / GUI mode (needs to happen before modules load)
 for arg in "$@"; do
-    if [ "$arg" = "--offline" ]; then
-        OFFLINE_MODE="true"
-        break
-    fi
+    case "$arg" in
+        --offline)
+            OFFLINE_MODE="true"
+            ;;
+        --gui)
+            GUI_MODE="true"
+            ;;
+    esac
 done
 
 # Function to load modules
@@ -39,7 +48,7 @@ load_modules() {
     
     # Download common modules
     echo "Downloading common modules..." >&2
-    local common_modules=(variables detection validation helpers networking swap completion helm)
+    local common_modules=(variables detection validation helpers networking swap completion helm gui)
     for module in "${common_modules[@]}"; do
         echo "  - Downloading common/${module}.sh" >&2
         if ! curl -fsSL "${GITHUB_BASE_URL}/common/${module}.sh" > "$temp_dir/${module}.sh"; then
@@ -98,9 +107,40 @@ main() {
     else
         load_modules || exit 1
     fi
+
+    # Ensure GUI helper is available if requested (helpful for local/offline runs)
+    if [ "$GUI_MODE" = "true" ] && ! type -t run_gui_installer >/dev/null 2>&1; then
+        if [ -f "$SCRIPT_DIR/common/gui.sh" ]; then
+            source "$SCRIPT_DIR/common/gui.sh"
+        else
+            echo "Error: GUI module is missing. Please update your checkout." >&2
+            exit 1
+        fi
+    fi
+
+    # Strip special flags that have already been handled
+    local -a cli_args=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --gui|--offline)
+                shift
+                ;;
+            *)
+                cli_args+=("$1")
+                shift
+                ;;
+        esac
+    done
     
-    # Parse command line arguments
-    parse_setup_args "$@"
+    if [ "$GUI_MODE" = "true" ]; then
+        if [ "${#cli_args[@]}" -gt 0 ]; then
+            echo "Note: CLI options are ignored when --gui mode is active." >&2
+        fi
+        run_gui_installer
+    else
+        # Parse command line arguments
+        parse_setup_args "${cli_args[@]}"
+    fi
     
     # Validate inputs
     check_root
