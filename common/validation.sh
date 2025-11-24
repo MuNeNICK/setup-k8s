@@ -134,9 +134,7 @@ show_setup_help() {
     echo "  --enable-completion  Enable shell completion setup (default: true)"
     echo "  --completion-shells  Shells to configure (auto, bash, zsh, fish, or comma-separated)"
     echo "  --install-helm     Install Helm package manager (default: false)"
-    echo "  --gui            Launch the interactive web installer (requires python3)"
-    echo "  --gui-bind-address  Bind address for the web installer (default: 127.0.0.1)"
-    echo "  --gui-port       Port for the web installer (default: 8080)"
+    echo "  --gui [address[:port]]  Launch the interactive web installer (requires python3)"
     echo "  --help            Display this help message"
     exit 0
 }

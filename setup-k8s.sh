@@ -19,6 +19,42 @@ GUI_MODE="${GUI_MODE:-false}"
 GUI_BIND_ADDRESS="${GUI_BIND_ADDRESS:-127.0.0.1}"
 GUI_PORT="${GUI_PORT:-8080}"
 
+# helper for validating GUI port input
+set_gui_port() {
+    local gui_port_value="$1"
+    if ! [[ "$gui_port_value" =~ ^[0-9]+$ ]] || (( gui_port_value < 1 || gui_port_value > 65535 )); then
+        echo "Error: GUI port must be a number between 1 and 65535" >&2
+        exit 1
+    fi
+    GUI_PORT="$gui_port_value"
+}
+
+parse_gui_endpoint_arg() {
+    local value="$1"
+    local address_part=""
+    local port_part=""
+
+    if [[ "$value" == *:* ]]; then
+        address_part="${value%%:*}"
+        port_part="${value##*:}"
+        # Allow formats like ":9000" to fall back to default host
+        if [ -z "$address_part" ]; then
+            address_part=""
+        fi
+    elif [[ "$value" =~ ^[0-9]+$ ]]; then
+        port_part="$value"
+    elif [ -n "$value" ]; then
+        address_part="$value"
+    fi
+
+    if [ -n "$address_part" ]; then
+        GUI_BIND_ADDRESS="$address_part"
+    fi
+    if [ -n "$port_part" ]; then
+        set_gui_port "$port_part"
+    fi
+}
+
 # Parse early arguments for offline / GUI mode (needs to happen before modules load)
 original_args=("$@")
 i=0
@@ -27,31 +63,29 @@ while [ $i -lt ${#original_args[@]} ]; do
     case "$arg" in
         --offline)
             OFFLINE_MODE="true"
+            ((i++))
+            continue
             ;;
         --gui)
             GUI_MODE="true"
-            ;;
-        --gui-bind-address)
-            if (( i + 1 >= ${#original_args[@]} )); then
-                echo "Error: --gui-bind-address requires an address value" >&2
-                exit 1
+            if (( i + 1 < ${#original_args[@]} )); then
+                next_arg="${original_args[$((i + 1))]}"
+                if [[ -n "$next_arg" && "$next_arg" != -* ]]; then
+                    parse_gui_endpoint_arg "$next_arg"
+                    ((i += 2))
+                    continue
+                fi
             fi
-            GUI_BIND_ADDRESS="${original_args[$((i + 1))]}"
-            ((i += 2))
+            ((i++))
             continue
             ;;
-        --gui-port)
-            if (( i + 1 >= ${#original_args[@]} )); then
-                echo "Error: --gui-port requires a value" >&2
-                exit 1
+        --gui=*)
+            GUI_MODE="true"
+            gui_value="${arg#*=}"
+            if [ -n "$gui_value" ]; then
+                parse_gui_endpoint_arg "$gui_value"
             fi
-            gui_port_value="${original_args[$((i + 1))]}"
-            if ! [[ "$gui_port_value" =~ ^[0-9]+$ ]] || (( gui_port_value < 1 || gui_port_value > 65535 )); then
-                echo "Error: --gui-port requires a numeric value between 1 and 65535" >&2
-                exit 1
-            fi
-            GUI_PORT="$gui_port_value"
-            ((i += 2))
+            ((i++))
             continue
             ;;
     esac
@@ -149,11 +183,18 @@ main() {
     local -a cli_args=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --gui|--offline)
+            --offline)
                 shift
                 ;;
-            --gui-bind-address|--gui-port)
-                shift 2
+            --gui)
+                if [[ $# -gt 1 && "$2" != -* ]]; then
+                    shift 2
+                else
+                    shift
+                fi
+                ;;
+            --gui=*)
+                shift
                 ;;
             *)
                 cli_args+=("$1")

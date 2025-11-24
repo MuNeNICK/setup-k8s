@@ -1,0 +1,1547 @@
+[2025-11-24 07:26:49] ^@[0;34m[INFO][0m Distribution: ubuntu-2404 (Ubuntu 24.04 LTS (Noble))
+[2025-11-24 07:26:49] [0;34m[INFO][0m VM Name: k8s-vm-ubuntu-2404-1763936809
+[2025-11-24 07:26:49] [0;34m[INFO][0m Memory: 4096 MiB, CPUs: 2
+[2025-11-24 07:26:49] [0;34m[INFO][0m CLOUD_INIT_USER_DATA: /cloud-init/user-data.yaml
+[2025-11-24 07:26:49] [0;34m[INFO][0m Primary NIC: user-mode networking (SSH forward localhost:2222 -> guest:22)
+[2025-11-24 07:26:49] [0;34m[INFO][0m Primary NIC model: virtio
+[2025-11-24 07:26:49] [0;34m[INFO][0m Primary NIC MAC: 52:54:00:f2:6f:1f
+[2025-11-24 07:26:49] [0;34m[INFO][0m Display mode: none
+[2025-11-24 07:26:49] [0;34m[INFO][0m Redfish disabled (set REDFISH_ENABLE=1 to enable)
+[2025-11-24 07:26:49] [0;34m[INFO][0m libvirt services spawned
+[2025-11-24 07:26:50] [0;34m[INFO][0m Redfish disabled (set REDFISH_ENABLE=1 to enable)
+[2025-11-24 07:26:50] [0;34m[INFO][0m Using cached image: /images/base/ubuntu-2404.qcow2
+[2025-11-24 07:26:50] [0;34m[INFO][0m Creating working disk /images/vms/k8s-vm-ubuntu-2404-1763936809/disk.qcow2
+[2025-11-24 07:26:50] [0;34m[INFO][0m Resizing disk to 20G...
+[2025-11-24 07:26:50] [0;34m[INFO][0m Running: qemu-img resize /images/vms/k8s-vm-ubuntu-2404-1763936809/disk.qcow2 20G
+[2025-11-24 07:26:51] Image resized.
+[2025-11-24 07:26:51] [0;34m[INFO][0m Appending user cloud-init data from /cloud-init/user-data.yaml
+[2025-11-24 07:26:51] [0;34m[INFO][0m Running: genisoimage -output /images/vms/k8s-vm-ubuntu-2404-1763936809/seed.iso -volid cidata -joliet -rock /tmp/tmpzgizukt1/user-data /tmp/tmpzgizukt1/meta-data
+[2025-11-24 07:26:51] I: -input-charset not specified, using utf-8 (detected in locale settings)
+[2025-11-24 07:26:51] Total translation table size: 0
+[2025-11-24 07:26:51] Total rockridge attributes bytes: 331
+[2025-11-24 07:26:51] Total directory bytes: 0
+[2025-11-24 07:26:51] Path table size(bytes): 10
+[2025-11-24 07:26:51] Max brk space used 0
+[2025-11-24 07:26:51] 365 extents written (0 MB)
+[2025-11-24 07:26:51] libvirt: QEMU Driver error : Domain not found: no domain with matching name 'k8s-vm-ubuntu-2404-1763936809'
+[2025-11-24 07:26:51] [0;32m[SUCCESS][0m Defined domain k8s-vm-ubuntu-2404-1763936809
+[2025-11-24 07:26:52] [0;32m[SUCCESS][0m Domain k8s-vm-ubuntu-2404-1763936809 started
+[2025-11-24 07:26:52] [0;34m[INFO][0m Attaching to VM console (Ctrl+] to exit)
+[2025-11-24 07:26:52] Authorization not available. Check if polkit service is running or see debug message for more information.
+[2025-11-24 07:26:52] Connected to domain 'k8s-vm-ubuntu-2404-1763936809'
+[2025-11-24 07:26:52] Escape character is ^] (Ctrl + ])
+[2025-11-24 07:26:54] [    0.000000] Linux version 6.8.0-88-generic (buildd@lcy02-amd64-004) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #89-Ubuntu SMP PREEMPT_DYNAMIC Sat Oct 11 01:02:46 UTC 2025 (Ubuntu 6.8.0-88.89-generic 6.8.12)
+[2025-11-24 07:26:54] [    0.000000] Command line: BOOT_IMAGE=/vmlinuz-6.8.0-88-generic root=LABEL=cloudimg-rootfs ro console=tty1 console=ttyS0
+[2025-11-24 07:26:54] [    0.000000] KERNEL supported cpus:
+[2025-11-24 07:26:54] [    0.000000]   Intel GenuineIntel
+[2025-11-24 07:26:54] [    0.000000]   AMD AuthenticAMD
+[2025-11-24 07:26:54] [    0.000000]   Hygon HygonGenuine
+[2025-11-24 07:26:54] [    0.000000]   Centaur CentaurHauls
+[2025-11-24 07:26:54] [    0.000000]   zhaoxin   Shanghai  
+[2025-11-24 07:26:54] [    0.000000] BIOS-provided physical RAM map:
+[2025-11-24 07:26:54] [    0.000000] BIOS-e820: [mem 0x0000000000000000-0x000000000009fbff] usable
+[2025-11-24 07:26:54] [    0.000000] BIOS-e820: [mem 0x000000000009fc00-0x000000000009ffff] reserved
+[2025-11-24 07:26:54] [    0.000000] BIOS-e820: [mem 0x00000000000f0000-0x00000000000fffff] reserved
+[2025-11-24 07:26:54] [    0.000000] BIOS-e820: [mem 0x0000000000100000-0x00000000bffdafff] usable
+[2025-11-24 07:26:54] [    0.000000] BIOS-e820: [mem 0x00000000bffdb000-0x00000000bfffffff] reserved
+[2025-11-24 07:26:54] [    0.000000] BIOS-e820: [mem 0x00000000feffc000-0x00000000feffffff] reserved
+[2025-11-24 07:26:54] [    0.000000] BIOS-e820: [mem 0x00000000fffc0000-0x00000000ffffffff] reserved
+[2025-11-24 07:26:54] [    0.000000] BIOS-e820: [mem 0x0000000100000000-0x000000013fffffff] usable
+[2025-11-24 07:26:54] [    0.000000] NX (Execute Disable) protection: active
+[2025-11-24 07:26:54] [    0.000000] APIC: Static calls initialized
+[2025-11-24 07:26:54] [    0.000000] SMBIOS 2.8 present.
+[2025-11-24 07:26:54] [    0.000000] DMI: QEMU Standard PC (i440FX + PIIX, 1996), BIOS 1.16.2-debian-1.16.2-1 04/01/2014
+[2025-11-24 07:26:54] [    0.000000] Hypervisor detected: KVM
+[2025-11-24 07:26:54] [    0.000000] kvm-clock: Using msrs 4b564d01 and 4b564d00
+[2025-11-24 07:26:54] [    0.000001] kvm-clock: using sched offset of 1842501481 cycles
+[2025-11-24 07:26:54] [    0.000002] clocksource: kvm-clock: mask: 0xffffffffffffffff max_cycles: 0x1cd42e4dffb, max_idle_ns: 881590591483 ns
+[2025-11-24 07:26:54] [    0.000004] tsc: Detected 2918.400 MHz processor
+[2025-11-24 07:26:54] [    0.000308] last_pfn = 0x140000 max_arch_pfn = 0x400000000
+[2025-11-24 07:26:54] [    0.000331] MTRR map: 4 entries (3 fixed + 1 variable; max 19), built from 8 variable MTRRs
+[2025-11-24 07:26:54] [    0.000333] x86/PAT: Configuration [0-7]: WB  WC  UC- UC  WB  WP  UC- WT  
+[2025-11-24 07:26:54] [    0.000362] last_pfn = 0xbffdb max_arch_pfn = 0x400000000
+[2025-11-24 07:26:54] [    0.005692] found SMP MP-table at [mem 0x000f5b60-0x000f5b6f]
+[2025-11-24 07:26:54] [    0.005707] Using GB pages for direct mapping
+[2025-11-24 07:26:54] [    0.008881] RAMDISK: [mem 0x34579000-0x362b3fff]
+[2025-11-24 07:26:54] [    0.008954] ACPI: Early table checksum verification disabled
+[2025-11-24 07:26:54] [    0.008957] ACPI: RSDP 0x00000000000F5930 000014 (v00 BOCHS )
+[2025-11-24 07:26:54] [    0.008961] ACPI: RSDT 0x00000000BFFE1AD8 000034 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[2025-11-24 07:26:54] [    0.008966] ACPI: FACP 0x00000000BFFE1984 000074 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[2025-11-24 07:26:54] [    0.008971] ACPI: DSDT 0x00000000BFFE0040 001944 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[2025-11-24 07:26:54] [    0.008974] ACPI: FACS 0x00000000BFFE0000 000040
+[2025-11-24 07:26:54] [    0.008976] ACPI: APIC 0x00000000BFFE19F8 000080 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[2025-11-24 07:26:54] [    0.008978] ACPI: HPET 0x00000000BFFE1A78 000038 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[2025-11-24 07:26:54] [    0.008981] ACPI: WAET 0x00000000BFFE1AB0 000028 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[2025-11-24 07:26:54] [    0.008982] ACPI: Reserving FACP table memory at [mem 0xbffe1984-0xbffe19f7]
+[2025-11-24 07:26:54] [    0.008983] ACPI: Reserving DSDT table memory at [mem 0xbffe0040-0xbffe1983]
+[2025-11-24 07:26:54] [    0.008984] ACPI: Reserving FACS table memory at [mem 0xbffe0000-0xbffe003f]
+[2025-11-24 07:26:54] [    0.008985] ACPI: Reserving APIC table memory at [mem 0xbffe19f8-0xbffe1a77]
+[2025-11-24 07:26:54] [    0.008985] ACPI: Reserving HPET table memory at [mem 0xbffe1a78-0xbffe1aaf]
+[2025-11-24 07:26:54] [    0.008986] ACPI: Reserving WAET table memory at [mem 0xbffe1ab0-0xbffe1ad7]
+[2025-11-24 07:26:54] [    0.009199] No NUMA configuration found
+[2025-11-24 07:26:54] [    0.009199] Faking a node at [mem 0x0000000000000000-0x000000013fffffff]
+[2025-11-24 07:26:54] [    0.009204] NODE_DATA(0) allocated [mem 0x13ffd3000-0x13fffdfff]
+[2025-11-24 07:26:54] [    0.009389] Zone ranges:
+[2025-11-24 07:26:54] [    0.009390]   DMA      [mem 0x0000000000001000-0x0000000000ffffff]
+[2025-11-24 07:26:54] [    0.009391]   DMA32    [mem 0x0000000001000000-0x00000000ffffffff]
+[2025-11-24 07:26:54] [    0.009392]   Normal   [mem 0x0000000100000000-0x000000013fffffff]
+[2025-11-24 07:26:54] [    0.009393]   Device   empty
+[2025-11-24 07:26:54] [    0.009394] Movable zone start for each node
+[2025-11-24 07:26:54] [    0.009395] Early memory node ranges
+[2025-11-24 07:26:54] [    0.009396]   node   0: [mem 0x0000000000001000-0x000000000009efff]
+[2025-11-24 07:26:54] [    0.009397]   node   0: [mem 0x0000000000100000-0x00000000bffdafff]
+[2025-11-24 07:26:54] [    0.009397]   node   0: [mem 0x0000000100000000-0x000000013fffffff]
+[2025-11-24 07:26:54] [    0.009398] Initmem setup node 0 [mem 0x0000000000001000-0x000000013fffffff]
+[2025-11-24 07:26:54] [    0.012034] On node 0, zone DMA: 1 pages in unavailable ranges
+[2025-11-24 07:26:54] [    0.012128] On node 0, zone DMA: 97 pages in unavailable ranges
+[2025-11-24 07:26:54] [    0.101614] On node 0, zone Normal: 37 pages in unavailable ranges
+[2025-11-24 07:26:54] [    0.101911] ACPI: PM-Timer IO Port: 0x608
+[2025-11-24 07:26:54] [    0.101926] ACPI: LAPIC_NMI (acpi_id[0xff] dfl dfl lint[0x1])
+[2025-11-24 07:26:54] [    0.101953] IOAPIC[0]: apic_id 0, version 17, address 0xfec00000, GSI 0-23
+[2025-11-24 07:26:54] [    0.101956] ACPI: INT_SRC_OVR (bus 0 bus_irq 0 global_irq 2 dfl dfl)
+[2025-11-24 07:26:54] [    0.101958] ACPI: INT_SRC_OVR (bus 0 bus_irq 5 global_irq 5 high level)
+[2025-11-24 07:26:54] [    0.101959] ACPI: INT_SRC_OVR (bus 0 bus_irq 9 global_irq 9 high level)
+[2025-11-24 07:26:54] [    0.101960] ACPI: INT_SRC_OVR (bus 0 bus_irq 10 global_irq 10 high level)
+[2025-11-24 07:26:54] [    0.101960] ACPI: INT_SRC_OVR (bus 0 bus_irq 11 global_irq 11 high level)
+[2025-11-24 07:26:54] [    0.101964] ACPI: Using ACPI (MADT) for SMP configuration information
+[2025-11-24 07:26:54] [    0.101965] ACPI: HPET id: 0x8086a201 base: 0xfed00000
+[2025-11-24 07:26:54] [    0.101969] TSC deadline timer available
+[2025-11-24 07:26:54] [    0.101970] smpboot: Allowing 2 CPUs, 0 hotplug CPUs
+[2025-11-24 07:26:54] [    0.101985] kvm-guest: APIC: eoi() replaced with kvm_guest_apic_eoi_write()
+[2025-11-24 07:26:54] [    0.101997] kvm-guest: KVM setup pv remote TLB flush
+[2025-11-24 07:26:54] [    0.102000] kvm-guest: setup PV sched yield
+[2025-11-24 07:26:54] [    0.102006] PM: hibernation: Registered nosave memory: [mem 0x00000000-0x00000fff]
+[2025-11-24 07:26:54] [    0.102007] PM: hibernation: Registered nosave memory: [mem 0x0009f000-0x0009ffff]
+[2025-11-24 07:26:54] [    0.102008] PM: hibernation: Registered nosave memory: [mem 0x000a0000-0x000effff]
+[2025-11-24 07:26:54] [    0.102008] PM: hibernation: Registered nosave memory: [mem 0x000f0000-0x000fffff]
+[2025-11-24 07:26:54] [    0.102009] PM: hibernation: Registered nosave memory: [mem 0xbffdb000-0xbfffffff]
+[2025-11-24 07:26:54] [    0.102010] PM: hibernation: Registered nosave memory: [mem 0xc0000000-0xfeffbfff]
+[2025-11-24 07:26:54] [    0.102010] PM: hibernation: Registered nosave memory: [mem 0xfeffc000-0xfeffffff]
+[2025-11-24 07:26:54] [    0.102011] PM: hibernation: Registered nosave memory: [mem 0xff000000-0xfffbffff]
+[2025-11-24 07:26:54] [    0.102011] PM: hibernation: Registered nosave memory: [mem 0xfffc0000-0xffffffff]
+[2025-11-24 07:26:54] [    0.102013] [mem 0xc0000000-0xfeffbfff] available for PCI devices
+[2025-11-24 07:26:54] [    0.102014] Booting paravirtualized kernel on KVM
+[2025-11-24 07:26:54] [    0.102016] clocksource: refined-jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 1910969940391419 ns
+[2025-11-24 07:26:54] [    0.102022] setup_percpu: NR_CPUS:8192 nr_cpumask_bits:2 nr_cpu_ids:2 nr_node_ids:1
+[2025-11-24 07:26:54] [    0.105402] percpu: Embedded 86 pages/cpu s229376 r8192 d114688 u1048576
+[2025-11-24 07:26:54] [    0.105446] kvm-guest: PV spinlocks enabled
+[2025-11-24 07:26:54] [    0.105448] PV qspinlock hash table entries: 256 (order: 0, 4096 bytes, linear)
+[2025-11-24 07:26:54] [    0.105451] Kernel command line: BOOT_IMAGE=/vmlinuz-6.8.0-88-generic root=LABEL=cloudimg-rootfs ro console=tty1 console=ttyS0
+[2025-11-24 07:26:54] [    0.105501] Unknown kernel command line parameters "BOOT_IMAGE=/vmlinuz-6.8.0-88-generic", will be passed to user space.
+[2025-11-24 07:26:54] [    0.105511] random: crng init done
+[2025-11-24 07:26:54] [    0.110374] Dentry cache hash table entries: 524288 (order: 10, 4194304 bytes, linear)
+[2025-11-24 07:26:54] [    0.113577] Inode-cache hash table entries: 262144 (order: 9, 2097152 bytes, linear)
+[2025-11-24 07:26:54] [    0.113636] Fallback order for Node 0: 0 
+[2025-11-24 07:26:54] [    0.113639] Built 1 zonelists, mobility grouping on.  Total pages: 1031899
+[2025-11-24 07:26:54] [    0.113640] Policy zone: Normal
+[2025-11-24 07:26:54] [    0.113648] mem auto-init: stack:all(zero), heap alloc:on, heap free:off
+[2025-11-24 07:26:54] [    0.113653] software IO TLB: area num 2.
+[2025-11-24 07:26:54] [    0.192176] Memory: 3970700K/4193764K available (22528K kernel code, 4441K rwdata, 14384K rodata, 4912K init, 4796K bss, 222804K reserved, 0K cma-reserved)
+[2025-11-24 07:26:54] [    0.192856] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=2, Nodes=1
+[2025-11-24 07:26:54] [    0.192919] ftrace: allocating 58192 entries in 228 pages
+[2025-11-24 07:26:54] [    0.199808] ftrace: allocated 228 pages with 4 groups
+[2025-11-24 07:26:54] [    0.200609] Dynamic Preempt: voluntary
+[2025-11-24 07:26:54] [    0.203296] rcu: Preemptible hierarchical RCU implementation.
+[2025-11-24 07:26:54] [    0.203297] rcu: 	RCU restricting CPUs from NR_CPUS=8192 to nr_cpu_ids=2.
+[2025-11-24 07:26:54] [    0.203299] 	Trampoline variant of Tasks RCU enabled.
+[2025-11-24 07:26:54] [    0.203299] 	Rude variant of Tasks RCU enabled.
+[2025-11-24 07:26:54] [    0.203299] 	Tracing variant of Tasks RCU enabled.
+[2025-11-24 07:26:54] [    0.203300] rcu: RCU calculated value of scheduler-enlistment delay is 100 jiffies.
+[2025-11-24 07:26:54] [    0.203301] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=2
+[2025-11-24 07:26:54] [    0.203312] RCU Tasks: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.
+[2025-11-24 07:26:54] [    0.203314] RCU Tasks Rude: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.
+[2025-11-24 07:26:54] [    0.203315] RCU Tasks Trace: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.
+[2025-11-24 07:26:54] [    0.209986] NR_IRQS: 524544, nr_irqs: 440, preallocated irqs: 16
+[2025-11-24 07:26:54] [    0.210208] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[2025-11-24 07:26:54] [    0.210787] Console: colour VGA+ 80x25
+[2025-11-24 07:26:54] [    0.210790] printk: legacy console [tty1] enabled
+[2025-11-24 07:26:54] [    0.216880] printk: legacy console [ttyS0] enabled
+[2025-11-24 07:26:54] [    0.294673] ACPI: Core revision 20230628
+[2025-11-24 07:26:54] [    0.295230] clocksource: hpet: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 19112604467 ns
+[2025-11-24 07:26:54] [    0.296182] APIC: Switch to symmetric I/O mode setup
+[2025-11-24 07:26:54] [    0.296834] x2apic enabled
+[2025-11-24 07:26:54] [    0.297355] APIC: Switched APIC routing to: physical x2apic
+[2025-11-24 07:26:54] [    0.297924] kvm-guest: APIC: send_IPI_mask() replaced with kvm_send_ipi_mask()
+[2025-11-24 07:26:54] [    0.298783] kvm-guest: APIC: send_IPI_mask_allbutself() replaced with kvm_send_ipi_mask_allbutself()
+[2025-11-24 07:26:54] [    0.299662] kvm-guest: setup PV IPIs
+[2025-11-24 07:26:54] [    0.300771] ..TIMER: vector=0x30 apic1=0 pin1=2 apic2=-1 pin2=-1
+[2025-11-24 07:26:54] [    0.301383] clocksource: tsc-early: mask: 0xffffffffffffffff max_cycles: 0x2a11290c0c8, max_idle_ns: 440795344938 ns
+[2025-11-24 07:26:54] [    0.302435] Calibrating delay loop (skipped) preset value.. 5836.80 BogoMIPS (lpj=2918400)
+[2025-11-24 07:26:54] [    0.303591] x86/cpu: User Mode Instruction Prevention (UMIP) activated
+[2025-11-24 07:26:54] [    0.304282] Last level iTLB entries: 4KB 0, 2MB 0, 4MB 0
+[2025-11-24 07:26:54] [    0.304488] Last level dTLB entries: 4KB 0, 2MB 0, 4MB 0, 1GB 0
+[2025-11-24 07:26:54] [    0.305497] Spectre V1 : Mitigation: usercopy/swapgs barriers and __user pointer sanitization
+[2025-11-24 07:26:54] [    0.306270] Spectre V2 : Spectre BHI mitigation: SW BHB clearing on vm exit
+[2025-11-24 07:26:54] [    0.306487] Spectre V2 : Spectre BHI mitigation: SW BHB clearing on syscall
+[2025-11-24 07:26:54] [    0.307495] Spectre V2 : Mitigation: Enhanced / Automatic IBRS
+[2025-11-24 07:26:54] [    0.308490] Spectre V2 : Spectre v2 / SpectreRSB mitigation: Filling RSB on context switch
+[2025-11-24 07:26:54] [    0.309506] Spectre V2 : Spectre v2 / PBRSB-eIBRS: Retire a single CALL on VMEXIT
+[2025-11-24 07:26:54] [    0.310512] Spectre V2 : mitigation: Enabling conditional Indirect Branch Prediction Barrier
+[2025-11-24 07:26:54] [    0.311495] Speculative Store Bypass: Mitigation: Speculative Store Bypass disabled via prctl
+[2025-11-24 07:26:54] [    0.312498] Register File Data Sampling: Vulnerable: No microcode
+[2025-11-24 07:26:54] [    0.313516] x86/fpu: Supporting XSAVE feature 0x001: 'x87 floating point registers'
+[2025-11-24 07:26:54] [    0.314508] x86/fpu: Supporting XSAVE feature 0x002: 'SSE registers'
+[2025-11-24 07:26:54] [    0.315502] x86/fpu: Supporting XSAVE feature 0x004: 'AVX registers'
+[2025-11-24 07:26:54] [    0.316508] x86/fpu: Supporting XSAVE feature 0x200: 'Protection Keys User registers'
+[2025-11-24 07:26:54] [    0.317509] x86/fpu: xstate_offset[2]:  576, xstate_sizes[2]:  256
+[2025-11-24 07:26:54] [    0.318508] x86/fpu: xstate_offset[9]:  832, xstate_sizes[9]:    8
+[2025-11-24 07:26:54] [    0.319513] x86/fpu: Enabled xstate features 0x207, context size is 840 bytes, using 'compacted' format.
+[2025-11-24 07:26:54] [    0.338643] Freeing SMP alternatives memory: 48K
+[2025-11-24 07:26:54] [    0.339629] pid_max: default: 32768 minimum: 301
+[2025-11-24 07:26:54] [    0.340693] LSM: initializing lsm=lockdown,capability,landlock,yama,apparmor,integrity
+[2025-11-24 07:26:54] [    0.341662] landlock: Up and running.
+[2025-11-24 07:26:54] [    0.342595] Yama: becoming mindful.
+[2025-11-24 07:26:54] [    0.343739] AppArmor: AppArmor initialized
+[2025-11-24 07:26:54] [    0.345574] Mount-cache hash table entries: 8192 (order: 4, 65536 bytes, linear)
+[2025-11-24 07:26:54] [    0.346697] Mountpoint-cache hash table entries: 8192 (order: 4, 65536 bytes, linear)
+[2025-11-24 07:26:54] [    0.349172] smpboot: CPU0: 12th Gen Intel(R) Core(TM) i9-12900H (family: 0x6, model: 0x9a, stepping: 0x3)
+[2025-11-24 07:26:54] [    0.350537] Performance Events: unsupported p6 CPU model 154 no PMU driver, software events only.
+[2025-11-24 07:26:54] [    0.351430] signal: max sigframe size: 3632
+[2025-11-24 07:26:54] [    0.351568] rcu: Hierarchical SRCU implementation.
+[2025-11-24 07:26:54] [    0.352036] rcu: 	Max phase no-delay instances is 400.
+[2025-11-24 07:26:54] [    0.352722] NMI watchdog: Perf NMI watchdog permanently disabled
+[2025-11-24 07:26:54] [    0.353341] smp: Bringing up secondary CPUs ...
+[2025-11-24 07:26:54] [    0.353690] smpboot: x86: Booting SMP configuration:
+[2025-11-24 07:26:54] [    0.354159] .... node  #0, CPUs:      #1
+[2025-11-24 07:26:54] [    0.088217] smpboot: CPU 1 Converting physical 0 to logical die 1
+[2025-11-24 07:26:54] [    0.355472] smp: Brought up 1 node, 2 CPUs
+[2025-11-24 07:26:54] [    0.355985] smpboot: Max logical packages: 2
+[2025-11-24 07:26:54] [    0.356437] smpboot: Total of 2 processors activated (11673.60 BogoMIPS)
+[2025-11-24 07:26:54] [    0.357508] devtmpfs: initialized
+[2025-11-24 07:26:54] [    0.357826] x86/mm: Memory block size: 128MB
+[2025-11-24 07:26:54] [    0.358835] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 1911260446275000 ns
+[2025-11-24 07:26:54] [    0.359510] futex hash table entries: 512 (order: 3, 32768 bytes, linear)
+[2025-11-24 07:26:54] [    0.360139] pinctrl core: initialized pinctrl subsystem
+[2025-11-24 07:26:54] [    0.360627] PM: RTC time: 22:26:54, date: 2025-11-23
+[2025-11-24 07:26:54] [    0.362642] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[2025-11-24 07:26:54] [    0.363674] DMA: preallocated 512 KiB GFP_KERNEL pool for atomic allocations
+[2025-11-24 07:26:54] [    0.364337] DMA: preallocated 512 KiB GFP_KERNEL|GFP_DMA pool for atomic allocations
+[2025-11-24 07:26:54] [    0.364549] DMA: preallocated 512 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[2025-11-24 07:26:54] [    0.365232] audit: initializing netlink subsys (disabled)
+[2025-11-24 07:26:54] [    0.365530] audit: type=2000 audit(1763936814.242:1): state=initialized audit_enabled=0 res=1
+[2025-11-24 07:26:54] [    0.365594] thermal_sys: Registered thermal governor 'fair_share'
+[2025-11-24 07:26:54] [    0.366266] thermal_sys: Registered thermal governor 'bang_bang'
+[2025-11-24 07:26:54] [    0.366483] thermal_sys: Registered thermal governor 'step_wise'
+[2025-11-24 07:26:54] [    0.367002] thermal_sys: Registered thermal governor 'user_space'
+[2025-11-24 07:26:54] [    0.367482] thermal_sys: Registered thermal governor 'power_allocator'
+[2025-11-24 07:26:54] [    0.368018] cpuidle: using governor ladder
+[2025-11-24 07:26:54] [    0.368856] cpuidle: using governor menu
+[2025-11-24 07:26:54] [    0.369271] acpiphp: ACPI Hot Plug PCI Controller Driver version: 0.5
+[2025-11-24 07:26:54] [    0.369629] PCI: Using configuration type 1 for base access
+[2025-11-24 07:26:54] [    0.370220] kprobes: kprobe jump-optimization is enabled. All kprobes are optimized if possible.
+[2025-11-24 07:26:54] [    0.385675] HugeTLB: registered 1.00 GiB page size, pre-allocated 0 pages
+[2025-11-24 07:26:54] [    0.386607] HugeTLB: 16380 KiB vmemmap can be freed for a 1.00 GiB page
+[2025-11-24 07:26:54] [    0.388599] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+[2025-11-24 07:26:54] [    0.390597] HugeTLB: 28 KiB vmemmap can be freed for a 2.00 MiB page
+[2025-11-24 07:26:54] [    0.393881] ACPI: Added _OSI(Module Device)
+[2025-11-24 07:26:54] [    0.394439] ACPI: Added _OSI(Processor Device)
+[2025-11-24 07:26:54] [    0.394905] ACPI: Added _OSI(3.0 _SCP Extensions)
+[2025-11-24 07:26:54] [    0.395399] ACPI: Added _OSI(Processor Aggregator Device)
+[2025-11-24 07:26:54] [    0.396042] ACPI: 1 ACPI AML tables successfully acquired and loaded
+[2025-11-24 07:26:54] [    0.398789] ACPI: _OSC evaluation for CPUs failed, trying _PDC
+[2025-11-24 07:26:54] [    0.399495] ACPI: Interpreter enabled
+[2025-11-24 07:26:54] [    0.399886] ACPI: PM: (supports S0 S3 S4 S5)
+[2025-11-24 07:26:54] [    0.400315] ACPI: Using IOAPIC for interrupt routing
+[2025-11-24 07:26:54] [    0.400571] PCI: Using host bridge windows from ACPI; if necessary, use "pci=nocrs" and report a bug
+[2025-11-24 07:26:54] [    0.401423] PCI: Using E820 reservations for host bridge windows
+[2025-11-24 07:26:54] [    0.401548] ACPI: Enabled 2 GPEs in block 00 to 0F
+[2025-11-24 07:26:54] [    0.403536] ACPI: PCI Root Bridge [PCI0] (domain 0000 [bus 00-ff])
+[2025-11-24 07:26:54] [    0.404107] acpi PNP0A03:00: _OSC: OS supports [ASPM ClockPM Segments MSI EDR HPX-Type3]
+[2025-11-24 07:26:54] [    0.405492] acpi PNP0A03:00: _OSC: not requesting OS control; OS requires [ExtendedConfig ASPM ClockPM MSI]
+[2025-11-24 07:26:54] [    0.406356] acpi PNP0A03:00: fail to add MMCONFIG information, can't access extended configuration space under this bridge
+[2025-11-24 07:26:54] [    0.409665] acpiphp: Slot [2] registered
+[2025-11-24 07:26:54] [    0.410056] acpiphp: Slot [3] registered
+[2025-11-24 07:26:54] [    0.410437] acpiphp: Slot [4] registered
+[2025-11-24 07:26:54] [    0.410823] acpiphp: Slot [5] registered
+[2025-11-24 07:26:54] [    0.411203] acpiphp: Slot [6] registered
+[2025-11-24 07:26:54] [    0.411493] acpiphp: Slot [7] registered
+[2025-11-24 07:26:54] [    0.411882] acpiphp: Slot [8] registered
+[2025-11-24 07:26:54] [    0.412263] acpiphp: Slot [9] registered
+[2025-11-24 07:26:54] [    0.412497] acpiphp: Slot [10] registered
+[2025-11-24 07:26:54] [    0.412883] acpiphp: Slot [11] registered
+[2025-11-24 07:26:54] [    0.413271] acpiphp: Slot [12] registered
+[2025-11-24 07:26:54] [    0.413493] acpiphp: Slot [13] registered
+[2025-11-24 07:26:54] [    0.413890] acpiphp: Slot [14] registered
+[2025-11-24 07:26:54] [    0.414281] acpiphp: Slot [15] registered
+[2025-11-24 07:26:54] [    0.415494] acpiphp: Slot [16] registered
+[2025-11-24 07:26:54] [    0.415889] acpiphp: Slot [17] registered
+[2025-11-24 07:26:54] [    0.416289] acpiphp: Slot [18] registered
+[2025-11-24 07:26:54] [    0.416495] acpiphp: Slot [19] registered
+[2025-11-24 07:26:54] [    0.416885] acpiphp: Slot [20] registered
+[2025-11-24 07:26:54] [    0.417272] acpiphp: Slot [21] registered
+[2025-11-24 07:26:54] [    0.417494] acpiphp: Slot [22] registered
+[2025-11-24 07:26:54] [    0.417886] acpiphp: Slot [23] registered
+[2025-11-24 07:26:54] [    0.418294] acpiphp: Slot [24] registered
+[2025-11-24 07:26:54] [    0.418499] acpiphp: Slot [25] registered
+[2025-11-24 07:26:54] [    0.418893] acpiphp: Slot [26] registered
+[2025-11-24 07:26:54] [    0.419281] acpiphp: Slot [27] registered
+[2025-11-24 07:26:54] [    0.419495] acpiphp: Slot [28] registered
+[2025-11-24 07:26:54] [    0.419898] acpiphp: Slot [29] registered
+[2025-11-24 07:26:54] [    0.420289] acpiphp: Slot [30] registered
+[2025-11-24 07:26:54] [    0.420498] acpiphp: Slot [31] registered
+[2025-11-24 07:26:54] [    0.420909] PCI host bridge to bus 0000:00
+[2025-11-24 07:26:54] [    0.421308] pci_bus 0000:00: root bus resource [io  0x0000-0x0cf7 window]
+[2025-11-24 07:26:54] [    0.422486] pci_bus 0000:00: root bus resource [io  0x0d00-0xffff window]
+[2025-11-24 07:26:54] [    0.423106] pci_bus 0000:00: root bus resource [mem 0x000a0000-0x000bffff window]
+[2025-11-24 07:26:54] [    0.423492] pci_bus 0000:00: root bus resource [mem 0xc0000000-0xfebfffff window]
+[2025-11-24 07:26:54] [    0.424171] pci_bus 0000:00: root bus resource [mem 0x140000000-0x1bfffffff window]
+[2025-11-24 07:26:54] [    0.424493] pci_bus 0000:00: root bus resource [bus 00-ff]
+[2025-11-24 07:26:54] [    0.425065] pci 0000:00:00.0: [8086:1237] type 00 class 0x060000 conventional PCI endpoint
+[2025-11-24 07:26:54] [    0.427185] pci 0000:00:01.0: [8086:7000] type 00 class 0x060100 conventional PCI endpoint
+[2025-11-24 07:26:54] [    0.428076] pci 0000:00:01.1: [8086:7010] type 00 class 0x010180 conventional PCI endpoint
+[2025-11-24 07:26:54] [    0.428978] pci 0000:00:01.1: BAR 4 [io  0xc160-0xc16f]
+[2025-11-24 07:26:54] [    0.429462] pci 0000:00:01.1: BAR 0 [io  0x01f0-0x01f7]: legacy IDE quirk
+[2025-11-24 07:26:54] [    0.430064] pci 0000:00:01.1: BAR 1 [io  0x03f6]: legacy IDE quirk
+[2025-11-24 07:26:54] [    0.431488] pci 0000:00:01.1: BAR 2 [io  0x0170-0x0177]: legacy IDE quirk
+[2025-11-24 07:26:54] [    0.432094] pci 0000:00:01.1: BAR 3 [io  0x0376]: legacy IDE quirk
+[2025-11-24 07:26:54] [    0.432602] pci 0000:00:01.2: [8086:7020] type 00 class 0x0c0300 conventional PCI endpoint
+[2025-11-24 07:26:54] [    0.433715] pci 0000:00:01.2: BAR 4 [io  0xc100-0xc11f]
+[2025-11-24 07:26:54] [    0.434306] pci 0000:00:01.3: [8086:7113] type 00 class 0x068000 conventional PCI endpoint
+[2025-11-24 07:26:54] [    0.434718] pci 0000:00:01.3: quirk: [io  0x0600-0x063f] claimed by PIIX4 ACPI
+[2025-11-24 07:26:54] [    0.435348] pci 0000:00:01.3: quirk: [io  0x0700-0x070f] claimed by PIIX4 SMB
+[2025-11-24 07:26:54] [    0.436671] pci 0000:00:02.0: [1af4:1000] type 00 class 0x020000 conventional PCI endpoint
+[2025-11-24 07:26:54] [    0.438103] pci 0000:00:02.0: BAR 0 [io  0xc120-0xc13f]
+[2025-11-24 07:26:54] [    0.438495] pci 0000:00:02.0: BAR 1 [mem 0xfebc0000-0xfebc0fff]
+[2025-11-24 07:26:54] [    0.439049] pci 0000:00:02.0: BAR 4 [mem 0xfebf0000-0xfebf3fff 64bit pref]
+[2025-11-24 07:26:54] [    0.440489] pci 0000:00:02.0: ROM [mem 0xfeb80000-0xfebbffff pref]
+[2025-11-24 07:26:54] [    0.440746] pci 0000:00:03.0: [8086:2922] type 00 class 0x010601 conventional PCI endpoint
+[2025-11-24 07:26:54] [    0.441431] pci 0000:00:03.0: BAR 4 [io  0xc140-0xc15f]
+[2025-11-24 07:26:54] [    0.443492] pci 0000:00:03.0: BAR 5 [mem 0xfebc1000-0xfebc1fff]
+[2025-11-24 07:26:54] [    0.444611] pci 0000:00:04.0: [1af4:1003] type 00 class 0x078000 conventional PCI endpoint
+[2025-11-24 07:26:54] [    0.445955] pci 0000:00:04.0: BAR 0 [io  0xc080-0xc0bf]
+[2025-11-24 07:26:54] [    0.446503] pci 0000:00:04.0: BAR 1 [mem 0xfebc2000-0xfebc2fff]
+[2025-11-24 07:26:54] [    0.447514] pci 0000:00:04.0: BAR 4 [mem 0xfebf4000-0xfebf7fff 64bit pref]
+[2025-11-24 07:26:54] [    0.449141] pci 0000:00:05.0: [1af4:1001] type 00 class 0x010000 conventional PCI endpoint
+[2025-11-24 07:26:54] [    0.453455] pci 0000:00:05.0: BAR 0 [io  0xc000-0xc07f]
+[2025-11-24 07:26:54] [    0.454205] pci 0000:00:05.0: BAR 1 [mem 0xfebc3000-0xfebc3fff]
+[2025-11-24 07:26:54] [    0.454545] pci 0000:00:05.0: BAR 4 [mem 0xfebf8000-0xfebfbfff 64bit pref]
+[2025-11-24 07:26:54] [    0.457438] pci 0000:00:06.0: [1af4:1002] type 00 class 0x00ff00 conventional PCI endpoint
+[2025-11-24 07:26:54] [    0.459087] pci 0000:00:06.0: BAR 0 [io  0xc0c0-0xc0ff]
+[2025-11-24 07:26:54] [    0.459540] pci 0000:00:06.0: BAR 4 [mem 0xfebfc000-0xfebfffff 64bit pref]
+[2025-11-24 07:26:55] [    0.468275] ACPI: PCI: Interrupt link LNKA configured for IRQ 10
+[2025-11-24 07:26:55] [    0.469560] ACPI: PCI: Interrupt link LNKB configured for IRQ 10
+[2025-11-24 07:26:55] [    0.470218] ACPI: PCI: Interrupt link LNKC configured for IRQ 11
+[2025-11-24 07:26:55] [    0.470590] ACPI: PCI: Interrupt link LNKD configured for IRQ 11
+[2025-11-24 07:26:55] [    0.471196] ACPI: PCI: Interrupt link LNKS configured for IRQ 9
+[2025-11-24 07:26:55] [    0.472442] iommu: Default domain type: Translated
+[2025-11-24 07:26:55] [    0.472932] iommu: DMA domain TLB invalidation policy: lazy mode
+[2025-11-24 07:26:55] [    0.476641] SCSI subsystem initialized
+[2025-11-24 07:26:55] [    0.477457] ACPI: bus type USB registered
+[2025-11-24 07:26:55] [    0.477498] usbcore: registered new interface driver usbfs
+[2025-11-24 07:26:55] [    0.478027] usbcore: registered new interface driver hub
+[2025-11-24 07:26:55] [    0.478490] usbcore: registered new device driver usb
+[2025-11-24 07:26:55] [    0.479019] pps_core: LinuxPPS API ver. 1 registered
+[2025-11-24 07:26:55] [    0.479494] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[2025-11-24 07:26:55] [    0.480435] PTP clock support registered
+[2025-11-24 07:26:55] [    0.481458] EDAC MC: Ver: 3.0.0
+[2025-11-24 07:26:55] [    0.482710] NetLabel: Initializing
+[2025-11-24 07:26:55] [    0.483090] NetLabel:  domain hash size = 128
+[2025-11-24 07:26:55] [    0.483492] NetLabel:  protocols = UNLABELED CIPSOv4 CALIPSO
+[2025-11-24 07:26:55] [    0.484129] NetLabel:  unlabeled traffic allowed by default
+[2025-11-24 07:26:55] [    0.484551] mctp: management component transport protocol core
+[2025-11-24 07:26:55] [    0.485162] NET: Registered PF_MCTP protocol family
+[2025-11-24 07:26:55] [    0.485502] PCI: Using ACPI for IRQ routing
+[2025-11-24 07:26:55] [    0.486186] vgaarb: loaded
+[2025-11-24 07:26:55] [    0.486533] hpet0: at MMIO 0xfed00000, IRQs 2, 8, 0
+[2025-11-24 07:26:55] [    0.486976] hpet0: 3 comparators, 64-bit 100.000000 MHz counter
+[2025-11-24 07:26:55] [    0.490467] clocksource: Switched to clocksource kvm-clock
+[2025-11-24 07:26:55] [    0.491243] VFS: Disk quotas dquot_6.6.0
+[2025-11-24 07:26:55] [    0.491670] VFS: Dquot-cache hash table entries: 512 (order 0, 4096 bytes)
+[2025-11-24 07:26:55] [    0.493048] AppArmor: AppArmor Filesystem Enabled
+[2025-11-24 07:26:55] [    0.493609] pnp: PnP ACPI init
+[2025-11-24 07:26:55] [    0.494194] pnp: PnP ACPI: found 5 devices
+[2025-11-24 07:26:55] [    0.500091] clocksource: acpi_pm: mask: 0xffffff max_cycles: 0xffffff, max_idle_ns: 2085701024 ns
+[2025-11-24 07:26:55] [    0.501039] NET: Registered PF_INET protocol family
+[2025-11-24 07:26:55] [    0.504176] IP idents hash table entries: 65536 (order: 7, 524288 bytes, linear)
+[2025-11-24 07:26:55] [    0.521272] tcp_listen_portaddr_hash hash table entries: 2048 (order: 3, 32768 bytes, linear)
+[2025-11-24 07:26:55] [    0.522345] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[2025-11-24 07:26:55] [    0.523292] TCP established hash table entries: 32768 (order: 6, 262144 bytes, linear)
+[2025-11-24 07:26:55] [    0.524246] TCP bind hash table entries: 32768 (order: 8, 1048576 bytes, linear)
+[2025-11-24 07:26:55] [    0.525074] TCP: Hash tables configured (established 32768 bind 32768)
+[2025-11-24 07:26:55] [    0.525848] MPTCP token hash table entries: 4096 (order: 4, 98304 bytes, linear)
+[2025-11-24 07:26:55] [    0.526641] UDP hash table entries: 2048 (order: 4, 65536 bytes, linear)
+[2025-11-24 07:26:55] [    0.527351] UDP-Lite hash table entries: 2048 (order: 4, 65536 bytes, linear)
+[2025-11-24 07:26:55] [    0.528130] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[2025-11-24 07:26:55] [    0.528720] NET: Registered PF_XDP protocol family
+[2025-11-24 07:26:55] [    0.529233] pci_bus 0000:00: resource 4 [io  0x0000-0x0cf7 window]
+[2025-11-24 07:26:55] [    0.529874] pci_bus 0000:00: resource 5 [io  0x0d00-0xffff window]
+[2025-11-24 07:26:55] [    0.530504] pci_bus 0000:00: resource 6 [mem 0x000a0000-0x000bffff window]
+[2025-11-24 07:26:55] [    0.531192] pci_bus 0000:00: resource 7 [mem 0xc0000000-0xfebfffff window]
+[2025-11-24 07:26:55] [    0.531883] pci_bus 0000:00: resource 8 [mem 0x140000000-0x1bfffffff window]
+[2025-11-24 07:26:55] [    0.532648] pci 0000:00:01.0: PIIX3: Enabling Passive Release
+[2025-11-24 07:26:55] [    0.533247] pci 0000:00:00.0: Limiting direct PCI/PCI transfers
+[2025-11-24 07:26:55] [    0.546928] ACPI: \_SB_.LNKD: Enabled at IRQ 11
+[2025-11-24 07:26:55] [    0.560931] pci 0000:00:01.2: quirk_usb_early_handoff+0x0/0x190 took 26415 usecs
+[2025-11-24 07:26:55] [    0.561910] PCI: CLS 0 bytes, default 64
+[2025-11-24 07:26:55] [    0.562538] Trying to unpack rootfs image as initramfs...
+[2025-11-24 07:26:55] [    0.563286] PCI-DMA: Using software bounce buffering for IO (SWIOTLB)
+[2025-11-24 07:26:55] [    0.564122] software IO TLB: mapped [mem 0x00000000bbfdb000-0x00000000bffdb000] (64MB)
+[2025-11-24 07:26:55] [    0.565070] clocksource: tsc: mask: 0xffffffffffffffff max_cycles: 0x2a11290c0c8, max_idle_ns: 440795344938 ns
+[2025-11-24 07:26:55] [    0.568507] Initialise system trusted keyrings
+[2025-11-24 07:26:55] [    0.569063] Key type blacklist registered
+[2025-11-24 07:26:55] [    0.569628] workingset: timestamp_bits=36 max_order=20 bucket_order=0
+[2025-11-24 07:26:55] [    0.570373] zbud: loaded
+[2025-11-24 07:26:55] [    0.573227] squashfs: version 4.0 (2009/01/31) Phillip Lougher
+[2025-11-24 07:26:55] [    0.574027] fuse: init (API version 7.39)
+[2025-11-24 07:26:55] [    0.574592] integrity: Platform Keyring initialized
+[2025-11-24 07:26:55] [    0.575098] integrity: Machine keyring initialized
+[2025-11-24 07:26:55] [    0.581832] Key type asymmetric registered
+[2025-11-24 07:26:55] [    0.582286] Asymmetric key parser 'x509' registered
+[2025-11-24 07:26:55] [    0.582836] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 243)
+[2025-11-24 07:26:55] [    0.583625] io scheduler mq-deadline registered
+[2025-11-24 07:26:55] [    0.586189] shpchp: Standard Hot Plug PCI Controller Driver version: 0.4
+[2025-11-24 07:26:55] [    0.587272] input: Power Button as /devices/LNXSYSTM:00/LNXPWRBN:00/input/input0
+[2025-11-24 07:26:55] [    0.588418] ACPI: button: Power Button [PWRF]
+[2025-11-24 07:26:55] [    0.603617] ACPI: \_SB_.LNKB: Enabled at IRQ 10
+[2025-11-24 07:26:55] [    0.633075] ACPI: \_SB_.LNKA: Enabled at IRQ 10
+[2025-11-24 07:26:55] [    0.661358] Serial: 8250/16550 driver, 32 ports, IRQ sharing enabled
+[2025-11-24 07:26:55] [    0.684087] 00:00: ttyS0 at I/O 0x3f8 (irq = 4, base_baud = 115200) is a 16550A
+[2025-11-24 07:26:55] [    0.734897] Linux agpgart interface v0.103
+[2025-11-24 07:26:55] [    0.741955] loop: module loaded
+[2025-11-24 07:26:55] [    0.742958] virtio_blk virtio2: 2/0/0 default/read/poll queues
+[2025-11-24 07:26:55] [    0.746806] virtio_blk virtio2: [vda] 41943040 512-byte logical blocks (21.5 GB/20.0 GiB)
+[2025-11-24 07:26:55] [    0.749333] Freeing initrd memory: 29932K
+[2025-11-24 07:26:55] [    0.756793] GPT:Primary header thinks Alt. header is not at the end of the disk.
+[2025-11-24 07:26:55] [    0.758706] GPT:7340031 != 41943039
+[2025-11-24 07:26:55] [    0.759677] GPT:Alternate GPT header not at the end of the disk.
+[2025-11-24 07:26:55] [    0.761196] GPT:7340031 != 41943039
+[2025-11-24 07:26:55] [    0.761632] GPT: Use GNU Parted to correct GPT errors.
+[2025-11-24 07:26:55] [    0.762119]  vda: vda1 vda14 vda15 vda16
+[2025-11-24 07:26:55] [    0.763314] scsi host0: ata_piix
+[2025-11-24 07:26:55] [    0.763731] scsi host1: ata_piix
+[2025-11-24 07:26:55] [    0.764058] ata1: PATA max MWDMA2 cmd 0x1f0 ctl 0x3f6 bmdma 0xc160 irq 14 lpm-pol 0
+[2025-11-24 07:26:55] [    0.764715] ata2: PATA max MWDMA2 cmd 0x170 ctl 0x376 bmdma 0xc168 irq 15 lpm-pol 0
+[2025-11-24 07:26:55] [    0.765404] ACPI: bus type drm_connector registered
+[2025-11-24 07:26:55] [    0.766072] tun: Universal TUN/TAP device driver, 1.6
+[2025-11-24 07:26:55] [    0.767491] PPP generic driver version 2.4.2
+[2025-11-24 07:26:55] [    0.778597] uhci_hcd 0000:00:01.2: UHCI Host Controller
+[2025-11-24 07:26:55] [    0.779114] uhci_hcd 0000:00:01.2: new USB bus registered, assigned bus number 1
+[2025-11-24 07:26:55] [    0.779824] uhci_hcd 0000:00:01.2: detected 2 ports
+[2025-11-24 07:26:55] [    0.780480] uhci_hcd 0000:00:01.2: irq 11, io port 0x0000c100
+[2025-11-24 07:26:55] [    0.781162] usb usb1: New USB device found, idVendor=1d6b, idProduct=0001, bcdDevice= 6.08
+[2025-11-24 07:26:55] [    0.781940] usb usb1: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+[2025-11-24 07:26:55] [    0.782628] usb usb1: Product: UHCI Host Controller
+[2025-11-24 07:26:55] [    0.783083] usb usb1: Manufacturer: Linux 6.8.0-88-generic uhci_hcd
+[2025-11-24 07:26:55] [    0.783728] usb usb1: SerialNumber: 0000:00:01.2
+[2025-11-24 07:26:55] [    0.784267] hub 1-0:1.0: USB hub found
+[2025-11-24 07:26:55] [    0.784632] hub 1-0:1.0: 2 ports detected
+[2025-11-24 07:26:55] [    0.785113] i8042: PNP: PS/2 Controller [PNP0303:KBD,PNP0f13:MOU] at 0x60,0x64 irq 1,12
+[2025-11-24 07:26:55] [    0.786386] serio: i8042 KBD port at 0x60,0x64 irq 1
+[2025-11-24 07:26:55] [    0.786851] serio: i8042 AUX port at 0x60,0x64 irq 12
+[2025-11-24 07:26:55] [    0.787535] mousedev: PS/2 mouse device common for all mice
+[2025-11-24 07:26:55] [    0.788122] rtc_cmos 00:04: RTC can wake from S4
+[2025-11-24 07:26:55] [    0.789104] input: AT Translated Set 2 keyboard as /devices/platform/i8042/serio0/input/input1
+[2025-11-24 07:26:55] [    0.790100] rtc_cmos 00:04: registered as rtc0
+[2025-11-24 07:26:55] [    0.790898] rtc_cmos 00:04: setting system clock to 2025-11-23T22:26:54 UTC (1763936814)
+[2025-11-24 07:26:55] [    0.791656] rtc_cmos 00:04: alarms up to one day, y3k, 242 bytes nvram, hpet irqs
+[2025-11-24 07:26:55] [    0.792326] i2c_dev: i2c /dev entries driver
+[2025-11-24 07:26:55] [    0.792739] device-mapper: core: CONFIG_IMA_DISABLE_HTABLE is disabled. Duplicate IMA measurements will not be recorded in the IMA log.
+[2025-11-24 07:26:55] [    0.793785] device-mapper: uevent: version 1.0.3
+[2025-11-24 07:26:55] [    0.794253] device-mapper: ioctl: 4.48.0-ioctl (2023-03-01) initialised: dm-devel@redhat.com
+[2025-11-24 07:26:55] [    0.794987] intel_pstate: CPU model not supported
+[2025-11-24 07:26:55] [    0.795449] ledtrig-cpu: registered to indicate activity on CPUs
+[2025-11-24 07:26:55] [    0.796041] drop_monitor: Initializing network drop monitor service
+[2025-11-24 07:26:55] [    0.796681] NET: Registered PF_INET6 protocol family
+[2025-11-24 07:26:55] [    0.800507] Segment Routing with IPv6
+[2025-11-24 07:26:55] [    0.800877] In-situ OAM (IOAM) with IPv6
+[2025-11-24 07:26:55] [    0.801267] NET: Registered PF_PACKET protocol family
+[2025-11-24 07:26:55] [    0.801780] Key type dns_resolver registered
+[2025-11-24 07:26:55] [    0.802337] IPI shorthand broadcast: enabled
+[2025-11-24 07:26:55] [    0.803879] sched_clock: Marking stable (716001946, 87217134)->(842396445, -39177365)
+[2025-11-24 07:26:55] [    0.804769] registered taskstats version 1
+[2025-11-24 07:26:55] [    0.805283] Loading compiled-in X.509 certificates
+[2025-11-24 07:26:55] [    0.806037] Loaded X.509 cert 'Build time autogenerated kernel key: 3c10d2cce41e4e020037eb894f94af5dd81a8c9c'
+[2025-11-24 07:26:55] [    0.807137] Loaded X.509 cert 'Canonical Ltd. Live Patch Signing 2025 Kmod: d541cef61dc7e793b7eb7e899970a2eef0b5dc8c'
+[2025-11-24 07:26:55] [    0.808319] Loaded X.509 cert 'Canonical Ltd. Live Patch Signing: 14df34d1a87cf37625abec039ef2bf521249b969'
+[2025-11-24 07:26:55] [    0.809494] Loaded X.509 cert 'Canonical Ltd. Kernel Module Signing: 88f752e560a1e0737e31163a466ad7b70a850c19'
+[2025-11-24 07:26:55] [    0.810413] blacklist: Loading compiled-in revocation X.509 certificates
+[2025-11-24 07:26:55] [    0.811131] Loaded X.509 cert 'Canonical Ltd. Secure Boot Signing: 61482aa2830d0ab2ad5af10b7250da9033ddcef0'
+[2025-11-24 07:26:55] [    0.811983] Loaded X.509 cert 'Canonical Ltd. Secure Boot Signing (2017): 242ade75ac4a15e50d50c84b0d45ff3eae707a03'
+[2025-11-24 07:26:55] [    0.812882] Loaded X.509 cert 'Canonical Ltd. Secure Boot Signing (ESM 2018): 365188c1d374d6b07c3c8f240f8ef722433d6a8b'
+[2025-11-24 07:26:55] [    0.813789] Loaded X.509 cert 'Canonical Ltd. Secure Boot Signing (2019): c0746fd6c5da3ae827864651ad66ae47fe24b3e8'
+[2025-11-24 07:26:55] [    0.814670] Loaded X.509 cert 'Canonical Ltd. Secure Boot Signing (2021 v1): a8d54bbb3825cfb94fa13c9f8a594a195c107b8d'
+[2025-11-24 07:26:55] [    0.815585] Loaded X.509 cert 'Canonical Ltd. Secure Boot Signing (2021 v2): 4cf046892d6fd3c9a5b03f98d845f90851dc6a8c'
+[2025-11-24 07:26:55] [    0.816494] Loaded X.509 cert 'Canonical Ltd. Secure Boot Signing (2021 v3): 100437bb6de6e469b581e61cd66bce3ef4ed53af'
+[2025-11-24 07:26:55] [    0.817405] Loaded X.509 cert 'Canonical Ltd. Secure Boot Signing (Ubuntu Core 2019): c1d57b8f6b743f23ee41f4f7ee292f06eecadfb9'
+[2025-11-24 07:26:55] [    0.821481] Key type .fscrypt registered
+[2025-11-24 07:26:55] [    0.821850] Key type fscrypt-provisioning registered
+[2025-11-24 07:26:55] [    0.825647] cryptd: max_cpu_qlen set to 1000
+[2025-11-24 07:26:55] [    0.929926] AVX2 version of gcm_enc/dec engaged.
+[2025-11-24 07:26:55] [    0.930439] AES CTR mode by8 optimization enabled
+[2025-11-24 07:26:55] [    0.942356] Key type encrypted registered
+[2025-11-24 07:26:55] [    0.942771] AppArmor: AppArmor sha256 policy hashing enabled
+[2025-11-24 07:26:55] [    0.943301] ima: No TPM chip found, activating TPM-bypass!
+[2025-11-24 07:26:55] [    0.943798] Loading compiled-in module X.509 certificates
+[2025-11-24 07:26:55] [    0.944546] Loaded X.509 cert 'Build time autogenerated kernel key: 3c10d2cce41e4e020037eb894f94af5dd81a8c9c'
+[2025-11-24 07:26:55] [    0.945411] ima: Allocated hash algorithm: sha256
+[2025-11-24 07:26:55] [    0.945833] ima: No architecture policies found
+[2025-11-24 07:26:55] [    0.946264] evm: Initialising EVM extended attributes:
+[2025-11-24 07:26:55] [    0.946718] evm: security.selinux
+[2025-11-24 07:26:55] [    0.947028] evm: security.SMACK64
+[2025-11-24 07:26:55] [    0.947356] evm: security.SMACK64EXEC
+[2025-11-24 07:26:55] [    0.947707] evm: security.SMACK64TRANSMUTE
+[2025-11-24 07:26:55] [    0.948094] evm: security.SMACK64MMAP
+[2025-11-24 07:26:55] [    0.948446] evm: security.apparmor
+[2025-11-24 07:26:55] [    0.948774] evm: security.ima
+[2025-11-24 07:26:55] [    0.949066] evm: security.capability
+[2025-11-24 07:26:55] [    0.949414] evm: HMAC attrs: 0x1
+[2025-11-24 07:26:55] [    0.949912] PM:   Magic number: 1:470:452
+[2025-11-24 07:26:55] [    0.952545] RAS: Correctable Errors collector initialized.
+[2025-11-24 07:26:55] [    0.953176] clk: Disabling unused clocks
+[2025-11-24 07:26:55] [    0.961419] Freeing unused decrypted memory: 2028K
+[2025-11-24 07:26:55] [    0.962503] Freeing unused kernel image (initmem) memory: 4912K
+[2025-11-24 07:26:55] [    0.963036] Write protecting the kernel read-only data: 38912k
+[2025-11-24 07:26:55] [    0.964044] Freeing unused kernel image (rodata/data gap) memory: 2000K
+[2025-11-24 07:26:55] [    0.978384] x86/mm: Checked W+X mappings: passed, no W+X pages found.
+[2025-11-24 07:26:55] [    0.979418] Run /init as init process
+[2025-11-24 07:26:55] Loading, please wait...
+[2025-11-24 07:26:55] Starting systemd-udevd version 255.4-1ubuntu8.11
+[2025-11-24 07:26:55] [    1.067343] input: VirtualPS/2 VMware VMMouse as /devices/platform/i8042/serio1/input/input4
+[2025-11-24 07:26:55] [    1.068095] input: VirtualPS/2 VMware VMMouse as /devices/platform/i8042/serio1/input/input3
+[2025-11-24 07:26:55] [    1.072487] virtio_net virtio0 ens2: renamed from eth0
+[2025-11-24 07:26:55] [    1.096044] FDC 0 is a S82078B
+[2025-11-24 07:26:55] [    1.116028] ACPI: \_SB_.LNKC: Enabled at IRQ 11
+[2025-11-24 07:26:55] [    1.117085] ahci 0000:00:03.0: AHCI 0001.0000 32 slots 6 ports 1.5 Gbps 0x3f impl SATA mode
+[2025-11-24 07:26:55] [    1.117708] ahci 0000:00:03.0: flags: 64bit ncq only 
+[2025-11-24 07:26:55] [    1.119544] scsi host2: ahci
+[2025-11-24 07:26:55] [    1.120257] scsi host3: ahci
+[2025-11-24 07:26:55] [    1.124568] scsi host4: ahci
+[2025-11-24 07:26:55] [    1.124984] scsi host5: ahci
+[2025-11-24 07:26:55] [    1.125343] scsi host6: ahci
+[2025-11-24 07:26:55] [    1.125673] scsi host7: ahci
+[2025-11-24 07:26:55] [    1.125960] ata3: SATA max UDMA/133 abar m4096@0xfebc1000 port 0xfebc1100 irq 32 lpm-pol 0
+[2025-11-24 07:26:55] [    1.126550] ata4: SATA max UDMA/133 abar m4096@0xfebc1000 port 0xfebc1180 irq 32 lpm-pol 0
+[2025-11-24 07:26:55] [    1.127117] ata5: SATA max UDMA/133 abar m4096@0xfebc1000 port 0xfebc1200 irq 32 lpm-pol 0
+[2025-11-24 07:26:55] [    1.127688] ata6: SATA max UDMA/133 abar m4096@0xfebc1000 port 0xfebc1280 irq 32 lpm-pol 0
+[2025-11-24 07:26:55] [    1.128345] ata7: SATA max UDMA/133 abar m4096@0xfebc1000 port 0xfebc1300 irq 32 lpm-pol 0
+[2025-11-24 07:26:55] [    1.129105] ata8: SATA max UDMA/133 abar m4096@0xfebc1000 port 0xfebc1380 irq 32 lpm-pol 0
+[2025-11-24 07:26:55] [    1.440558] ata8: SATA link down (SStatus 0 SControl 300)
+[2025-11-24 07:26:55] [    1.441039] ata3: SATA link up 1.5 Gbps (SStatus 113 SControl 300)
+[2025-11-24 07:26:55] [    1.441543] ata4: SATA link down (SStatus 0 SControl 300)
+[2025-11-24 07:26:55] [    1.441988] ata6: SATA link down (SStatus 0 SControl 300)
+[2025-11-24 07:26:55] [    1.442427] ata7: SATA link down (SStatus 0 SControl 300)
+[2025-11-24 07:26:55] [    1.442884] ata5: SATA link down (SStatus 0 SControl 300)
+[2025-11-24 07:26:55] [    1.443286] ata3.00: ATAPI: QEMU DVD-ROM, 2.5+, max UDMA/100
+[2025-11-24 07:26:55] [    1.443658] ata3.00: applying bridge limits
+[2025-11-24 07:26:55] [    1.444079] ata3.00: configured for UDMA/100
+[2025-11-24 07:26:55] [    1.444570] scsi 2:0:0:0: CD-ROM            QEMU     QEMU DVD-ROM     2.5+ PQ: 0 ANSI: 5
+[2025-11-24 07:26:55] [    1.457639] sr 2:0:0:0: [sr0] scsi3-mmc drive: 4x/4x cd/rw xa/form2 tray
+[2025-11-24 07:26:55] [    1.458068] cdrom: Uniform CD-ROM driver Revision: 3.20
+[2025-11-24 07:26:55] [    1.470720] sr 2:0:0:0: Attached scsi generic sg0 type 5
+[2025-11-24 07:26:56] Begin: Loading essential drivers ... [    2.556366] raid6: avx2x4   gen() 38479 MB/s
+[2025-11-24 07:26:56] [    2.573221] raid6: avx2x2   gen() 37032 MB/s
+[2025-11-24 07:26:56] [    2.590242] raid6: avx2x1   gen() 32351 MB/s
+[2025-11-24 07:26:56] [    2.590615] raid6: using algorithm avx2x4 gen() 38479 MB/s
+[2025-11-24 07:26:56] [    2.607221] raid6: .... xor() 7686 MB/s, rmw enabled
+[2025-11-24 07:26:56] [    2.607590] raid6: using avx2x2 recovery algorithm
+[2025-11-24 07:26:56] [    2.608629] xor: automatically using best checksumming function   avx       
+[2025-11-24 07:26:56] [    2.609723] async_tx: api initialized (async)
+[2025-11-24 07:26:56] done.
+[2025-11-24 07:26:56] Begin: Running /scripts/init-premount ... done.
+[2025-11-24 07:26:56] Begin: Mounting root file system ... Begin: Running /scripts/local-top ... done.
+[2025-11-24 07:26:56] Begin: Running /scripts/local-premount ... [    2.734429] Btrfs loaded, zoned=yes, fsverity=yes
+[2025-11-24 07:26:56] Scanning for Btrfs filesystems
+[2025-11-24 07:26:56] done.
+[2025-11-24 07:26:56] Warning: fsck not present, so skipping root file system
+[2025-11-24 07:26:56] [    2.767172] EXT4-fs (vda1): mounted filesystem 75c0a201-5594-409b-a8f2-d48753bbdc05 ro with ordered data mode. Quota mode: none.
+[2025-11-24 07:26:56] done.
+[2025-11-24 07:26:56] Begin: Running /scripts/local-bottom ... done.
+[2025-11-24 07:26:56] Begin: Running /scripts/init-bottom ... done.
+[2025-11-24 07:26:56] [    2.942381] systemd[1]: Inserted module 'autofs4'
+[2025-11-24 07:26:56] [    2.970576] systemd[1]: systemd 255.4-1ubuntu8.11 running in system mode (+PAM +AUDIT +SELINUX +APPARMOR +IMA +SMACK +SECCOMP +GCRYPT -GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +IPTC +KMOD +LIBCRYPTSETUP +LIBFDISK +PCRE2 -PWQUALITY +P11KIT +QRENCODE +TPM2 +BZIP2 +LZ4 +XZ +ZLIB +ZSTD -BPF_FRAMEWORK -XKBCOMMON +UTMP +SYSVINIT default-hierarchy=unified)
+[2025-11-24 07:26:56] [    2.972591] systemd[1]: Detected virtualization kvm.
+[2025-11-24 07:26:56] [    2.972958] systemd[1]: Detected architecture x86-64.
+[2025-11-24 07:26:56] 
+[2025-11-24 07:26:56] Welcome to [1mUbuntu 24.04.3 LTS[0m!
+[2025-11-24 07:26:56] 
+[2025-11-24 07:26:56] [    2.975904] systemd[1]: Hostname set to <ubuntu>.
+[2025-11-24 07:26:56] [    2.979973] systemd[1]: Initializing machine ID from VM UUID.
+[2025-11-24 07:26:56] [    2.980430] systemd[1]: Installed transient /etc/machine-id file.
+[2025-11-24 07:26:57] [    3.267795] systemd[1]: Queued start job for default target graphical.target.
+[2025-11-24 07:26:57] [    3.279958] systemd[1]: Created slice system-modprobe.slice - Slice /system/modprobe.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Created slice [0;1;39msystem-modprobe.slice[0m - Slice /system/modprobe.
+[2025-11-24 07:26:57] [    3.281420] systemd[1]: Created slice system-serial\x2dgetty.slice - Slice /system/serial-getty.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Created slice [0;1;39msystem-serial\x2dget…slice[0m - Slice /system/serial-getty.
+[2025-11-24 07:26:57] [    3.282810] systemd[1]: Created slice system-systemd\x2dfsck.slice - Slice /system/systemd-fsck.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Created slice [0;1;39msystem-systemd\x2dfs…slice[0m - Slice /system/systemd-fsck.
+[2025-11-24 07:26:57] [    3.284139] systemd[1]: Created slice user.slice - User and Session Slice.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Created slice [0;1;39muser.slice[0m - User and Session Slice.
+[2025-11-24 07:26:57] [    3.285181] systemd[1]: Started systemd-ask-password-wall.path - Forward Password Requests to Wall Directory Watch.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Started [0;1;39msystemd-ask-password-wall.…[0md Requests to Wall Directory Watch.
+[2025-11-24 07:26:57] [    3.286597] systemd[1]: Set up automount proc-sys-fs-binfmt_misc.automount - Arbitrary Executable File Formats File System Automount Point.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Set up automount [0;1;39mproc-sys-fs-binfm…[0mormats File System Automount Point.
+[2025-11-24 07:26:57] [    3.287939] systemd[1]: Expecting device dev-disk-by\x2dlabel-BOOT.device - /dev/disk/by-label/BOOT...
+[2025-11-24 07:26:57]          Expecting device [0;1;39mdev-disk-by\x2dla…device[0m - /dev/disk/by-label/BOOT...
+[2025-11-24 07:26:57] [    3.289065] systemd[1]: Expecting device dev-disk-by\x2dlabel-UEFI.device - /dev/disk/by-label/UEFI...
+[2025-11-24 07:26:57]          Expecting device [0;1;39mdev-disk-by\x2dla…device[0m - /dev/disk/by-label/UEFI...
+[2025-11-24 07:26:57] [    3.290193] systemd[1]: Expecting device dev-hvc0.device - /dev/hvc0...
+[2025-11-24 07:26:57]          Expecting device [0;1;39mdev-hvc0.device[0m - /dev/hvc0...
+[2025-11-24 07:26:57] [    3.290991] systemd[1]: Expecting device dev-ttyS0.device - /dev/ttyS0...
+[2025-11-24 07:26:57]          Expecting device [0;1;39mdev-ttyS0.device[0m - /dev/ttyS0...
+[2025-11-24 07:26:57] [    3.291865] systemd[1]: Reached target integritysetup.target - Local Integrity Protected Volumes.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Reached target [0;1;39mintegritysetup.targ…[0m Local Integrity Protected Volumes.
+[2025-11-24 07:26:57] [    3.292981] systemd[1]: Reached target slices.target - Slice Units.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Reached target [0;1;39mslices.target[0m - Slice Units.
+[2025-11-24 07:26:57] [    3.293857] systemd[1]: Reached target snapd.mounts-pre.target - Mounting snaps.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Reached target [0;1;39msnapd.mounts-pre.target[0m - Mounting snaps.
+[2025-11-24 07:26:57] [    3.294826] systemd[1]: Reached target snapd.mounts.target - Mounted snaps.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Reached target [0;1;39msnapd.mounts.target[0m - Mounted snaps.
+[2025-11-24 07:26:57] [    3.295797] systemd[1]: Reached target swap.target - Swaps.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Reached target [0;1;39mswap.target[0m - Swaps.
+[2025-11-24 07:26:57] [    3.296621] systemd[1]: Reached target veritysetup.target - Local Verity Protected Volumes.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Reached target [0;1;39mveritysetup.target[0m - Local Verity Protected Volumes.
+[2025-11-24 07:26:57] [    3.297847] systemd[1]: Listening on dm-event.socket - Device-mapper event daemon FIFOs.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Listening on [0;1;39mdm-event.socket[0m - Device-mapper event daemon FIFOs.
+[2025-11-24 07:26:57] [    3.299109] systemd[1]: Listening on lvm2-lvmpolld.socket - LVM2 poll daemon socket.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Listening on [0;1;39mlvm2-lvmpolld.socket[0m - LVM2 poll daemon socket.
+[2025-11-24 07:26:57] [    3.300279] systemd[1]: Listening on multipathd.socket - multipathd control socket.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Listening on [0;1;39mmultipathd.socket[0m - multipathd control socket.
+[2025-11-24 07:26:57] [    3.301454] systemd[1]: Listening on syslog.socket - Syslog Socket.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Listening on [0;1;39msyslog.socket[0m - Syslog Socket.
+[2025-11-24 07:26:57] [    3.302445] systemd[1]: Listening on systemd-fsckd.socket - fsck to fsckd communication Socket.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-fsckd.socket[0m …fsck to fsckd communication Socket.
+[2025-11-24 07:26:57] [    3.303666] systemd[1]: Listening on systemd-initctl.socket - initctl Compatibility Named Pipe.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-initctl.socke…[0m- initctl Compatibility Named Pipe.
+[2025-11-24 07:26:57] [    3.304903] systemd[1]: Listening on systemd-journald-dev-log.socket - Journal Socket (/dev/log).
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-journald-dev-…socket[0m - Journal Socket (/dev/log).
+[2025-11-24 07:26:57] [    3.306307] systemd[1]: Listening on systemd-journald.socket - Journal Socket.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-journald.socket[0m - Journal Socket.
+[2025-11-24 07:26:57] [    3.307497] systemd[1]: Listening on systemd-networkd.socket - Network Service Netlink Socket.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-networkd.socket[0m - Network Service Netlink Socket.
+[2025-11-24 07:26:57] [    3.308681] systemd[1]: systemd-pcrextend.socket - TPM2 PCR Extension (Varlink) was skipped because of an unmet condition check (ConditionSecurity=measured-uki).
+[2025-11-24 07:26:57] [    3.309689] systemd[1]: Listening on systemd-udevd-control.socket - udev Control Socket.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-udevd-control.socket[0m - udev Control Socket.
+[2025-11-24 07:26:57] [    3.310875] systemd[1]: Listening on systemd-udevd-kernel.socket - udev Kernel Socket.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-udevd-kernel.socket[0m - udev Kernel Socket.
+[2025-11-24 07:26:57] [    3.318315] systemd[1]: Mounting dev-hugepages.mount - Huge Pages File System...
+[2025-11-24 07:26:57]          Mounting [0;1;39mdev-hugepages.mount[0m - Huge Pages File System...
+[2025-11-24 07:26:57] [    3.319928] systemd[1]: Mounting dev-mqueue.mount - POSIX Message Queue File System...
+[2025-11-24 07:26:57]          Mounting [0;1;39mdev-mqueue.mount[0m - POSIX Message Queue File System...
+[2025-11-24 07:26:57] [    3.333356] systemd[1]: Mounting sys-kernel-debug.mount - Kernel Debug File System...
+[2025-11-24 07:26:57]          Mounting [0;1;39msys-kernel-debug.mount[0m - Kernel Debug File System...
+[2025-11-24 07:26:57] [    3.336321] systemd[1]: Mounting sys-kernel-tracing.mount - Kernel Trace File System...
+[2025-11-24 07:26:57]          Mounting [0;1;39msys-kernel-tracing.mount[0m - Kernel Trace File System...
+[2025-11-24 07:26:57] [    3.339368] systemd[1]: Starting systemd-journald.service - Journal Service...
+[2025-11-24 07:26:57]          Starting [0;1;39msystemd-journald.service[0m - Journal Service...
+[2025-11-24 07:26:57] [    3.342349] systemd[1]: Starting keyboard-setup.service - Set the console keyboard layout...
+[2025-11-24 07:26:57]          Starting [0;1;39mkeyboard-setup.service[0m - Set the console keyboard layout...
+[2025-11-24 07:26:57] [    3.345689] systemd[1]: Starting kmod-static-nodes.service - Create List of Static Device Nodes...
+[2025-11-24 07:26:57]          Starting [0;1;39mkmod-static-nodes.service[0m…eate List of Static Device Nodes...
+[2025-11-24 07:26:57] [    3.349386] systemd[1]: Starting lvm2-monitor.service - Monitoring of LVM2 mirrors, snapshots etc. using dmeventd or progress polling...
+[2025-11-24 07:26:57]          Starting [0;1;39mlvm2-monitor.service[0m - Mo…ing dmeventd or progress polling...
+[2025-11-24 07:26:57] [    3.355357] systemd[1]: Starting modprobe@configfs.service - Load Kernel Module configfs...
+[2025-11-24 07:26:57]          Starting [0;1;39mmodprobe@configfs.service[0m - Load Kernel Module configfs...
+[2025-11-24 07:26:57] [    3.357309] systemd-journald[326]: Collecting audit messages is disabled.
+[2025-11-24 07:26:57] [    3.358722] systemd[1]: Starting modprobe@dm_mod.service - Load Kernel Module dm_mod...
+[2025-11-24 07:26:57]          Starting [0;1;39mmodprobe@dm_mod.service[0m - Load Kernel Module dm_mod...
+[2025-11-24 07:26:57] [    3.365391] systemd[1]: Starting modprobe@drm.service - Load Kernel Module drm...
+[2025-11-24 07:26:57]          Starting [0;1;39mmodprobe@drm.service[0m - Load Kernel Module drm...
+[2025-11-24 07:26:57] [    3.373332] systemd[1]: Starting modprobe@efi_pstore.service - Load Kernel Module efi_pstore...
+[2025-11-24 07:26:57]          Starting [0;1;39mmodprobe@efi_pstore.servi…[0m - Load Kernel Module efi_pstore...
+[2025-11-24 07:26:57] [    3.380452] systemd[1]: Starting modprobe@fuse.service - Load Kernel Module fuse...
+[2025-11-24 07:26:57]          Starting [0;1;39mmodprobe@fuse.service[0m - Load Kernel Module fuse...
+[2025-11-24 07:26:57] [    3.386963] systemd[1]: Starting modprobe@loop.service - Load Kernel Module loop...
+[2025-11-24 07:26:57]          Starting [0;1;39mmodprobe@loop.service[0m - Load Kernel Module loop...
+[2025-11-24 07:26:57] [    3.388926] systemd[1]: netplan-ovs-cleanup.service - OpenVSwitch configuration for cleanup was skipped because of an unmet condition check (ConditionFileIsExecutable=/usr/bin/ovs-vsctl).
+[2025-11-24 07:26:57] [    3.396323] systemd[1]: Starting systemd-fsck-root.service - File System Check on Root Device...
+[2025-11-24 07:26:57]          Starting [0;1;39msystemd-fsck-root.service[0m…File System Check on Root Device...
+[2025-11-24 07:26:57] [    3.409409] systemd[1]: Starting systemd-modules-load.service - Load Kernel Modules...
+[2025-11-24 07:26:57]          Starting [0;1;39msystemd-modules-load.service[0m - Load Kernel Modules...
+[2025-11-24 07:26:57] [    3.410748] systemd[1]: systemd-pcrmachine.service - TPM2 PCR Machine ID Measurement was skipped because of an unmet condition check (ConditionSecurity=measured-uki).
+[2025-11-24 07:26:57] [    3.412249] systemd[1]: systemd-tpm2-setup-early.service - TPM2 SRK Setup (Early) was skipped because of an unmet condition check (ConditionSecurity=measured-uki).
+[2025-11-24 07:26:57] [    3.414330] systemd[1]: Starting systemd-udev-trigger.service - Coldplug All udev Devices...
+[2025-11-24 07:26:57]          Starting [0;1;39msystemd-udev-trigger.service[0m - Coldplug All udev Devices...
+[2025-11-24 07:26:57] [    3.417808] systemd[1]: Started systemd-journald.service - Journal Service.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Started [0;1;39msystemd-journald.service[0m - Journal Service.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Mounted [0;1;39mdev-hugepages.mount[0m - Huge Pages File System.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Mounted [0;1;39mdev-mqueue.mount[0m - POSIX Message Queue File System.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Mounted [0;1;39msys-kernel-debug.mount[0m - Kernel Debug File System.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Mounted [0;1;39msys-kernel-tracing.mount[0m - Kernel Trace File System.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39mkeyboard-setup.service[0m - Set the console keyboard layout.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39mkmod-static-nodes.service[0m…Create List of Static Device Nodes.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39mmodprobe@configfs.service[0m - Load Kernel Module configfs.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39mmodprobe@dm_mod.service[0m - Load Kernel Module dm_mod.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39mmodprobe@drm.service[0m - Load Kernel Module drm.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39mmodprobe@efi_pstore.service[0m - Load Kernel Module efi_pstore.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39mmodprobe@fuse.service[0m - Load Kernel Module fuse.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39mmodprobe@loop.service[0m - Load Kernel Module loop.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39msystemd-fsck-root.service[0m - File System Check on Root Device.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39msystemd-modules-load.service[0m - Load Kernel Modules.
+[2025-11-24 07:26:57]          Mounting [0;1;39msys-fs-fuse-connections.mount[0m - FUSE Control File System...
+[2025-11-24 07:26:57]          Mounting [0;1;39msys-kernel-config.mount[0m - Kernel Configuration File System...
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Started [0;1;39msystemd-fsckd.service[0m - Fi…stem Check Daemon to report status.
+[2025-11-24 07:26:57]          Starting [0;1;39msystemd-remount-fs.servic…[0munt Root and Kernel File Systems...
+[2025-11-24 07:26:57]          Starting [0;1;39msystemd-sysctl.service[0m - Apply Kernel Variables...
+[2025-11-24 07:26:57]          Starting [0;1;39msystemd-tmpfiles-setup-de…[0m Device Nodes in /dev gracefully...
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39mlvm2-monitor.service[0m - Mo…using dmeventd or progress polling.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Mounted [0;1;39msys-fs-fuse-connections.mount[0m - FUSE Control File System.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Mounted [0;1;39msys-kernel-config.mount[0m - Kernel Configuration File System.
+[2025-11-24 07:26:57] [    3.498820] EXT4-fs (vda1): re-mounted 75c0a201-5594-409b-a8f2-d48753bbdc05 r/w. Quota mode: none.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39msystemd-udev-trigger.service[0m - Coldplug All udev Devices.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39msystemd-remount-fs.servic…[0mmount Root and Kernel File Systems.
+[2025-11-24 07:26:57]          Starting [0;1;39mmultipathd.service[0m - Devi…pper Multipath Device Controller...
+[2025-11-24 07:26:57]          Starting [0;1;39msystemd-journal-flush.ser…[0msh Journal to Persistent Storage...
+[2025-11-24 07:26:57]          Starting [0;1;39msystemd-random-seed.service[0m - Load/Save OS Random Seed...
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39msystemd-sysctl.service[0m - Apply Kernel Variables.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39msystemd-tmpfiles-setup-de…[0mic Device Nodes in /dev gracefully.
+[2025-11-24 07:26:57]          Starting [0;1;39msystemd-sysusers.service[0m - Create System Users...
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39msystemd-sysusers.service[0m - Create System Users.
+[2025-11-24 07:26:57]          Starting [0;1;39msystemd-tmpfiles-setup-de…[0meate Static Device Nodes in /dev...
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39msystemd-tmpfiles-setup-de…[0mCreate Static Device Nodes in /dev.
+[2025-11-24 07:26:57]          Starting [0;1;39msystemd-udevd.service[0m - R…ager for Device Events and Files...
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39msystemd-random-seed.service[0m - Load/Save OS Random Seed.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Finished [0;1;39msystemd-journal-flush.ser…[0mlush Journal to Persistent Storage.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Started [0;1;39mmultipathd.service[0m - Devic…Mapper Multipath Device Controller.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Reached target [0;1;39mlocal-fs-pre.target[0m…Preparation for Local File Systems.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Started [0;1;39msystemd-udevd.service[0m - Ru…anager for Device Events and Files.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Started [0;1;39msystemd-ask-password-conso…[0mequests to Console Directory Watch.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Reached target [0;1;39mcryptsetup.target[0m - Local Encrypted Volumes.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Found device [0;1;39mdev-hvc0.device[0m - /dev/hvc0.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Found device [0;1;39mdev-ttyS0.device[0m - /dev/ttyS0.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Found device [0;1;39mdev-disk-by\x2dlabel-…T.device[0m - /dev/disk/by-label/BOOT.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Found device [0;1;39mdev-disk-by\x2dlabel-…I.device[0m - /dev/disk/by-label/UEFI.
+[2025-11-24 07:26:57]          Starting [0;1;39msystemd-fsck@dev-disk-by\…[0mCheck on /dev/disk/by-label/BOOT...
+[2025-11-24 07:26:57]          Starting [0;1;39msystemd-fsck@dev-disk-by\…[0mCheck on /dev/disk/by-label/UEFI...
+[2025-11-24 07:26:57] Checking in progress on 1 disk (0.0% complete)[[0;32m  OK  [0m] Finished [0;1;39msystemd-fsck@dev-disk-by\…[0mm Check on /dev/disk/by-label/UEFI.
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-rfkill.socket[0m…ll Switch Status /dev/rfkill Watch.
+[2025-11-24 07:26:57] Checking in progress on 0 disks (100.0% complete)[[0;32m  OK  [0m] Finished [0;1;39msystemd-fsck@dev-disk-by\…[0mm Check on /dev/disk/by-label/BOOT.
+[2025-11-24 07:26:57]          Mounting [0;1;39mboot.mount[0m - /boot...
+[2025-11-24 07:26:57] [[0;32m  OK  [0m] Mounted [0;1;39mboot.mount[0m - /boot.
+[2025-11-24 07:26:58]          Mounting [0;1;39mboot-efi.mount[0m - /boot/efi...
+[2025-11-24 07:26:58] [[0;32m  OK  [0m] Mounted [0;1;39mboot-efi.mount[0m - /boot/efi.
+[2025-11-24 07:26:58] [[0;32m  OK  [0m] Reached target [0;1;39mlocal-fs.target[0m - Local File Systems.
+[2025-11-24 07:26:58] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-sysext.socket[0m…tension Image Management (Varlink).
+[2025-11-24 07:26:58]          Starting [0;1;39mapparmor.service[0m - Load AppArmor profiles...
+[2025-11-24 07:26:58]          Starting [0;1;39mconsole-setup.service[0m - Set console font and keymap...
+[2025-11-24 07:26:58]          Starting [0;1;39mfinalrd.service[0m - Create …time dir for shutdown pivot root...
+[2025-11-24 07:26:58]          Starting [0;1;39mldconfig.service[0m - Rebuild Dynamic Linker Cache...
+[2025-11-24 07:26:58]          Starting [0;1;39mplymouth-read-write.servi…[0mymouth To Write Out Runtime Data...
+[2025-11-24 07:26:58]          Starting [0;1;39msystemd-binfmt.service[0m - Set Up Additional Binary Formats...
+[2025-11-24 07:26:58]          Starting [0;1;39msystemd-tmpfiles-setup.se…[0me Volatile Files and Directories...
+[2025-11-24 07:26:58]          Starting [0;1;39mufw.service[0m - Uncomplicated firewall...
+[2025-11-24 07:26:58] [[0;32m  OK  [0m] Finished [0;1;39mconsole-setup.service[0m - Set console font and keymap.
+[2025-11-24 07:26:58] [[0;32m  OK  [0m] Finished [0;1;39mfinalrd.service[0m - Create …untime dir for shutdown pivot root.
+[2025-11-24 07:26:58]          Mounting [0;1;39mproc-sys-fs-binfmt_misc.m…[0mcutable File Formats File System...
+[2025-11-24 07:26:58] [[0;32m  OK  [0m] Finished [0;1;39mplymouth-read-write.servi…[0mPlymouth To Write Out Runtime Data.
+[2025-11-24 07:26:58] [[0;32m  OK  [0m] Finished [0;1;39mufw.service[0m - Uncomplicated firewall.
+[2025-11-24 07:26:58] [[0;32m  OK  [0m] Mounted [0;1;39mproc-sys-fs-binfmt_misc.mo…[0mxecutable File Formats File System.
+[2025-11-24 07:26:58] [[0;32m  OK  [0m] Finished [0;1;39msystemd-tmpfiles-setup.se…[0mate Volatile Files and Directories.
+[2025-11-24 07:26:58]          Starting [0;1;39msystemd-journal-catalog-u…ervice[0m - Rebuild Journal Catalog...
+[2025-11-24 07:26:58]          Starting [0;1;39msystemd-machine-id-commit…[0mt a transient machine-id on disk...
+[2025-11-24 07:26:58]          Starting [0;1;39msystemd-resolved.service[0m - Network Name Resolution...
+[2025-11-24 07:26:58]          Starting [0;1;39msystemd-timesyncd.service[0m - Network Time Synchronization...
+[2025-11-24 07:26:58]          Starting [0;1;39msystemd-update-utmp.servi…[0mord System Boot/Shutdown in UTMP...
+[2025-11-24 07:26:58] [[0;32m  OK  [0m] Finished [0;1;39msystemd-binfmt.service[0m - Set Up Additional Binary Formats.
+[2025-11-24 07:26:58] [[0;32m  OK  [0m] Finished [0;1;39msystemd-update-utmp.servi…[0mecord System Boot/Shutdown in UTMP.
+[2025-11-24 07:26:58] [[0;32m  OK  [0m] Started [0;1;39msystemd-timesyncd.service[0m - Network Time Synchronization.
+[2025-11-24 07:26:58] [[0;32m  OK  [0m] Reached target [0;1;39mtime-set.target[0m - System Time Set.
+[2025-11-24 07:26:58] [[0;32m  OK  [0m] Finished [0;1;39msystemd-journal-catalog-u….service[0m - Rebuild Journal Catalog.
+[2025-11-24 07:26:58] [[0;32m  OK  [0m] Started [0;1;39msystemd-resolved.service[0m - Network Name Resolution.
+[2025-11-24 07:26:58] [[0;32m  OK  [0m] Reached target [0;1;39mnss-lookup.target[0m - Host and Network Name Lookups.
+[2025-11-24 07:26:58] [[0;32m  OK  [0m] Finished [0;1;39msystemd-machine-id-commit…[0mmit a transient machine-id on disk.
+[2025-11-24 07:26:59] [[0;32m  OK  [0m] Finished [0;1;39mapparmor.service[0m - Load AppArmor profiles.
+[2025-11-24 07:26:59]          Starting [0;1;39msnapd.apparmor.service[0m - …iles managed internally by snapd...
+[2025-11-24 07:26:59]          Starting [0;1;39mcloud-init-local.service[0m …-init: Local Stage (pre-network)...
+[2025-11-24 07:26:59] [[0;32m  OK  [0m] Finished [0;1;39mldconfig.service[0m - Rebuild Dynamic Linker Cache.
+[2025-11-24 07:26:59]          Starting [0;1;39msystemd-update-done.service[0m - Update is Completed...
+[2025-11-24 07:26:59] [[0;32m  OK  [0m] Finished [0;1;39msnapd.apparmor.service[0m - …ofiles managed internally by snapd.
+[2025-11-24 07:26:59] [[0;32m  OK  [0m] Finished [0;1;39msystemd-update-done.service[0m - Update is Completed.
+[2025-11-24 07:27:00] [    5.924550] cloud-init[636]: Cloud-init v. 25.2-0ubuntu1~24.04.1 running 'init-local' at Sun, 23 Nov 2025 22:26:59 +0000. Up 5.91 seconds.
+[2025-11-24 07:27:00] [[0;32m  OK  [0m] Finished [0;1;39mcloud-init-local.service[0m …ud-init: Local Stage (pre-network).
+[2025-11-24 07:27:00] [[0;32m  OK  [0m] Reached target [0;1;39mnetwork-pre.target[0m - Preparation for Network.
+[2025-11-24 07:27:00]          Starting [0;1;39msystemd-networkd.service[0m - Network Configuration...
+[2025-11-24 07:27:00] [[0;32m  OK  [0m] Started [0;1;39msystemd-networkd.service[0m - Network Configuration.
+[2025-11-24 07:27:00] [[0;32m  OK  [0m] Reached target [0;1;39mnetwork.target[0m - Network.
+[2025-11-24 07:27:00]          Starting [0;1;39msystemd-networkd-wait-onl…[0mait for Network to be Configured...
+[2025-11-24 07:27:01] [[0;32m  OK  [0m] Finished [0;1;39msystemd-networkd-wait-onl…[0m Wait for Network to be Configured.
+[2025-11-24 07:27:01]          Starting [0;1;39mcloud-init.service[0m - Cloud-init: Network Stage...
+[2025-11-24 07:27:01] [    7.859849] cloud-init[703]: Cloud-init v. 25.2-0ubuntu1~24.04.1 running 'init' at Sun, 23 Nov 2025 22:27:01 +0000. Up 7.85 seconds.
+[2025-11-24 07:27:01] [    7.866879] cloud-init[703]: ci-info: ++++++++++++++++++++++++++++++++++++++Net device info++++++++++++++++++++++++++++++++++++++
+[2025-11-24 07:27:01] [    7.867666] cloud-init[703]: ci-info: +--------+------+----------------------------+---------------+--------+-------------------+
+[2025-11-24 07:27:01] [    7.868440] cloud-init[703]: ci-info: | Device |  Up  |          Address           |      Mask     | Scope  |     Hw-Address    |
+[2025-11-24 07:27:01] [    7.869180] cloud-init[703]: ci-info: +--------+------+----------------------------+---------------+--------+-------------------+
+[2025-11-24 07:27:01] [    7.869920] cloud-init[703]: ci-info: |  ens2  | True |         10.0.2.15          | 255.255.255.0 | global | 52:54:00:f2:6f:1f |
+[2025-11-24 07:27:01] [    7.870644] cloud-init[703]: ci-info: |  ens2  | True | fe80::5054:ff:fef2:6f1f/64 |       .       |  link  | 52:54:00:f2:6f:1f |
+[2025-11-24 07:27:01] [    7.871356] cloud-init[703]: ci-info: |   lo   | True |         127.0.0.1          |   255.0.0.0   |  host  |         .         |
+[2025-11-24 07:27:01] [    7.872071] cloud-init[703]: ci-info: |   lo   | True |          ::1/128           |       .       |  host  |         .         |
+[2025-11-24 07:27:01] [    7.872788] cloud-init[703]: ci-info: +--------+------+----------------------------+---------------+--------+-------------------+
+[2025-11-24 07:27:01] [    7.873511] cloud-init[703]: ci-info: ++++++++++++++++++++++++++++Route IPv4 info+++++++++++++++++++++++++++++
+[2025-11-24 07:27:01] [    7.874143] cloud-init[703]: ci-info: +-------+-------------+----------+-----------------+-----------+-------+
+[2025-11-24 07:27:01] [    7.874772] cloud-init[703]: ci-info: | Route | Destination | Gateway  |     Genmask     | Interface | Flags |
+[2025-11-24 07:27:01] [    7.875386] cloud-init[703]: ci-info: +-------+-------------+----------+-----------------+-----------+-------+
+[2025-11-24 07:27:02] [    7.876014] cloud-init[703]: ci-info: |   0   |   0.0.0.0   | 10.0.2.2 |     0.0.0.0     |    ens2   |   UG  |
+[2025-11-24 07:27:02] [    7.876637] cloud-init[703]: ci-info: |   1   |   10.0.2.0  | 0.0.0.0  |  255.255.255.0  |    ens2   |   U   |
+[2025-11-24 07:27:02] [    7.877303] cloud-init[703]: ci-info: |   2   |   10.0.2.2  | 0.0.0.0  | 255.255.255.255 |    ens2   |   UH  |
+[2025-11-24 07:27:02] [    7.877983] cloud-init[703]: ci-info: |   3   |   10.0.2.3  | 0.0.0.0  | 255.255.255.255 |    ens2   |   UH  |
+[2025-11-24 07:27:02] [    7.878652] cloud-init[703]: ci-info: +-------+-------------+----------+-----------------+-----------+-------+
+[2025-11-24 07:27:02] [    7.879318] cloud-init[703]: ci-info: +++++++++++++++++++Route IPv6 info+++++++++++++++++++
+[2025-11-24 07:27:02] [    7.879870] cloud-init[703]: ci-info: +-------+-------------+---------+-----------+-------+
+[2025-11-24 07:27:02] [    7.880405] cloud-init[703]: ci-info: | Route | Destination | Gateway | Interface | Flags |
+[2025-11-24 07:27:02] [    7.880926] cloud-init[703]: ci-info: +-------+-------------+---------+-----------+-------+
+[2025-11-24 07:27:02] [    7.881447] cloud-init[703]: ci-info: |   0   |  fe80::/64  |    ::   |    ens2   |   U   |
+[2025-11-24 07:27:02] [    7.881986] cloud-init[703]: ci-info: |   2   |    local    |    ::   |    ens2   |   U   |
+[2025-11-24 07:27:02] [    7.882527] cloud-init[703]: ci-info: |   3   |  multicast  |    ::   |    ens2   |   U   |
+[2025-11-24 07:27:02] [    7.883076] cloud-init[703]: ci-info: +-------+-------------+---------+-----------+-------+
+[2025-11-24 07:27:02] [    8.284826] cloud-init[703]: 2025-11-23 22:27:02,080 - schema.py[WARNING]: cloud-config failed schema validation! You may run 'sudo cloud-init schema --system' to check the details.
+[2025-11-24 07:27:04] [   10.858017] cloud-init[703]: Generating public/private rsa key pair.
+[2025-11-24 07:27:04] [   10.858656] cloud-init[703]: Your identification has been saved in /etc/ssh/ssh_host_rsa_key
+[2025-11-24 07:27:04] [   10.859211] cloud-init[703]: Your public key has been saved in /etc/ssh/ssh_host_rsa_key.pub
+[2025-11-24 07:27:04] [   10.859768] cloud-init[703]: The key fingerprint is:
+[2025-11-24 07:27:04] [   10.860123] cloud-init[703]: SHA256:BOGbgrjs5YoC1g3VW9JWSQzo4eMk1Bvr6vfdXuIOTwc root@k8s-vm-ubuntu-2404-1763936809
+[2025-11-24 07:27:04] [   10.860871] cloud-init[703]: The key's randomart image is:
+[2025-11-24 07:27:04] [   10.861294] cloud-init[703]: +---[RSA 3072]----+
+[2025-11-24 07:27:04] [   10.861663] cloud-init[703]: |      =.o.=o.    |
+[2025-11-24 07:27:04] [   10.862029] cloud-init[703]: |     + O + o     |
+[2025-11-24 07:27:04] [   10.862365] cloud-init[703]: |    o + @        |
+[2025-11-24 07:27:04] [   10.862689] cloud-init[703]: | . o . %         |
+[2025-11-24 07:27:04] [   10.863036] cloud-init[703]: |. o + B S    E   |
+[2025-11-24 07:27:04] [   10.863370] cloud-init[703]: |oo . o o      .  |
+[2025-11-24 07:27:04] [   10.863734] cloud-init[703]: |+. .  .    . o o |
+[2025-11-24 07:27:04] [   10.864057] cloud-init[703]: |+ o  . .  . * +  |
+[2025-11-24 07:27:04] [   10.864367] cloud-init[703]: |oo..... .. .o*   |
+[2025-11-24 07:27:04] [   10.864681] cloud-init[703]: +----[SHA256]-----+
+[2025-11-24 07:27:04] [   10.864990] cloud-init[703]: Generating public/private ecdsa key pair.
+[2025-11-24 07:27:05] [   10.865416] cloud-init[703]: Your identification has been saved in /etc/ssh/ssh_host_ecdsa_key
+[2025-11-24 07:27:05] [   10.865956] cloud-init[703]: Your public key has been saved in /etc/ssh/ssh_host_ecdsa_key.pub
+[2025-11-24 07:27:05] [   10.866503] cloud-init[703]: The key fingerprint is:
+[2025-11-24 07:27:05] [   10.866824] cloud-init[703]: SHA256:WpVBE2pfDUFOMjZ5d4eefZ3wWIbJfLlCVD0FicDBKmU root@k8s-vm-ubuntu-2404-1763936809
+[2025-11-24 07:27:05] [   10.867466] cloud-init[703]: The key's randomart image is:
+[2025-11-24 07:27:05] [   10.867828] cloud-init[703]: +---[ECDSA 256]---+
+[2025-11-24 07:27:05] [   10.868139] cloud-init[703]: |         +%*O+===|
+[2025-11-24 07:27:05] [   10.868463] cloud-init[703]: |        Eo+XoX+*+|
+[2025-11-24 07:27:05] [   10.868768] cloud-init[703]: |       oo.o.+oO+*|
+[2025-11-24 07:27:05] [   10.869076] cloud-init[703]: |      ...o . oo++|
+[2025-11-24 07:27:05] [   10.869384] cloud-init[703]: |       .S .   . .|
+[2025-11-24 07:27:05] [   10.869696] cloud-init[703]: |       o         |
+[2025-11-24 07:27:05] [   10.870004] cloud-init[703]: |      .          |
+[2025-11-24 07:27:05] [   10.870316] cloud-init[703]: |                 |
+[2025-11-24 07:27:05] [   10.870626] cloud-init[703]: |                 |
+[2025-11-24 07:27:05] [   10.870927] cloud-init[703]: +----[SHA256]-----+
+[2025-11-24 07:27:05] [   10.871232] cloud-init[703]: Generating public/private ed25519 key pair.
+[2025-11-24 07:27:05] [   10.871653] cloud-init[703]: Your identification has been saved in /etc/ssh/ssh_host_ed25519_key
+[2025-11-24 07:27:05] [   10.872197] cloud-init[703]: Your public key has been saved in /etc/ssh/ssh_host_ed25519_key.pub
+[2025-11-24 07:27:05] [   10.872752] cloud-init[703]: The key fingerprint is:
+[2025-11-24 07:27:05] [   10.873074] cloud-init[703]: SHA256:iXFhtnNJbei96wOWngXwEo8Ct8wGpPQMT/T01ii3on8 root@k8s-vm-ubuntu-2404-1763936809
+[2025-11-24 07:27:05] [   10.873711] cloud-init[703]: The key's randomart image is:
+[2025-11-24 07:27:05] [   10.874057] cloud-init[703]: +--[ED25519 256]--+
+[2025-11-24 07:27:05] [   10.874360] cloud-init[703]: |  oo+ . + .o     |
+[2025-11-24 07:27:05] [   10.874671] cloud-init[703]: | . Boo.+o*..o    |
+[2025-11-24 07:27:05] [   10.874976] cloud-init[703]: |  . +*+.OB+o     |
+[2025-11-24 07:27:05] [   10.875277] cloud-init[703]: |      *Bo== .    |
+[2025-11-24 07:27:05] [   10.875582] cloud-init[703]: |     .o.S. o .   |
+[2025-11-24 07:27:05] [   10.875882] cloud-init[703]: |     . .  + o    |
+[2025-11-24 07:27:05] [   10.876188] cloud-init[703]: |    .    o + .   |
+[2025-11-24 07:27:05] [   10.876496] cloud-init[703]: |     .  E o o    |
+[2025-11-24 07:27:05] [   10.876802] cloud-init[703]: |      ..   ...   |
+[2025-11-24 07:27:05] [   10.877108] cloud-init[703]: +----[SHA256]-----+
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Finished [0;1;39mcloud-init.service[0m - Cloud-init: Network Stage.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Reached target [0;1;39mcloud-config.target[0m - Cloud-config availability.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Reached target [0;1;39mnetwork-online.target[0m - Network is Online.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Reached target [0;1;39msysinit.target[0m - System Initialization.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mapt-daily.timer[0m - Daily apt download activities.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mapt-daily-upgrade.timer[0m - …y apt upgrade and clean activities.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mdpkg-db-backup.timer[0m - Daily dpkg database backup timer.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39me2scrub_all.timer[0m - Period…Metadata Check for All Filesystems.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mfstrim.timer[0m - Discard unused filesystem blocks once a week.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mfwupd-refresh.timer[0m - Refresh fwupd metadata regularly.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mlogrotate.timer[0m - Daily rotation of log files.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mman-db.timer[0m - Daily man-db regeneration.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mmotd-news.timer[0m - Message of the Day.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39msysstat-collect.timer[0m - Ru…y accounting tool every 10 minutes.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39msysstat-summary.timer[0m - Ge… of yesterday's process accounting.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39msystemd-tmpfiles-clean.tim…[0my Cleanup of Temporary Directories.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mupdate-notifier-download.t…[0mhat failed at package install time.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mupdate-notifier-motd.timer[0m… a new version of Ubuntu available.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Reached target [0;1;39mpaths.target[0m - Path Units.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Reached target [0;1;39mtimers.target[0m - Timer Units.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Listening on [0;1;39mcloud-init-hotplugd.s…t[0m - cloud-init hotplug hook socket.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Listening on [0;1;39mdbus.socket[0m - D-Bus System Message Bus Socket.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Listening on [0;1;39miscsid.socket[0m - Open-iSCSI iscsid Socket.
+[2025-11-24 07:27:05]          Starting [0;1;39mlxd-installer.socket[0m - He…er to install lxd snap on demand...
+[2025-11-24 07:27:05]          Starting [0;1;39msnapd.socket[0m - Socket activation for snappy daemon...
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Listening on [0;1;39mssh.socket[0m - OpenBSD Secure Shell server socket.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Listening on [0;1;39muuidd.socket[0m - UUID daemon activation socket.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Reached target [0;1;39mremote-fs-pre.targe…[0mreparation for Remote File Systems.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Reached target [0;1;39mremote-fs.target[0m - Remote File Systems.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Finished [0;1;39mblk-availability.service[0m - Availability of block devices.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Listening on [0;1;39mlxd-installer.socket[0m …lper to install lxd snap on demand.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Listening on [0;1;39msnapd.socket[0m - Socket activation for snappy daemon.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Reached target [0;1;39msockets.target[0m - Socket Units.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Reached target [0;1;39mbasic.target[0m - Basic System.
+[2025-11-24 07:27:05]          Starting [0;1;39mapport.service[0m - automatic crash report generation...
+[2025-11-24 07:27:05]          Starting [0;1;39mcloud-config.service[0m - Cloud-init: Config Stage...
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mcron.service[0m - Regular background program processing daemon.
+[2025-11-24 07:27:05]          Starting [0;1;39mdbus.service[0m - D-Bus System Message Bus...
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mdmesg.service[0m - Save initial kernel messages after boot.
+[2025-11-24 07:27:05]          Starting [0;1;39me2scrub_reap.service[0m - Re…ne ext4 Metadata Check Snapshots...
+[2025-11-24 07:27:05]          Starting [0;1;39mgrub-common.service[0m - Record successful boot for GRUB...
+[2025-11-24 07:27:05]          Starting [0;1;39mpolkit.service[0m - Authorization Manager...
+[2025-11-24 07:27:05]          Starting [0;1;39mpollinate.service[0m - Polli…e pseudo random number generator...
+[2025-11-24 07:27:05]          Starting [0;1;39mrsyslog.service[0m - System Logging Service...
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Reached target [0;1;39mgetty-pre.target[0m - Preparation for Logins.
+[2025-11-24 07:27:05]          Starting [0;1;39msnapd.seeded.service[0m - Wait until snapd is fully seeded...
+[2025-11-24 07:27:05]          Starting [0;1;39msnapd.service[0m - Snap Daemon...
+[2025-11-24 07:27:05]          Starting [0;1;39msysstat.service[0m - Resets System Activity Logs...
+[2025-11-24 07:27:05]          Starting [0;1;39msystemd-logind.service[0m - User Login Management...
+[2025-11-24 07:27:05]          Starting [0;1;39msystemd-user-sessions.service[0m - Permit User Sessions...
+[2025-11-24 07:27:05]          Starting [0;1;39mudisks2.service[0m - Disk Manager...
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mdbus.service[0m - D-Bus System Message Bus.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Finished [0;1;39me2scrub_reap.service[0m - Re…line ext4 Metadata Check Snapshots.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Finished [0;1;39msysstat.service[0m - Resets System Activity Logs.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Finished [0;1;39msystemd-user-sessions.service[0m - Permit User Sessions.
+[2025-11-24 07:27:05]          Starting [0;1;39mplymouth-quit-wait.servic…[0md until boot process finishes up...
+[2025-11-24 07:27:05]          Starting [0;1;39mplymouth-quit.service[0m - Terminate Plymouth Boot Screen...
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39msystemd-logind.service[0m - User Login Management.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Finished [0;1;39mplymouth-quit-wait.servic…[0mold until boot process finishes up.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Finished [0;1;39mplymouth-quit.service[0m - Terminate Plymouth Boot Screen.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mpolkit.service[0m - Authorization Manager.
+[2025-11-24 07:27:05]          Starting [0;1;39mModemManager.service[0m - Modem Manager...
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mserial-getty@hvc0.service[0m - Serial Getty on hvc0.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mserial-getty@ttyS0.service[0m - Serial Getty on ttyS0.
+[2025-11-24 07:27:05]          Starting [0;1;39msetvtrgb.service[0m - Set console scheme...
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39munattended-upgrades.service[0m - Unattended Upgrades Shutdown.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Finished [0;1;39mgrub-common.service[0m - Record successful boot for GRUB.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mudisks2.service[0m - Disk Manager.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Finished [0;1;39msetvtrgb.service[0m - Set console scheme.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mrsyslog.service[0m - System Logging Service.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Created slice [0;1;39msystem-getty.slice[0m - Slice /system/getty.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mgetty@tty1.service[0m - Getty on tty1.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Reached target [0;1;39mgetty.target[0m - Login Prompts.
+[2025-11-24 07:27:05]          Starting [0;1;39mgrub-initrd-fallback.service[0m - GRUB failed boot detection...
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Finished [0;1;39mapport.service[0m - automatic crash report generation.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Finished [0;1;39mgrub-initrd-fallback.service[0m - GRUB failed boot detection.
+[2025-11-24 07:27:05] [[0;32m  OK  [0m] Started [0;1;39mModemManager.service[0m - Modem Manager.
+[2025-11-24 07:27:05] [   11.830959] cloud-init[974]: Cloud-init v. 25.2-0ubuntu1~24.04.1 running 'modules:config' at Sun, 23 Nov 2025 22:27:05 +0000. Up 11.58 seconds.
+[2025-11-24 07:27:06] [[0;32m  OK  [0m] Started [0;1;39msnapd.service[0m - Snap Daemon.
+[2025-11-24 07:27:06] [[0;32m  OK  [0m] Finished [0;1;39mpollinate.service[0m - Polli…the pseudo random number generator.
+[2025-11-24 07:27:06] [[0;32m  OK  [0m] Finished [0;1;39mcloud-config.service[0m - Cloud-init: Config Stage.
+[2025-11-24 07:27:06] [[0;32m  OK  [0m] Finished [0;1;39msnapd.seeded.service[0m - Wait until snapd is fully seeded.
+[2025-11-24 07:27:06] [[0;32m  OK  [0m] Reached target [0;1;39mmulti-user.target[0m - Multi-User System.
+[2025-11-24 07:27:06] [[0;32m  OK  [0m] Reached target [0;1;39mgraphical.target[0m - Graphical Interface.
+[2025-11-24 07:27:06]          Starting [0;1;39mcloud-final.service[0m - Cloud-init: Final Stage...
+[2025-11-24 07:27:06]          Starting [0;1;39msystemd-timedated.service[0m - Time & Date Service...
+[2025-11-24 07:27:06]          Starting [0;1;39msystemd-update-utmp-runle…[0m- Record Runlevel Change in UTMP...
+[2025-11-24 07:27:06] [[0;32m  OK  [0m] Finished [0;1;39msystemd-update-utmp-runle…e[0m - Record Runlevel Change in UTMP.
+[2025-11-24 07:27:06] [[0;32m  OK  [0m] Started [0;1;39msystemd-timedated.service[0m - Time & Date Service.
+[2025-11-24 07:27:07] [   13.154117] cloud-init[1037]: Cloud-init v. 25.2-0ubuntu1~24.04.1 running 'modules:final' at Sun, 23 Nov 2025 22:27:06 +0000. Up 12.93 seconds.
+[2025-11-24 07:27:07]          Starting [0;1;39mapt-news.service[0m - Update APT News...
+[2025-11-24 07:27:07]          Starting [0;1;39mesm-cache.service[0m - Update the local ESM caches...
+[2025-11-24 07:27:07] [[0;32m  OK  [0m] Finished [0;1;39mapt-news.service[0m - Update APT News.
+[2025-11-24 07:27:07] [   13.875398] cloud-init[1037]: Hit:1 http://archive.ubuntu.com/ubuntu noble InRelease
+[2025-11-24 07:27:07] [   13.876384] cloud-init[1037]: Get:2 http://security.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+[2025-11-24 07:27:08] [   14.085868] cloud-init[1037]: Get:3 http://archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]
+[2025-11-24 07:27:09] [   14.936761] cloud-init[1037]: Get:4 http://security.ubuntu.com/ubuntu noble-security/main amd64 Components [21.5 kB]
+[2025-11-24 07:27:09] [   15.029461] cloud-init[1037]: Get:5 http://archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]
+[2025-11-24 07:27:09] [   15.190603] cloud-init[1037]: Get:6 http://security.ubuntu.com/ubuntu noble-security/universe amd64 Packages [909 kB]
+[2025-11-24 07:27:09] [   15.492710] cloud-init[1037]: Get:7 http://archive.ubuntu.com/ubuntu noble/universe amd64 Packages [15.0 MB]
+[2025-11-24 07:27:10] [   16.192018] cloud-init[1037]: Get:8 http://security.ubuntu.com/ubuntu noble-security/universe Translation-en [205 kB]
+[2025-11-24 07:27:10] [   16.338538] cloud-init[1037]: Get:9 http://security.ubuntu.com/ubuntu noble-security/universe amd64 Components [52.2 kB]
+[2025-11-24 07:27:10] [   16.358310] cloud-init[1037]: Get:10 http://security.ubuntu.com/ubuntu noble-security/universe amd64 c-n-f Metadata [19.4 kB]
+[2025-11-24 07:27:10] [   16.365756] cloud-init[1037]: Get:11 http://security.ubuntu.com/ubuntu noble-security/restricted amd64 Components [212 B]
+[2025-11-24 07:27:10] [   16.366675] cloud-init[1037]: Get:12 http://security.ubuntu.com/ubuntu noble-security/multiverse amd64 Packages [27.4 kB]
+[2025-11-24 07:27:10] [   16.376967] cloud-init[1037]: Get:13 http://security.ubuntu.com/ubuntu noble-security/multiverse Translation-en [5956 B]
+[2025-11-24 07:27:10] [   16.380370] cloud-init[1037]: Get:14 http://security.ubuntu.com/ubuntu noble-security/multiverse amd64 Components [212 B]
+[2025-11-24 07:27:10] [   16.381266] cloud-init[1037]: Get:15 http://security.ubuntu.com/ubuntu noble-security/multiverse amd64 c-n-f Metadata [384 B]
+[2025-11-24 07:27:11] 
+[2025-11-24 07:27:11] Ubuntu 24.04.3 LTS k8s-vm-ubuntu-2404-1763936809 ttyS0
+[2025-11-24 07:27:11] 
+[2025-11-24 07:27:11] k8s-vm-ubuntu-2404-1763936809 login: [   17.774726] cloud-init[1037]: Get:16 http://archive.ubuntu.com/ubuntu noble/universe Translation-en [5982 kB]
+[2025-11-24 07:27:12] [   17.984821] cloud-init[1037]: Get:17 http://archive.ubuntu.com/ubuntu noble/universe amd64 Components [3871 kB]
+[2025-11-24 07:27:12] [   18.138813] cloud-init[1037]: Get:18 http://archive.ubuntu.com/ubuntu noble/universe amd64 c-n-f Metadata [301 kB]
+[2025-11-24 07:27:12] [   18.142444] cloud-init[1037]: Get:19 http://archive.ubuntu.com/ubuntu noble/multiverse amd64 Packages [269 kB]
+[2025-11-24 07:27:12] [   18.146190] cloud-init[1037]: Get:20 http://archive.ubuntu.com/ubuntu noble/multiverse Translation-en [118 kB]
+[2025-11-24 07:27:12] [   18.152408] cloud-init[1037]: Get:21 http://archive.ubuntu.com/ubuntu noble/multiverse amd64 Components [35.0 kB]
+[2025-11-24 07:27:12] [   18.155041] cloud-init[1037]: Get:22 http://archive.ubuntu.com/ubuntu noble/multiverse amd64 c-n-f Metadata [8328 B]
+[2025-11-24 07:27:12] [   18.155932] cloud-init[1037]: Get:23 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 Components [175 kB]
+[2025-11-24 07:27:12] [   18.159064] cloud-init[1037]: Get:24 http://archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1500 kB]
+[2025-11-24 07:27:12] [   18.171445] cloud-init[1037]: Get:25 http://archive.ubuntu.com/ubuntu noble-updates/universe Translation-en [304 kB]
+[2025-11-24 07:27:12] [   18.207333] cloud-init[1037]: Get:26 http://archive.ubuntu.com/ubuntu noble-updates/universe amd64 Components [377 kB]
+[2025-11-24 07:27:12] [   18.357618] cloud-init[1037]: Get:27 http://archive.ubuntu.com/ubuntu noble-updates/universe amd64 c-n-f Metadata [31.4 kB]
+[2025-11-24 07:27:12] [   18.360359] cloud-init[1037]: Get:28 http://archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Components [212 B]
+[2025-11-24 07:27:12] [   18.363879] cloud-init[1037]: Get:29 http://archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Packages [30.3 kB]
+[2025-11-24 07:27:12] [   18.371804] cloud-init[1037]: Get:30 http://archive.ubuntu.com/ubuntu noble-updates/multiverse Translation-en [5808 B]
+[2025-11-24 07:27:12] [   18.373788] cloud-init[1037]: Get:31 http://archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Components [940 B]
+[2025-11-24 07:27:12] [   18.374694] cloud-init[1037]: Get:32 http://archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 c-n-f Metadata [484 B]
+[2025-11-24 07:27:12] [   18.376221] cloud-init[1037]: Get:33 http://archive.ubuntu.com/ubuntu noble-backports/main amd64 Packages [40.4 kB]
+[2025-11-24 07:27:12] [   18.389238] cloud-init[1037]: Get:34 http://archive.ubuntu.com/ubuntu noble-backports/main Translation-en [9208 B]
+[2025-11-24 07:27:12] [   18.421386] cloud-init[1037]: Get:35 http://archive.ubuntu.com/ubuntu noble-backports/main amd64 Components [7144 B]
+[2025-11-24 07:27:12] [   18.430557] cloud-init[1037]: Get:36 http://archive.ubuntu.com/ubuntu noble-backports/main amd64 c-n-f Metadata [368 B]
+[2025-11-24 07:27:12] [   18.579015] cloud-init[1037]: Get:37 http://archive.ubuntu.com/ubuntu noble-backports/universe amd64 Packages [28.9 kB]
+[2025-11-24 07:27:12] [   18.580665] cloud-init[1037]: Get:38 http://archive.ubuntu.com/ubuntu noble-backports/universe Translation-en [17.5 kB]
+[2025-11-24 07:27:12] [   18.583263] cloud-init[1037]: Get:39 http://archive.ubuntu.com/ubuntu noble-backports/universe amd64 Components [11.0 kB]
+[2025-11-24 07:27:12] [   18.595154] cloud-init[1037]: Get:40 http://archive.ubuntu.com/ubuntu noble-backports/universe amd64 c-n-f Metadata [1444 B]
+[2025-11-24 07:27:12] [   18.596020] cloud-init[1037]: Get:41 http://archive.ubuntu.com/ubuntu noble-backports/restricted amd64 Components [212 B]
+[2025-11-24 07:27:12] [   18.597096] cloud-init[1037]: Get:42 http://archive.ubuntu.com/ubuntu noble-backports/restricted amd64 c-n-f Metadata [116 B]
+[2025-11-24 07:27:12] [   18.598416] cloud-init[1037]: Get:43 http://archive.ubuntu.com/ubuntu noble-backports/multiverse amd64 Components [212 B]
+[2025-11-24 07:27:12] [   18.608345] cloud-init[1037]: Get:44 http://archive.ubuntu.com/ubuntu noble-backports/multiverse amd64 c-n-f Metadata [116 B]
+[2025-11-24 07:27:20] [   25.972103] cloud-init[1037]: Fetched 29.8 MB in 7s (4142 kB/s)
+[2025-11-24 07:27:20] [   26.657407] cloud-init[1037]: Reading package lists...
+[2025-11-24 07:27:20] [   26.786015] cloud-init[1037]: Reading package lists...
+[2025-11-24 07:27:21] [   26.943995] cloud-init[1037]: Building dependency tree...
+[2025-11-24 07:27:21] [   26.944916] cloud-init[1037]: Reading state information...
+[2025-11-24 07:27:21] [   27.122273] cloud-init[1037]: wget is already the newest version (1.21.4-1ubuntu4.1).
+[2025-11-24 07:27:21] [   27.122704] cloud-init[1037]: wget set to manually installed.
+[2025-11-24 07:27:21] [   27.122820] cloud-init[1037]: curl is already the newest version (8.5.0-2ubuntu10.6).
+[2025-11-24 07:27:21] [   27.122982] cloud-init[1037]: curl set to manually installed.
+[2025-11-24 07:27:21] [   27.123143] cloud-init[1037]: sudo is already the newest version (1.9.15p5-3ubuntu5.24.04.1).
+[2025-11-24 07:27:21] [   27.123317] cloud-init[1037]: sudo set to manually installed.
+[2025-11-24 07:27:21] [   27.123363] cloud-init[1037]: 0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+[2025-11-24 07:27:21] === K8S_TEST_START:2025-11-23T22:27:20+00:00 ===
+[2025-11-24 07:27:21] Test mode: offline
+[2025-11-24 07:27:21] Starting Kubernetes setup (master node)...
+[2025-11-24 07:27:21] Running in offline mode - using bundled script...
+[2025-11-24 07:27:31]                                                             Starting [0;1;39mapt-news.service[0m - Update APT News...
+[2025-11-24 07:27:31]          Starting [0;1;39mesm-cache.service[0m - Update the local ESM caches...
+[2025-11-24 07:27:31] [[0;32m  OK  [0m] Finished [0;1;39mapt-news.service[0m - Update APT News.
+[2025-11-24 07:27:32] [[0;32m  OK  [0m] Finished [0;1;39mesm-cache.service[0m - Update the local ESM caches.
+[2025-11-24 07:27:36]          Starting [0;1;39mcontainerd.service[0m - containerd container runtime...
+[2025-11-24 07:27:36] [[0;32m  OK  [0m] Started [0;1;39mcontainerd.service[0m - containerd container runtime.
+[2025-11-24 07:27:38]          Stopping [0;1;39mcontainerd.service[0m - containerd container runtime...
+[2025-11-24 07:27:38] [[0;32m  OK  [0m] Stopped [0;1;39mcontainerd.service[0m - containerd container runtime.
+[2025-11-24 07:27:38]          Starting [0;1;39mcontainerd.service[0m - containerd container runtime...
+[2025-11-24 07:27:38] [[0;1;31mFAILED[0m] Failed to start [0;1;39mcontainerd.service[0m - containerd container runtime.
+[2025-11-24 07:27:38] See 'systemctl status containerd.service' for details.
+[2025-11-24 07:27:39]          Starting [0;1;39mapt-news.service[0m - Update APT News...
+[2025-11-24 07:27:39]          Starting [0;1;39mesm-cache.service[0m - Update the local ESM caches...
+[2025-11-24 07:27:39] [[0;32m  OK  [0m] Finished [0;1;39mapt-news.service[0m - Update APT News.
+[2025-11-24 07:27:40] [[0;32m  OK  [0m] Finished [0;1;39mesm-cache.service[0m - Update the local ESM caches.
+[2025-11-24 07:27:43]          Starting [0;1;39mcontainerd.service[0m - containerd container runtime...
+[2025-11-24 07:27:44] [[0;1;31mFAILED[0m] Failed to start [0;1;39mcontainerd.service[0m - containerd container runtime.
+[2025-11-24 07:27:44] See 'systemctl status containerd.service' for details.
+[2025-11-24 07:27:49]          Starting [0;1;39mcontainerd.service[0m - containerd container runtime...
+[2025-11-24 07:27:49] [[0;1;31mFAILED[0m] Failed to start [0;1;39mcontainerd.service[0m - containerd container runtime.
+[2025-11-24 07:27:49] See 'systemctl status containerd.service' for details.
+[2025-11-24 07:27:50] Setup completed with exit code: 1
+[2025-11-24 07:27:50] === SETUP ERROR LOG ===
+[2025-11-24 07:27:50] Detecting Linux distribution...
+[2025-11-24 07:27:50] Detected distribution: ubuntu 24.04
+[2025-11-24 07:27:50] Distribution ubuntu (family: debian) is supported.
+[2025-11-24 07:27:50] Starting Kubernetes initialization script...
+[2025-11-24 07:27:50] Node type: master
+[2025-11-24 07:27:50] Container Runtime: containerd
+[2025-11-24 07:27:50] Proxy mode: iptables
+[2025-11-24 07:27:50] Kubernetes Version (minor): 1.34
+[2025-11-24 07:27:50] Disabling swap...
+[2025-11-24 07:27:50] Checking and disabling zram swap if present...
+[2025-11-24 07:27:50] Enabling required kernel modules...
+[2025-11-24 07:27:50] Adjusting network settings...
+[2025-11-24 07:27:50] * Applying /usr/lib/sysctl.d/10-apparmor.conf ...
+[2025-11-24 07:27:50] * Applying /etc/sysctl.d/10-bufferbloat.conf ...
+[2025-11-24 07:27:50] * Applying /etc/sysctl.d/10-console-messages.conf ...
+[2025-11-24 07:27:50] * Applying /etc/sysctl.d/10-ipv6-privacy.conf ...
+[2025-11-24 07:27:50] * Applying /etc/sysctl.d/10-kernel-hardening.conf ...
+[2025-11-24 07:27:50] * Applying /etc/sysctl.d/10-magic-sysrq.conf ...
+[2025-11-24 07:27:50] * Applying /etc/sysctl.d/10-map-count.conf ...
+[2025-11-24 07:27:50] * Applying /etc/sysctl.d/10-network-security.conf ...
+[2025-11-24 07:27:50] * Applying /etc/sysctl.d/10-ptrace.conf ...
+[2025-11-24 07:27:50] * Applying /etc/sysctl.d/10-zeropage.conf ...
+[2025-11-24 07:27:50] * Applying /usr/lib/sysctl.d/50-pid-max.conf ...
+[2025-11-24 07:27:50] * Applying /etc/sysctl.d/99-cloudimg-ipv6.conf ...
+[2025-11-24 07:27:50] * Applying /usr/lib/sysctl.d/99-protect-links.conf ...
+[2025-11-24 07:27:50] * Applying /etc/sysctl.d/99-sysctl.conf ...
+[2025-11-24 07:27:50] * Applying /etc/sysctl.d/k8s.conf ...
+[2025-11-24 07:27:50] * Applying /etc/sysctl.conf ...
+[2025-11-24 07:27:50] kernel.apparmor_restrict_unprivileged_userns = 1
+[2025-11-24 07:27:50] net.core.default_qdisc = fq_codel
+[2025-11-24 07:27:50] kernel.printk = 4 4 1 7
+[2025-11-24 07:27:50] net.ipv6.conf.all.use_tempaddr = 2
+[2025-11-24 07:27:50] net.ipv6.conf.default.use_tempaddr = 2
+[2025-11-24 07:27:50] kernel.kptr_restrict = 1
+[2025-11-24 07:27:50] kernel.sysrq = 176
+[2025-11-24 07:27:50] vm.max_map_count = 1048576
+[2025-11-24 07:27:50] net.ipv4.conf.default.rp_filter = 2
+[2025-11-24 07:27:50] net.ipv4.conf.all.rp_filter = 2
+[2025-11-24 07:27:50] kernel.yama.ptrace_scope = 1
+[2025-11-24 07:27:50] vm.mmap_min_addr = 65536
+[2025-11-24 07:27:50] kernel.pid_max = 4194304
+[2025-11-24 07:27:50] net.ipv6.conf.all.use_tempaddr = 0
+[2025-11-24 07:27:50] net.ipv6.conf.default.use_tempaddr = 0
+[2025-11-24 07:27:50] fs.protected_fifos = 1
+[2025-11-24 07:27:50] fs.protected_hardlinks = 1
+[2025-11-24 07:27:50] fs.protected_regular = 2
+[2025-11-24 07:27:50] fs.protected_symlinks = 1
+[2025-11-24 07:27:50] net.bridge.bridge-nf-call-iptables = 1
+[2025-11-24 07:27:50] net.bridge.bridge-nf-call-ip6tables = 1
+[2025-11-24 07:27:50] net.ipv4.ip_forward = 1
+[2025-11-24 07:27:50] Installing dependencies...
+[2025-11-24 07:27:50] Installing dependencies for Debian-based distribution...
+[2025-11-24 07:27:50] Hit:1 http://security.ubuntu.com/ubuntu noble-security InRelease
+[2025-11-24 07:27:50] Hit:2 http://archive.ubuntu.com/ubuntu noble InRelease
+[2025-11-24 07:27:50] Hit:3 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+[2025-11-24 07:27:50] Hit:4 http://archive.ubuntu.com/ubuntu noble-backports InRelease
+[2025-11-24 07:27:50] Reading package lists...
+[2025-11-24 07:27:50] Reading package lists...
+[2025-11-24 07:27:50] Building dependency tree...
+[2025-11-24 07:27:50] Reading state information...
+[2025-11-24 07:27:50] ca-certificates is already the newest version (20240203).
+[2025-11-24 07:27:50] ca-certificates set to manually installed.
+[2025-11-24 07:27:50] curl is already the newest version (8.5.0-2ubuntu10.6).
+[2025-11-24 07:27:50] gnupg is already the newest version (2.4.4-2ubuntu17.3).
+[2025-11-24 07:27:50] gnupg set to manually installed.
+[2025-11-24 07:27:50] software-properties-common is already the newest version (0.99.49.3).
+[2025-11-24 07:27:50] software-properties-common set to manually installed.
+[2025-11-24 07:27:50] ethtool is already the newest version (1:6.7-1build1).
+[2025-11-24 07:27:50] ethtool set to manually installed.
+[2025-11-24 07:27:50] iproute2 is already the newest version (6.1.0-1ubuntu6.2).
+[2025-11-24 07:27:50] iproute2 set to manually installed.
+[2025-11-24 07:27:50] iptables is already the newest version (1.8.10-3ubuntu2).
+[2025-11-24 07:27:50] iptables set to manually installed.
+[2025-11-24 07:27:50] The following NEW packages will be installed:
+[2025-11-24 07:27:50]   apt-transport-https conntrack ebtables socat
+[2025-11-24 07:27:50] 0 upgraded, 4 newly installed, 0 to remove and 0 not upgraded.
+[2025-11-24 07:27:50] Need to get 504 kB of archives.
+[2025-11-24 07:27:50] After this operation, 2091 kB of additional disk space will be used.
+[2025-11-24 07:27:50] Get:1 http://archive.ubuntu.com/ubuntu noble-updates/universe amd64 apt-transport-https all 2.8.3 [3970 B]
+[2025-11-24 07:27:50] Get:2 http://archive.ubuntu.com/ubuntu noble/main amd64 conntrack amd64 1:1.4.8-1ubuntu1 [37.9 kB]
+[2025-11-24 07:27:50] Get:3 http://archive.ubuntu.com/ubuntu noble/main amd64 ebtables amd64 2.0.11-6build1 [88.4 kB]
+[2025-11-24 07:27:50] Get:4 http://archive.ubuntu.com/ubuntu noble/main amd64 socat amd64 1.8.0.0-4build3 [374 kB]
+[2025-11-24 07:27:50] dpkg-preconfigure: unable to re-open stdin: No such file or directory
+[2025-11-24 07:27:50] Fetched 504 kB in 1s (362 kB/s)
+[2025-11-24 07:27:50] Selecting previously unselected package apt-transport-https.
+[2025-11-24 07:27:50] (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 74807 files and directories currently installed.)
+[2025-11-24 07:27:50] Preparing to unpack .../apt-transport-https_2.8.3_all.deb ...
+[2025-11-24 07:27:50] Unpacking apt-transport-https (2.8.3) ...
+[2025-11-24 07:27:50] Selecting previously unselected package conntrack.
+[2025-11-24 07:27:50] Preparing to unpack .../conntrack_1%3a1.4.8-1ubuntu1_amd64.deb ...
+[2025-11-24 07:27:50] Unpacking conntrack (1:1.4.8-1ubuntu1) ...
+[2025-11-24 07:27:50] Selecting previously unselected package ebtables.
+[2025-11-24 07:27:50] Preparing to unpack .../ebtables_2.0.11-6build1_amd64.deb ...
+[2025-11-24 07:27:50] Unpacking ebtables (2.0.11-6build1) ...
+[2025-11-24 07:27:50] Selecting previously unselected package socat.
+[2025-11-24 07:27:50] Preparing to unpack .../socat_1.8.0.0-4build3_amd64.deb ...
+[2025-11-24 07:27:50] Unpacking socat (1.8.0.0-4build3) ...
+[2025-11-24 07:27:50] Setting up apt-transport-https (2.8.3) ...
+[2025-11-24 07:27:50] Setting up conntrack (1:1.4.8-1ubuntu1) ...
+[2025-11-24 07:27:50] Setting up ebtables (2.0.11-6build1) ...
+[2025-11-24 07:27:50] Setting up socat (1.8.0.0-4build3) ...
+[2025-11-24 07:27:50] Processing triggers for man-db (2.12.0-4build2) ...
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] Running kernel seems to be up-to-date.
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] No services need to be restarted.
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] No containers need to be restarted.
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] No user sessions are running outdated binaries.
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] No VM guests are running outdated hypervisor (qemu) binaries on this host.
+[2025-11-24 07:27:50] Setting up container runtime: containerd...
+[2025-11-24 07:27:50] Setting up containerd for Debian-based distribution...
+[2025-11-24 07:27:50] deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable
+[2025-11-24 07:27:50] Get:1 https://download.docker.com/linux/ubuntu noble InRelease [48.5 kB]
+[2025-11-24 07:27:50] Get:2 https://download.docker.com/linux/ubuntu noble/stable amd64 Packages [37.1 kB]
+[2025-11-24 07:27:50] Hit:3 http://security.ubuntu.com/ubuntu noble-security InRelease
+[2025-11-24 07:27:50] Hit:4 http://archive.ubuntu.com/ubuntu noble InRelease
+[2025-11-24 07:27:50] Hit:5 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+[2025-11-24 07:27:50] Hit:6 http://archive.ubuntu.com/ubuntu noble-backports InRelease
+[2025-11-24 07:27:50] Fetched 85.5 kB in 1s (90.0 kB/s)
+[2025-11-24 07:27:50] Reading package lists...
+[2025-11-24 07:27:50] Reading package lists...
+[2025-11-24 07:27:50] Building dependency tree...
+[2025-11-24 07:27:50] Reading state information...
+[2025-11-24 07:27:50] The following NEW packages will be installed:
+[2025-11-24 07:27:50]   containerd.io
+[2025-11-24 07:27:50] 0 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.
+[2025-11-24 07:27:50] Need to get 22.4 MB of archives.
+[2025-11-24 07:27:50] After this operation, 89.2 MB of additional disk space will be used.
+[2025-11-24 07:27:50] Get:1 https://download.docker.com/linux/ubuntu noble/stable amd64 containerd.io amd64 2.1.5-1~ubuntu.24.04~noble [22.4 MB]
+[2025-11-24 07:27:50] dpkg-preconfigure: unable to re-open stdin: No such file or directory
+[2025-11-24 07:27:50] Fetched 22.4 MB in 0s (59.9 MB/s)
+[2025-11-24 07:27:50] Selecting previously unselected package containerd.io.
+[2025-11-24 07:27:50] (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 74884 files and directories currently installed.)
+[2025-11-24 07:27:50] Preparing to unpack .../containerd.io_2.1.5-1~ubuntu.24.04~noble_amd64.deb ...
+[2025-11-24 07:27:50] Unpacking containerd.io (2.1.5-1~ubuntu.24.04~noble) ...
+[2025-11-24 07:27:50] Setting up containerd.io (2.1.5-1~ubuntu.24.04~noble) ...
+[2025-11-24 07:27:50] Created symlink /etc/systemd/system/multi-user.target.wants/containerd.service → /usr/lib/systemd/system/containerd.service.
+[2025-11-24 07:27:50] Processing triggers for man-db (2.12.0-4build2) ...
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] Running kernel seems to be up-to-date.
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] No services need to be restarted.
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] No containers need to be restarted.
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] No user sessions are running outdated binaries.
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] No VM guests are running outdated hypervisor (qemu) binaries on this host.
+[2025-11-24 07:27:50] Generating and tuning containerd config...
+[2025-11-24 07:27:50] Job for containerd.service failed because the control process exited with error code.
+[2025-11-24 07:27:50] See "systemctl status containerd.service" and "journalctl -xeu containerd.service" for details.
+[2025-11-24 07:27:50] Configuring crictl at /etc/crictl.yaml (endpoint: unix:///run/containerd/containerd.sock)
+[2025-11-24 07:27:50] Setting up Kubernetes...
+[2025-11-24 07:27:50] Setting up Kubernetes for Debian-based distribution...
+[2025-11-24 07:27:50] deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.34/deb/ /
+[2025-11-24 07:27:50] Hit:1 https://download.docker.com/linux/ubuntu noble InRelease
+[2025-11-24 07:27:50] Get:2 https://prod-cdn.packages.k8s.io/repositories/isv:/kubernetes:/core:/stable:/v1.34/deb  InRelease [1186 B]
+[2025-11-24 07:27:50] Get:3 https://prod-cdn.packages.k8s.io/repositories/isv:/kubernetes:/core:/stable:/v1.34/deb  Packages [5644 B]
+[2025-11-24 07:27:50] Hit:4 http://archive.ubuntu.com/ubuntu noble InRelease
+[2025-11-24 07:27:50] Hit:5 http://security.ubuntu.com/ubuntu noble-security InRelease
+[2025-11-24 07:27:50] Hit:6 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+[2025-11-24 07:27:50] Hit:7 http://archive.ubuntu.com/ubuntu noble-backports InRelease
+[2025-11-24 07:27:50] Fetched 6830 B in 1s (6993 B/s)
+[2025-11-24 07:27:50] Reading package lists...
+[2025-11-24 07:27:50] Reading package lists...
+[2025-11-24 07:27:50] Building dependency tree...
+[2025-11-24 07:27:50] Reading state information...
+[2025-11-24 07:27:50] The following additional packages will be installed:
+[2025-11-24 07:27:50]   cri-tools kubernetes-cni
+[2025-11-24 07:27:50] The following NEW packages will be installed:
+[2025-11-24 07:27:50]   cri-tools kubeadm kubectl kubelet kubernetes-cni
+[2025-11-24 07:27:50] 0 upgraded, 5 newly installed, 0 to remove and 0 not upgraded.
+[2025-11-24 07:27:50] Need to get 93.9 MB of archives.
+[2025-11-24 07:27:50] After this operation, 333 MB of additional disk space will be used.
+[2025-11-24 07:27:50] Get:1 https://prod-cdn.packages.k8s.io/repositories/isv:/kubernetes:/core:/stable:/v1.34/deb  cri-tools 1.34.0-1.1 [16.7 MB]
+[2025-11-24 07:27:50] Get:2 https://prod-cdn.packages.k8s.io/repositories/isv:/kubernetes:/core:/stable:/v1.34/deb  kubeadm 1.34.2-1.1 [12.5 MB]
+[2025-11-24 07:27:50] Get:3 https://prod-cdn.packages.k8s.io/repositories/isv:/kubernetes:/core:/stable:/v1.34/deb  kubectl 1.34.2-1.1 [11.7 MB]
+[2025-11-24 07:27:50] Get:4 https://prod-cdn.packages.k8s.io/repositories/isv:/kubernetes:/core:/stable:/v1.34/deb  kubernetes-cni 1.7.1-1.1 [39.9 MB]
+[2025-11-24 07:27:50] Get:5 https://prod-cdn.packages.k8s.io/repositories/isv:/kubernetes:/core:/stable:/v1.34/deb  kubelet 1.34.2-1.1 [13.0 MB]
+[2025-11-24 07:27:50] dpkg-preconfigure: unable to re-open stdin: No such file or directory
+[2025-11-24 07:27:50] Fetched 93.9 MB in 1s (74.1 MB/s)
+[2025-11-24 07:27:50] Selecting previously unselected package cri-tools.
+[2025-11-24 07:27:50] (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 74898 files and directories currently installed.)
+[2025-11-24 07:27:50] Preparing to unpack .../cri-tools_1.34.0-1.1_amd64.deb ...
+[2025-11-24 07:27:50] Unpacking cri-tools (1.34.0-1.1) ...
+[2025-11-24 07:27:50] Selecting previously unselected package kubeadm.
+[2025-11-24 07:27:50] Preparing to unpack .../kubeadm_1.34.2-1.1_amd64.deb ...
+[2025-11-24 07:27:50] Unpacking kubeadm (1.34.2-1.1) ...
+[2025-11-24 07:27:50] Selecting previously unselected package kubectl.
+[2025-11-24 07:27:50] Preparing to unpack .../kubectl_1.34.2-1.1_amd64.deb ...
+[2025-11-24 07:27:50] Unpacking kubectl (1.34.2-1.1) ...
+[2025-11-24 07:27:50] Selecting previously unselected package kubernetes-cni.
+[2025-11-24 07:27:50] Preparing to unpack .../kubernetes-cni_1.7.1-1.1_amd64.deb ...
+[2025-11-24 07:27:50] Unpacking kubernetes-cni (1.7.1-1.1) ...
+[2025-11-24 07:27:50] Selecting previously unselected package kubelet.
+[2025-11-24 07:27:50] Preparing to unpack .../kubelet_1.34.2-1.1_amd64.deb ...
+[2025-11-24 07:27:50] Unpacking kubelet (1.34.2-1.1) ...
+[2025-11-24 07:27:50] Setting up kubectl (1.34.2-1.1) ...
+[2025-11-24 07:27:50] Setting up cri-tools (1.34.0-1.1) ...
+[2025-11-24 07:27:50] Setting up kubernetes-cni (1.7.1-1.1) ...
+[2025-11-24 07:27:50] Setting up kubeadm (1.34.2-1.1) ...
+[2025-11-24 07:27:50] Setting up kubelet (1.34.2-1.1) ...
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] Running kernel seems to be up-to-date.
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] No services need to be restarted.
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] No containers need to be restarted.
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] No user sessions are running outdated binaries.
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] No VM guests are running outdated hypervisor (qemu) binaries on this host.
+[2025-11-24 07:27:50] kubelet set on hold.
+[2025-11-24 07:27:50] kubeadm set on hold.
+[2025-11-24 07:27:50] kubectl set on hold.
+[2025-11-24 07:27:50] Performing pre-installation cleanup...
+[2025-11-24 07:27:50] Resetting cluster state...
+[2025-11-24 07:27:50] [preflight] Running pre-flight checks
+[2025-11-24 07:27:50] W1123 22:27:49.684045    2980 removeetcdmember.go:105] [reset] No kubeadm config, using etcd pod spec to get data directory
+[2025-11-24 07:27:50] [reset] Deleted contents of the etcd data directory: /var/lib/etcd
+[2025-11-24 07:27:50] [reset] Stopping the kubelet service
+[2025-11-24 07:27:50] [reset] Unmounting mounted directories in "/var/lib/kubelet"
+[2025-11-24 07:27:50] W1123 22:27:49.687801    2980 cleanupnode.go:104] [reset] Failed to remove containers: failed to create new CRI runtime service: validate service connection: validate CRI v1 runtime API for endpoint "unix:///var/run/containerd/containerd.sock": rpc error: code = Unavailable desc = connection error: desc = "transport: Error while dialing: dial unix /var/run/containerd/containerd.sock: connect: no such file or directory"
+[2025-11-24 07:27:50] [reset] Deleting contents of directories: [/etc/kubernetes/manifests /var/lib/kubelet /etc/kubernetes/pki]
+[2025-11-24 07:27:50] [reset] Deleting files: [/etc/kubernetes/admin.conf /etc/kubernetes/super-admin.conf /etc/kubernetes/kubelet.conf /etc/kubernetes/bootstrap-kubelet.conf /etc/kubernetes/controller-manager.conf /etc/kubernetes/scheduler.conf]
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] The reset process does not perform cleanup of CNI plugin configuration,
+[2025-11-24 07:27:50] network filtering rules and kubeconfig files.
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] For information on how to perform this cleanup manually, please see:
+[2025-11-24 07:27:50]     https://k8s.io/docs/reference/setup-tools/kubeadm/kubeadm-reset/
+[2025-11-24 07:27:50] 
+[2025-11-24 07:27:50] Cleanup: Removing .kube directory and config for root user at /root
+[2025-11-24 07:27:50] Cleanup: Removing .kube directory and config for user directory /home/ubuntu
+[2025-11-24 07:27:50] Resetting iptables rules...
+[2025-11-24 07:27:50] Resetting nftables rules...
+[2025-11-24 07:27:50] Initializing master node...
+[2025-11-24 07:27:50] [init] Using Kubernetes version: v1.34.2
+[2025-11-24 07:27:50] [preflight] Running pre-flight checks
+[2025-11-24 07:27:50] W1123 22:27:50.104132    3001 checks.go:1046] [preflight] WARNING: Couldn't create the interface used for talking to the container runtime: failed to create new CRI runtime service: validate service connection: validate CRI v1 runtime API for endpoint "unix:///var/run/containerd/containerd.sock": rpc error: code = Unavailable desc = connection error: desc = "transport: Error while dialing: dial unix /var/run/containerd/containerd.sock: connect: no such file or directory"
+[2025-11-24 07:27:50] [preflight] Pulling images required for setting up a Kubernetes cluster
+[2025-11-24 07:27:50] [preflight] This might take a minute or two, depending on the speed of your internet connection
+[2025-11-24 07:27:50] [preflight] You can also perform this action beforehand using 'kubeadm config images pull'
+[2025-11-24 07:27:50] [preflight] Some fatal errors occurred:
+[2025-11-24 07:27:50] failed to create new CRI runtime service: validate service connection: validate CRI v1 runtime API for endpoint "unix:///var/run/containerd/containerd.sock": rpc error: code = Unavailable desc = connection error: desc = "transport: Error while dialing: dial unix /var/run/containerd/containerd.sock: connect: no such file or directory"[preflight] If you know what you are doing, you can make a check non-fatal with `--ignore-preflight-errors=...`
+[2025-11-24 07:27:50] error: error execution phase preflight: preflight checks failed
+[2025-11-24 07:27:50] To see the stack trace of this error execute with --v=5 or higher
+[2025-11-24 07:27:50] === SETUP ERROR LOG END ===
+[2025-11-24 07:27:50] Verifying Kubernetes components...
+[2025-11-24 07:27:50] kubelet is not active
+[2025-11-24 07:27:50] kubeconfig does not exist
+[2025-11-24 07:27:50] Testing API server connectivity...
+[2025-11-24 07:27:50] API server is not responsive
+[2025-11-24 07:27:50] Setup test: FAILED
+[2025-11-24 07:27:50] Starting Kubernetes cleanup...
+[2025-11-24 07:27:50] Skipping cleanup test due to setup failure
+[2025-11-24 07:27:50] === K8S_TEST_RESULT_JSON_START ===
+[2025-11-24 07:27:50] {
+[2025-11-24 07:27:50]   "status": "failed",
+[2025-11-24 07:27:50]   "setup_test": {
+[2025-11-24 07:27:50]     "status": "failed",
+[2025-11-24 07:27:50]     "exit_code": 1,
+[2025-11-24 07:27:50]     "kubelet_status": "inactive",
+[2025-11-24 07:27:50]     "kubeconfig_exists": false,
+[2025-11-24 07:27:50]     "api_responsive": false
+[2025-11-24 07:27:50]   },
+[2025-11-24 07:27:50]   "cleanup_test": {
+[2025-11-24 07:27:50]     "status": "skipped",
+[2025-11-24 07:27:50]     "exit_code": 0,
+[2025-11-24 07:27:50]     "services_stopped": "unknown",
+[2025-11-24 07:27:50]     "config_cleaned": "unknown",
+[2025-11-24 07:27:50]     "packages_removed": "unknown"
+[2025-11-24 07:27:50]   },
+[2025-11-24 07:27:50]   "timestamp": "2025-11-23T22:27:50+00:00"
+[2025-11-24 07:27:50] }
+[2025-11-24 07:27:50] === K8S_TEST_RESULT_JSON_END ===
+[2025-11-24 07:27:50] === SETUP_LOG_START ===
+[2025-11-24 07:27:50] Detecting Linux distribution...
+[2025-11-24 07:27:50] Detected distribution: ubuntu 24.04
+[2025-11-24 07:27:50] Distribution ubuntu (family: debian) is supported.
+[2025-11-24 07:27:50] Starting Kubernetes initialization script...
+[2025-11-24 07:27:50] Node type: master
+[2025-11-24 07:27:50] Container Runtime: containerd
+[2025-11-24 07:27:50] Proxy mode: iptables
+[2025-11-24 07:27:50] Kubernetes Version (minor): 1.34
+[2025-11-24 07:27:50] Disabling swap...
+[2025-11-24 07:27:50] Checking and disabling zram swap if present...
+[2025-11-24 07:27:50] Enabling required kernel modules...
+[2025-11-24 07:27:50] Adjusting network settings...
+[2025-11-24 07:27:50] * Applying /usr/lib/sysctl.d/10-apparmor.conf ...
+[2025-11-24 07:27:50] * Applying /etc/sysctl.d/10-bufferbloat.conf ...
+[2025-11-24 07:27:50] * Applying /etc/sysctl.d/10-console-messages.conf ...
+[2025-11-24 07:27:50] * Applying /etc/sysctl.d/10-ipv6-privacy.conf ...
+[2025-11-24 07:27:50] * Applying /etc/sysctl.d/10-kernel-hardening.conf ...
+[2025-11-24 07:27:51] * Applying /etc/sysctl.d/10-magic-sysrq.conf ...
+[2025-11-24 07:27:51] * Applying /etc/sysctl.d/10-map-count.conf ...
+[2025-11-24 07:27:51] * Applying /etc/sysctl.d/10-network-security.conf ...
+[2025-11-24 07:27:51] * Applying /etc/sysctl.d/10-ptrace.conf ...
+[2025-11-24 07:27:51] * Applying /etc/sysctl.d/10-zeropage.conf ...
+[2025-11-24 07:27:51] * Applying /usr/lib/sysctl.d/50-pid-max.conf ...
+[2025-11-24 07:27:51] * Applying /etc/sysctl.d/99-cloudimg-ipv6.conf ...
+[2025-11-24 07:27:51] * Applying /usr/lib/sysctl.d/99-protect-links.conf ...
+[2025-11-24 07:27:51] * Applying /etc/sysctl.d/99-sysctl.conf ...
+[2025-11-24 07:27:51] * Applying /etc/sysctl.d/k8s.conf ...
+[2025-11-24 07:27:51] * Applying /etc/sysctl.conf ...
+[2025-11-24 07:27:51] kernel.apparmor_restrict_unprivileged_userns = 1
+[2025-11-24 07:27:51] net.core.default_qdisc = fq_codel
+[2025-11-24 07:27:51] kernel.printk = 4 4 1 7
+[2025-11-24 07:27:51] net.ipv6.conf.all.use_tempaddr = 2
+[2025-11-24 07:27:51] net.ipv6.conf.default.use_tempaddr = 2
+[2025-11-24 07:27:51] kernel.kptr_restrict = 1
+[2025-11-24 07:27:51] kernel.sysrq = 176
+[2025-11-24 07:27:51] vm.max_map_count = 1048576
+[2025-11-24 07:27:51] net.ipv4.conf.default.rp_filter = 2
+[2025-11-24 07:27:51] net.ipv4.conf.all.rp_filter = 2
+[2025-11-24 07:27:51] kernel.yama.ptrace_scope = 1
+[2025-11-24 07:27:51] vm.mmap_min_addr = 65536
+[2025-11-24 07:27:51] kernel.pid_max = 4194304
+[2025-11-24 07:27:51] net.ipv6.conf.all.use_tempaddr = 0
+[2025-11-24 07:27:51] net.ipv6.conf.default.use_tempaddr = 0
+[2025-11-24 07:27:51] fs.protected_fifos = 1
+[2025-11-24 07:27:51] fs.protected_hardlinks = 1
+[2025-11-24 07:27:51] fs.protected_regular = 2
+[2025-11-24 07:27:51] fs.protected_symlinks = 1
+[2025-11-24 07:27:51] net.bridge.bridge-nf-call-iptables = 1
+[2025-11-24 07:27:51] net.bridge.bridge-nf-call-ip6tables = 1
+[2025-11-24 07:27:51] net.ipv4.ip_forward = 1
+[2025-11-24 07:27:51] Installing dependencies...
+[2025-11-24 07:27:51] Installing dependencies for Debian-based distribution...
+[2025-11-24 07:27:51] Hit:1 http://security.ubuntu.com/ubuntu noble-security InRelease
+[2025-11-24 07:27:51] Hit:2 http://archive.ubuntu.com/ubuntu noble InRelease
+[2025-11-24 07:27:51] Hit:3 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+[2025-11-24 07:27:51] Hit:4 http://archive.ubuntu.com/ubuntu noble-backports InRelease
+[2025-11-24 07:27:51] Reading package lists...
+[2025-11-24 07:27:51] Reading package lists...
+[2025-11-24 07:27:51] Building dependency tree...
+[2025-11-24 07:27:51] Reading state information...
+[2025-11-24 07:27:51] ca-certificates is already the newest version (20240203).
+[2025-11-24 07:27:51] ca-certificates set to manually installed.
+[2025-11-24 07:27:51] curl is already the newest version (8.5.0-2ubuntu10.6).
+[2025-11-24 07:27:51] gnupg is already the newest version (2.4.4-2ubuntu17.3).
+[2025-11-24 07:27:51] gnupg set to manually installed.
+[2025-11-24 07:27:51] software-properties-common is already the newest version (0.99.49.3).
+[2025-11-24 07:27:51] software-properties-common set to manually installed.
+[2025-11-24 07:27:51] ethtool is already the newest version (1:6.7-1build1).
+[2025-11-24 07:27:51] ethtool set to manually installed.
+[2025-11-24 07:27:51] iproute2 is already the newest version (6.1.0-1ubuntu6.2).
+[2025-11-24 07:27:51] iproute2 set to manually installed.
+[2025-11-24 07:27:51] iptables is already the newest version (1.8.10-3ubuntu2).
+[2025-11-24 07:27:51] iptables set to manually installed.
+[2025-11-24 07:27:51] The following NEW packages will be installed:
+[2025-11-24 07:27:51]   apt-transport-https conntrack ebtables socat
+[2025-11-24 07:27:51] 0 upgraded, 4 newly installed, 0 to remove and 0 not upgraded.
+[2025-11-24 07:27:51] Need to get 504 kB of archives.
+[2025-11-24 07:27:51] After this operation, 2091 kB of additional disk space will be used.
+[2025-11-24 07:27:51] Get:1 http://archive.ubuntu.com/ubuntu noble-updates/universe amd64 apt-transport-https all 2.8.3 [3970 B]
+[2025-11-24 07:27:51] Get:2 http://archive.ubuntu.com/ubuntu noble/main amd64 conntrack amd64 1:1.4.8-1ubuntu1 [37.9 kB]
+[2025-11-24 07:27:51] Get:3 http://archive.ubuntu.com/ubuntu noble/main amd64 ebtables amd64 2.0.11-6build1 [88.4 kB]
+[2025-11-24 07:27:51] Get:4 http://archive.ubuntu.com/ubuntu noble/main amd64 socat amd64 1.8.0.0-4build3 [374 kB]
+[2025-11-24 07:27:51] dpkg-preconfigure: unable to re-open stdin: No such file or directory
+[2025-11-24 07:27:51] Fetched 504 kB in 1s (362 kB/s)
+[2025-11-24 07:27:51] Selecting previously unselected package apt-transport-https.
+[2025-11-24 07:27:51] (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 74807 files and directories currently installed.)
+[2025-11-24 07:27:51] Preparing to unpack .../apt-transport-https_2.8.3_all.deb ...
+[2025-11-24 07:27:51] Unpacking apt-transport-https (2.8.3) ...
+[2025-11-24 07:27:51] Selecting previously unselected package conntrack.
+[2025-11-24 07:27:51] Preparing to unpack .../conntrack_1%3a1.4.8-1ubuntu1_amd64.deb ...
+[2025-11-24 07:27:51] Unpacking conntrack (1:1.4.8-1ubuntu1) ...
+[2025-11-24 07:27:51] Selecting previously unselected package ebtables.
+[2025-11-24 07:27:51] Preparing to unpack .../ebtables_2.0.11-6build1_amd64.deb ...
+[2025-11-24 07:27:51] Unpacking ebtables (2.0.11-6build1) ...
+[2025-11-24 07:27:51] Selecting previously unselected package socat.
+[2025-11-24 07:27:51] Preparing to unpack .../socat_1.8.0.0-4build3_amd64.deb ...
+[2025-11-24 07:27:51] Unpacking socat (1.8.0.0-4build3) ...
+[2025-11-24 07:27:51] Setting up apt-transport-https (2.8.3) ...
+[2025-11-24 07:27:51] Setting up conntrack (1:1.4.8-1ubuntu1) ...
+[2025-11-24 07:27:51] Setting up ebtables (2.0.11-6build1) ...
+[2025-11-24 07:27:51] Setting up socat (1.8.0.0-4build3) ...
+[2025-11-24 07:27:51] Processing triggers for man-db (2.12.0-4build2) ...
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] Running kernel seems to be up-to-date.
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] No services need to be restarted.
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] No containers need to be restarted.
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] No user sessions are running outdated binaries.
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] No VM guests are running outdated hypervisor (qemu) binaries on this host.
+[2025-11-24 07:27:51] Setting up container runtime: containerd...
+[2025-11-24 07:27:51] Setting up containerd for Debian-based distribution...
+[2025-11-24 07:27:51] deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable
+[2025-11-24 07:27:51] Get:1 https://download.docker.com/linux/ubuntu noble InRelease [48.5 kB]
+[2025-11-24 07:27:51] Get:2 https://download.docker.com/linux/ubuntu noble/stable amd64 Packages [37.1 kB]
+[2025-11-24 07:27:51] Hit:3 http://security.ubuntu.com/ubuntu noble-security InRelease
+[2025-11-24 07:27:51] Hit:4 http://archive.ubuntu.com/ubuntu noble InRelease
+[2025-11-24 07:27:51] Hit:5 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+[2025-11-24 07:27:51] Hit:6 http://archive.ubuntu.com/ubuntu noble-backports InRelease
+[2025-11-24 07:27:51] Fetched 85.5 kB in 1s (90.0 kB/s)
+[2025-11-24 07:27:51] Reading package lists...
+[2025-11-24 07:27:51] Reading package lists...
+[2025-11-24 07:27:51] Building dependency tree...
+[2025-11-24 07:27:51] Reading state information...
+[2025-11-24 07:27:51] The following NEW packages will be installed:
+[2025-11-24 07:27:51]   containerd.io
+[2025-11-24 07:27:51] 0 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.
+[2025-11-24 07:27:51] Need to get 22.4 MB of archives.
+[2025-11-24 07:27:51] After this operation, 89.2 MB of additional disk space will be used.
+[2025-11-24 07:27:51] Get:1 https://download.docker.com/linux/ubuntu noble/stable amd64 containerd.io amd64 2.1.5-1~ubuntu.24.04~noble [22.4 MB]
+[2025-11-24 07:27:51] dpkg-preconfigure: unable to re-open stdin: No such file or directory
+[2025-11-24 07:27:51] Fetched 22.4 MB in 0s (59.9 MB/s)
+[2025-11-24 07:27:51] Selecting previously unselected package containerd.io.
+[2025-11-24 07:27:51] (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 74884 files and directories currently installed.)
+[2025-11-24 07:27:51] Preparing to unpack .../containerd.io_2.1.5-1~ubuntu.24.04~noble_amd64.deb ...
+[2025-11-24 07:27:51] Unpacking containerd.io (2.1.5-1~ubuntu.24.04~noble) ...
+[2025-11-24 07:27:51] Setting up containerd.io (2.1.5-1~ubuntu.24.04~noble) ...
+[2025-11-24 07:27:51] Created symlink /etc/systemd/system/multi-user.target.wants/containerd.service → /usr/lib/systemd/system/containerd.service.
+[2025-11-24 07:27:51] Processing triggers for man-db (2.12.0-4build2) ...
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] Running kernel seems to be up-to-date.
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] No services need to be restarted.
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] No containers need to be restarted.
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] No user sessions are running outdated binaries.
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] No VM guests are running outdated hypervisor (qemu) binaries on this host.
+[2025-11-24 07:27:51] Generating and tuning containerd config...
+[2025-11-24 07:27:51] Job for containerd.service failed because the control process exited with error code.
+[2025-11-24 07:27:51] See "systemctl status containerd.service" and "journalctl -xeu containerd.service" for details.
+[2025-11-24 07:27:51] Configuring crictl at /etc/crictl.yaml (endpoint: unix:///run/containerd/containerd.sock)
+[2025-11-24 07:27:51] Setting up Kubernetes...
+[2025-11-24 07:27:51] Setting up Kubernetes for Debian-based distribution...
+[2025-11-24 07:27:51] deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.34/deb/ /
+[2025-11-24 07:27:51] Hit:1 https://download.docker.com/linux/ubuntu noble InRelease
+[2025-11-24 07:27:51] Get:2 https://prod-cdn.packages.k8s.io/repositories/isv:/kubernetes:/core:/stable:/v1.34/deb  InRelease [1186 B]
+[2025-11-24 07:27:51] Get:3 https://prod-cdn.packages.k8s.io/repositories/isv:/kubernetes:/core:/stable:/v1.34/deb  Packages [5644 B]
+[2025-11-24 07:27:51] Hit:4 http://archive.ubuntu.com/ubuntu noble InRelease
+[2025-11-24 07:27:51] Hit:5 http://security.ubuntu.com/ubuntu noble-security InRelease
+[2025-11-24 07:27:51] Hit:6 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+[2025-11-24 07:27:51] Hit:7 http://archive.ubuntu.com/ubuntu noble-backports InRelease
+[2025-11-24 07:27:51] Fetched 6830 B in 1s (6993 B/s)
+[2025-11-24 07:27:51] Reading package lists...
+[2025-11-24 07:27:51] Reading package lists...
+[2025-11-24 07:27:51] Building dependency tree...
+[2025-11-24 07:27:51] Reading state information...
+[2025-11-24 07:27:51] The following additional packages will be installed:
+[2025-11-24 07:27:51]   cri-tools kubernetes-cni
+[2025-11-24 07:27:51] The following NEW packages will be installed:
+[2025-11-24 07:27:51]   cri-tools kubeadm kubectl kubelet kubernetes-cni
+[2025-11-24 07:27:51] 0 upgraded, 5 newly installed, 0 to remove and 0 not upgraded.
+[2025-11-24 07:27:51] Need to get 93.9 MB of archives.
+[2025-11-24 07:27:51] After this operation, 333 MB of additional disk space will be used.
+[2025-11-24 07:27:51] Get:1 https://prod-cdn.packages.k8s.io/repositories/isv:/kubernetes:/core:/stable:/v1.34/deb  cri-tools 1.34.0-1.1 [16.7 MB]
+[2025-11-24 07:27:51] Get:2 https://prod-cdn.packages.k8s.io/repositories/isv:/kubernetes:/core:/stable:/v1.34/deb  kubeadm 1.34.2-1.1 [12.5 MB]
+[2025-11-24 07:27:51] Get:3 https://prod-cdn.packages.k8s.io/repositories/isv:/kubernetes:/core:/stable:/v1.34/deb  kubectl 1.34.2-1.1 [11.7 MB]
+[2025-11-24 07:27:51] Get:4 https://prod-cdn.packages.k8s.io/repositories/isv:/kubernetes:/core:/stable:/v1.34/deb  kubernetes-cni 1.7.1-1.1 [39.9 MB]
+[2025-11-24 07:27:51] Get:5 https://prod-cdn.packages.k8s.io/repositories/isv:/kubernetes:/core:/stable:/v1.34/deb  kubelet 1.34.2-1.1 [13.0 MB]
+[2025-11-24 07:27:51] dpkg-preconfigure: unable to re-open stdin: No such file or directory
+[2025-11-24 07:27:51] Fetched 93.9 MB in 1s (74.1 MB/s)
+[2025-11-24 07:27:51] Selecting previously unselected package cri-tools.
+[2025-11-24 07:27:51] (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 74898 files and directories currently installed.)
+[2025-11-24 07:27:51] Preparing to unpack .../cri-tools_1.34.0-1.1_amd64.deb ...
+[2025-11-24 07:27:51] Unpacking cri-tools (1.34.0-1.1) ...
+[2025-11-24 07:27:51] Selecting previously unselected package kubeadm.
+[2025-11-24 07:27:51] Preparing to unpack .../kubeadm_1.34.2-1.1_amd64.deb ...
+[2025-11-24 07:27:51] Unpacking kubeadm (1.34.2-1.1) ...
+[2025-11-24 07:27:51] Selecting previously unselected package kubectl.
+[2025-11-24 07:27:51] Preparing to unpack .../kubectl_1.34.2-1.1_amd64.deb ...
+[2025-11-24 07:27:51] Unpacking kubectl (1.34.2-1.1) ...
+[2025-11-24 07:27:51] Selecting previously unselected package kubernetes-cni.
+[2025-11-24 07:27:51] Preparing to unpack .../kubernetes-cni_1.7.1-1.1_amd64.deb ...
+[2025-11-24 07:27:51] Unpacking kubernetes-cni (1.7.1-1.1) ...
+[2025-11-24 07:27:51] Selecting previously unselected package kubelet.
+[2025-11-24 07:27:51] Preparing to unpack .../kubelet_1.34.2-1.1_amd64.deb ...
+[2025-11-24 07:27:51] Unpacking kubelet (1.34.2-1.1) ...
+[2025-11-24 07:27:51] Setting up kubectl (1.34.2-1.1) ...
+[2025-11-24 07:27:51] Setting up cri-tools (1.34.0-1.1) ...
+[2025-11-24 07:27:51] Setting up kubernetes-cni (1.7.1-1.1) ...
+[2025-11-24 07:27:51] Setting up kubeadm (1.34.2-1.1) ...
+[2025-11-24 07:27:51] Setting up kubelet (1.34.2-1.1) ...
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] Running kernel seems to be up-to-date.
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] No services need to be restarted.
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] No containers need to be restarted.
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] No user sessions are running outdated binaries.
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] No VM guests are running outdated hypervisor (qemu) binaries on this host.
+[2025-11-24 07:27:51] kubelet set on hold.
+[2025-11-24 07:27:51] kubeadm set on hold.
+[2025-11-24 07:27:51] kubectl set on hold.
+[2025-11-24 07:27:51] Performing pre-installation cleanup...
+[2025-11-24 07:27:51] Resetting cluster state...
+[2025-11-24 07:27:51] [preflight] Running pre-flight checks
+[2025-11-24 07:27:51] W1123 22:27:49.684045    2980 removeetcdmember.go:105] [reset] No kubeadm config, using etcd pod spec to get data directory
+[2025-11-24 07:27:51] [reset] Deleted contents of the etcd data directory: /var/lib/etcd
+[2025-11-24 07:27:51] [reset] Stopping the kubelet service
+[2025-11-24 07:27:51] [reset] Unmounting mounted directories in "/var/lib/kubelet"
+[2025-11-24 07:27:51] W1123 22:27:49.687801    2980 cleanupnode.go:104] [reset] Failed to remove containers: failed to create new CRI runtime service: validate service connection: validate CRI v1 runtime API for endpoint "unix:///var/run/containerd/containerd.sock": rpc error: code = Unavailable desc = connection error: desc = "transport: Error while dialing: dial unix /var/run/containerd/containerd.sock: connect: no such file or directory"
+[2025-11-24 07:27:51] [reset] Deleting contents of directories: [/etc/kubernetes/manifests /var/lib/kubelet /etc/kubernetes/pki]
+[2025-11-24 07:27:51] [reset] Deleting files: [/etc/kubernetes/admin.conf /etc/kubernetes/super-admin.conf /etc/kubernetes/kubelet.conf /etc/kubernetes/bootstrap-kubelet.conf /etc/kubernetes/controller-manager.conf /etc/kubernetes/scheduler.conf]
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] The reset process does not perform cleanup of CNI plugin configuration,
+[2025-11-24 07:27:51] network filtering rules and kubeconfig files.
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] For information on how to perform this cleanup manually, please see:
+[2025-11-24 07:27:51]     https://k8s.io/docs/reference/setup-tools/kubeadm/kubeadm-reset/
+[2025-11-24 07:27:51] 
+[2025-11-24 07:27:51] Cleanup: Removing .kube directory and config for root user at /root
+[2025-11-24 07:27:51] Cleanup: Removing .kube directory and config for user directory /home/ubuntu
+[2025-11-24 07:27:51] Resetting iptables rules...
+[2025-11-24 07:27:51] Resetting nftables rules...
+[2025-11-24 07:27:51] Initializing master node...
+[2025-11-24 07:27:51] [init] Using Kubernetes version: v1.34.2
+[2025-11-24 07:27:51] [preflight] Running pre-flight checks
+[2025-11-24 07:27:51] W1123 22:27:50.104132    3001 checks.go:1046] [preflight] WARNING: Couldn't create the interface used for talking to the container runtime: failed to create new CRI runtime service: validate service connection: validate CRI v1 runtime API for endpoint "unix:///var/run/containerd/containerd.sock": rpc error: code = Unavailable desc = connection error: desc = "transport: Error while dialing: dial unix /var/run/containerd/containerd.sock: connect: no such file or directory"
+[2025-11-24 07:27:51] [preflight] Pulling images required for setting up a Kubernetes cluster
+[2025-11-24 07:27:51] [preflight] This might take a minute or two, depending on the speed of your internet connection
+[2025-11-24 07:27:51] [preflight] You can also perform this action beforehand using 'kubeadm config images pull'
+[2025-11-24 07:27:51] [preflight] Some fatal errors occurred:
+[2025-11-24 07:27:51] failed to create new CRI runtime service: validate service connection: validate CRI v1 runtime API for endpoint "unix:///var/run/containerd/containerd.sock": rpc error: code = Unavailable desc = connection error: desc = "transport: Error while dialing: dial unix /var/run/containerd/containerd.sock: connect: no such file or directory"[preflight] If you know what you are doing, you can make a check non-fatal with `--ignore-preflight-errors=...`
+[2025-11-24 07:27:51] error: error execution phase preflight: preflight checks failed
+[2025-11-24 07:27:51] To see the stack trace of this error execute with --v=5 or higher
+[2025-11-24 07:27:51] === SETUP_LOG_END ===
+[2025-11-24 07:27:51] === K8S_TEST_COMPLETED:2025-11-23T22:27:50+00:00 ===
