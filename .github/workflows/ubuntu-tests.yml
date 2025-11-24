@@ -66,12 +66,7 @@ jobs:
           DISTRO: ${{ matrix.distro }}
         run: |
           set -euo pipefail
-          mode_flag=""
-          if [ "$MODE" = "online" ]; then
-            mode_flag="--online"
-          else
-            mode_flag="--offline"
-          fi
+          mode_flag="--online"
 
           k8s_flag=""
           if [ -n "$K8S_VERSION" ]; then
@@ -94,3 +89,9 @@ jobs:
             test/results/logs
             test/results/test-result.json
           if-no-files-found: ignore
+
+      - name: Cleanup workspace artifacts
+        if: always()
+        run: |
+          sudo rm -rf test/images || true
+          sudo rm -rf test/results || true

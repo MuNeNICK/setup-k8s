@@ -34,13 +34,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run setup-k8s test
+      - name: Run setup-k8s test (online)
         working-directory: test
         env:
           BASH_DEBUG: '0'
         run: |
           set -euo pipefail
-          ./run-test.sh ${{ matrix.distro }}
+          ./run-test.sh --online ${{ matrix.distro }}
 
       - name: Upload logs
         if: always()
@@ -51,3 +51,9 @@ jobs:
             test/results/logs
             test/results/test-result.json
           if-no-files-found: ignore
+
+      - name: Cleanup workspace artifacts
+        if: always()
+        run: |
+          sudo rm -rf test/images || true
+          sudo rm -rf test/results || true
