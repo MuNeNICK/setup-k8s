@@ -1,5 +1,218 @@
 #!/bin/bash
 
+GUI_PROGRESS_LOG_FILE=""
+GUI_PROGRESS_SERVER_PID=""
+GUI_PROGRESS_URL=""
+GUI_PROGRESS_LOGGING_ACTIVE="false"
+
+gui_append_exit_trap() {
+    local new_cmd="$1"
+    local existing_trap
+    existing_trap=$(trap -p EXIT | sed -n "s/^trap -- '\(.*\)' EXIT$/\1/p")
+    if [ -n "$existing_trap" ]; then
+        trap "$existing_trap"$'\n'"$new_cmd" EXIT
+    else
+        trap "$new_cmd" EXIT
+    fi
+}
+
+gui_cleanup_progress_server() {
+    if [ -n "$GUI_PROGRESS_SERVER_PID" ]; then
+        if kill -0 "$GUI_PROGRESS_SERVER_PID" 2>/dev/null; then
+            kill "$GUI_PROGRESS_SERVER_PID" 2>/dev/null || true
+            wait "$GUI_PROGRESS_SERVER_PID" 2>/dev/null || true
+        fi
+        GUI_PROGRESS_SERVER_PID=""
+    fi
+
+    if [ -n "$GUI_PROGRESS_LOG_FILE" ] && [ -f "$GUI_PROGRESS_LOG_FILE" ]; then
+        rm -f "$GUI_PROGRESS_LOG_FILE" 2>/dev/null || true
+    fi
+}
+
+gui_launch_progress_server() {
+    local bind_addr="$1"
+    local gui_port="$2"
+    local log_file="$3"
+
+    if [ -z "$bind_addr" ] || [ -z "$gui_port" ] || [ -z "$log_file" ]; then
+        return 1
+    fi
+
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "Warning: Live progress UI requires python3." >&2
+        return 1
+    fi
+
+    python3 - "$bind_addr" "$gui_port" "$log_file" <<'PYTHON' &
+import http.server
+import socketserver
+import sys
+from pathlib import Path
+
+BIND_ADDR = sys.argv[1]
+PORT = int(sys.argv[2])
+LOG_PATH = Path(sys.argv[3])
+
+PROGRESS_PAGE = """<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+<meta charset=\"utf-8\">
+<title>setup-k8s progress</title>
+<style>
+body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; }
+.wrap { max-width: 900px; margin: 0 auto; padding: 32px; }
+.panel { background: rgba(15,23,42,0.75); backdrop-filter: blur(4px); border-radius: 16px; padding: 32px; box-shadow: 0 25px 50px rgba(15,23,42,0.35); }
+h1 { margin-top: 0; font-weight: 600; }
+.status { margin-bottom: 16px; font-size: 15px; color: #cbd5f5; }
+.log-shell { background: #020617; border-radius: 12px; border: 1px solid rgba(148,163,184,0.35); padding: 16px; height: 60vh; overflow: auto; }
+.log-shell pre { margin: 0; font-family: SFMono-Regular,Consolas,monospace; font-size: 13px; line-height: 1.5; color: #f1f5f9; }
+.hint { margin-top: 18px; font-size: 13px; color: #94a3b8; }
+</style>
+</head>
+<body>
+<div class=\"wrap\">
+  <div class=\"panel\">
+    <h1>setup-k8s Installation Progress</h1>
+    <p class=\"status\" id=\"status\">Waiting for installer output...</p>
+    <div class=\"log-shell\"><pre id=\"log\"></pre></div>
+    <p class=\"hint\">Keep this tab open while the installer runs. Logs also appear in the terminal.</p>
+  </div>
+</div>
+<script>
+const logEl = document.getElementById('log');
+const statusEl = document.getElementById('status');
+let autoScroll = true;
+let consecutiveFailures = 0;
+
+function updateAutoScroll() {
+  autoScroll = (logEl.scrollTop + logEl.clientHeight) >= (logEl.scrollHeight - 4);
+}
+
+logEl.addEventListener('scroll', updateAutoScroll);
+
+async function fetchLog() {
+  try {
+    const resp = await fetch('progress-log?ts=' + Date.now());
+    const text = await resp.text();
+    logEl.textContent = text;
+    if (text.trim().length === 0) {
+      statusEl.textContent = 'Waiting for installer output...';
+    } else {
+      statusEl.textContent = 'Live log stream from setup-k8s';
+    }
+    if (autoScroll) {
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    consecutiveFailures = 0;
+  } catch (err) {
+    consecutiveFailures += 1;
+    if (consecutiveFailures > 3) {
+      statusEl.textContent = 'Installer finished or connection lost. Check the terminal for final status.';
+    } else {
+      statusEl.textContent = 'Reconnecting to installer...';
+    }
+  } finally {
+    setTimeout(fetchLog, 1500);
+  }
+}
+
+fetchLog();
+</script>
+</body>
+</html>"""
+
+
+class ProgressHandler(http.server.BaseHTTPRequestHandler):
+    def send_body(self, body, *, status=200, content_type="text/html; charset=utf-8", head_only=False):
+        data = body.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(data) if not head_only else 0))
+        self.end_headers()
+        if not head_only:
+            self.wfile.write(data)
+
+    def do_HEAD(self):
+        if self.path.startswith("/progress-log") or self.path == "/healthz":
+            self.send_body("", content_type="text/plain; charset=utf-8", head_only=True)
+        elif self.path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
+        else:
+            self.send_body(PROGRESS_PAGE, head_only=True)
+
+    def do_GET(self):
+        if self.path.startswith("/progress-log"):
+            try:
+                body = LOG_PATH.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                body = ""
+            self.send_body(body, content_type="text/plain; charset=utf-8")
+        elif self.path == "/healthz":
+            self.send_body("ok", content_type="text/plain; charset=utf-8")
+        elif self.path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
+        else:
+            self.send_body(PROGRESS_PAGE)
+
+    def log_message(self, fmt, *args):
+        sys.stderr.write("%s - - [%s] %s\n" % (self.address_string(), self.log_date_time_string(), fmt % args))
+
+
+class ThreadingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+def main():
+    try:
+        httpd = ThreadingServer((BIND_ADDR, PORT), ProgressHandler)
+    except OSError as exc:
+        sys.stderr.write(f"Failed to start progress viewer: {exc}\n")
+        sys.exit(2)
+
+    try:
+        sys.stderr.write(f"Progress viewer listening on http://{BIND_ADDR}:{PORT}/progress\n")
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        httpd.server_close()
+
+
+if __name__ == "__main__":
+    main()
+PYTHON
+    GUI_PROGRESS_SERVER_PID=$!
+    sleep 0.2
+    if ! kill -0 "$GUI_PROGRESS_SERVER_PID" 2>/dev/null; then
+        echo "Warning: Failed to launch live progress server." >&2
+        GUI_PROGRESS_SERVER_PID=""
+        return 1
+    fi
+
+    gui_append_exit_trap "gui_cleanup_progress_server"
+    return 0
+}
+
+gui_enable_progress_logging() {
+    if [ -z "$GUI_PROGRESS_LOG_FILE" ] || [ ! -f "$GUI_PROGRESS_LOG_FILE" ]; then
+        return
+    fi
+    if [ "$GUI_PROGRESS_LOGGING_ACTIVE" = "true" ]; then
+        return
+    fi
+    GUI_PROGRESS_LOGGING_ACTIVE="true"
+    exec > >(tee -a "$GUI_PROGRESS_LOG_FILE") 2>&1
+    if [ -n "$GUI_PROGRESS_URL" ]; then
+        echo "Live GUI progress: $GUI_PROGRESS_URL"
+        echo "The browser view refreshes automatically; keep this terminal open until completion."
+    fi
+}
+
 # Launch a lightweight web UI that collects installation options and
 # maps them to the regular CLI variables.
 run_gui_installer() {
@@ -141,7 +354,7 @@ document.addEventListener('DOMContentLoaded', updateWorkerFields);
       <button type=\"submit\">Start installation</button>
     </div>
   </form>
-  <p class=\"hint\">This local server stops automatically after submission.</p>
+  <p class=\"hint\">After submitting, this tab switches to a live log view so you can track progress here or watch the terminal output.</p>
 </div>
 </body>
 </html>
@@ -149,10 +362,51 @@ document.addEventListener('DOMContentLoaded', updateWorkerFields);
 
 SUCCESS_PAGE = """<!DOCTYPE html>
 <html lang=\"en\">
-<head><meta charset=\"utf-8\"><title>setup-k8s</title>
-<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f5f7;color:#1f2933;display:flex;align-items:center;justify-content:center;height:100vh;} .card{background:#fff;padding:32px;border-radius:12px;box-shadow:0 10px 20px rgba(15,23,42,0.08);text-align:center;} a{color:#2563eb;text-decoration:none;}</style>
+<head>
+<meta charset=\"utf-8\">
+<title>setup-k8s</title>
+<style>
+body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background: #f5f6fb; color: #0f172a; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+.card { background: #fff; padding: 32px; border-radius: 14px; box-shadow: 0 30px 60px rgba(15,23,42,0.15); width: 440px; max-width: 90%; text-align: center; }
+.card h2 { margin-top: 0; }
+.card p { margin-bottom: 12px; }
+.muted { font-size: 13px; color: #64748b; }
+.card a { color: #2563eb; text-decoration: none; font-weight: 600; }
+</style>
 </head>
-<body><div class=\"card\"><h2>Configuration received</h2><p>You can close this tab and return to the terminal.</p></div></body></html>"""
+<body>
+  <div class=\"card\">
+    <h2>Installation starting</h2>
+    <p>Keep this tab open to see live progress (you can also watch the terminal output).</p>
+    <p><a id=\"progress-link\" href=\"#\">Opening progress view…</a></p>
+    <p class=\"muted\">The page refreshes automatically once the log server is available.</p>
+  </div>
+  <script>
+    (function() {
+      var target = window.location.origin + '/progress';
+      var link = document.getElementById('progress-link');
+      link.href = target;
+      link.textContent = target;
+
+      function tryOpen() {
+        fetch(target, { method: 'HEAD' })
+          .then(function(resp) {
+            if (resp.ok) {
+              window.location.href = target;
+              return;
+            }
+            setTimeout(tryOpen, 2000);
+          })
+          .catch(function() {
+            setTimeout(tryOpen, 2000);
+          });
+      }
+
+      setTimeout(tryOpen, 1500);
+    })();
+  </script>
+</body>
+</html>"""
 
 FIELDS = [
     "NODE_TYPE",
@@ -272,6 +526,32 @@ PYTHON
     if [ -z "$gui_output" ]; then
         echo "GUI installer returned no configuration." >&2
         exit 1
+    fi
+
+    if GUI_PROGRESS_LOG_FILE=$(mktemp -t setup-k8s-progress-XXXXXX.log 2>/dev/null); then
+        : > "$GUI_PROGRESS_LOG_FILE"
+        local display_host="$bind_addr"
+        local display_hint=""
+        if [ -z "$display_host" ] || [ "$display_host" = "0.0.0.0" ]; then
+            display_host="127.0.0.1"
+            display_hint=" (listening on all interfaces; replace the host as needed)"
+        elif [ "$display_host" = "::" ]; then
+            display_host="[::1]"
+            display_hint=" (listening on all interfaces; replace the host as needed)"
+        elif [[ "$display_host" == *:* && "$display_host" != [* ]]; then
+            display_host="[$display_host]"
+        fi
+
+        if gui_launch_progress_server "$bind_addr" "$gui_port" "$GUI_PROGRESS_LOG_FILE"; then
+            GUI_PROGRESS_URL="http://${display_host}:${gui_port}/progress"
+            echo "Live progress UI will be available at ${GUI_PROGRESS_URL}${display_hint}" >&2
+        else
+            rm -f "$GUI_PROGRESS_LOG_FILE" 2>/dev/null || true
+            GUI_PROGRESS_LOG_FILE=""
+            GUI_PROGRESS_URL=""
+        fi
+    else
+        echo "Warning: Unable to create progress log file for GUI view." >&2
     fi
 
     local gui_pod_network_cidr=""

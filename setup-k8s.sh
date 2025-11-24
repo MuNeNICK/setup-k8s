@@ -208,6 +208,9 @@ main() {
             echo "Note: CLI options are ignored when --gui mode is active." >&2
         fi
         run_gui_installer
+        if type -t gui_enable_progress_logging >/dev/null 2>&1; then
+            gui_enable_progress_logging
+        fi
     else
         # Parse command line arguments
         parse_setup_args "${cli_args[@]}"
