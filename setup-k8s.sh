@@ -20,7 +20,10 @@ GUI_BIND_ADDRESS="${GUI_BIND_ADDRESS:-127.0.0.1}"
 GUI_PORT="${GUI_PORT:-8080}"
 
 # Parse early arguments for offline / GUI mode (needs to happen before modules load)
-for arg in "$@"; do
+original_args=("$@")
+i=0
+while [ $i -lt ${#original_args[@]} ]; do
+    arg="${original_args[$i]}"
     case "$arg" in
         --offline)
             OFFLINE_MODE="true"
@@ -28,7 +31,31 @@ for arg in "$@"; do
         --gui)
             GUI_MODE="true"
             ;;
+        --gui-bind-address)
+            if (( i + 1 >= ${#original_args[@]} )); then
+                echo "Error: --gui-bind-address requires an address value" >&2
+                exit 1
+            fi
+            GUI_BIND_ADDRESS="${original_args[$((i + 1))]}"
+            ((i += 2))
+            continue
+            ;;
+        --gui-port)
+            if (( i + 1 >= ${#original_args[@]} )); then
+                echo "Error: --gui-port requires a value" >&2
+                exit 1
+            fi
+            gui_port_value="${original_args[$((i + 1))]}"
+            if ! [[ "$gui_port_value" =~ ^[0-9]+$ ]] || (( gui_port_value < 1 || gui_port_value > 65535 )); then
+                echo "Error: --gui-port requires a numeric value between 1 and 65535" >&2
+                exit 1
+            fi
+            GUI_PORT="$gui_port_value"
+            ((i += 2))
+            continue
+            ;;
     esac
+    ((i++))
 done
 
 # Function to load modules
@@ -124,6 +151,9 @@ main() {
         case "$1" in
             --gui|--offline)
                 shift
+                ;;
+            --gui-bind-address|--gui-port)
+                shift 2
                 ;;
             *)
                 cli_args+=("$1")

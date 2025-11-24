@@ -90,8 +90,16 @@ curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/setup-k8s.s
 
 This starts a local HTTP server (default: `http://127.0.0.1:8080`) that mirrors the CLI
 options. Once you submit the form, the script continues in the terminal with the selected
-configuration. Change the bind address or port via `GUI_BIND_ADDRESS` / `GUI_PORT`, and
-ensure `python3` is installed for the web UI to run.
+configuration. Change the bind address or port via `--gui-bind-address` / `--gui-port`
+(or the `GUI_BIND_ADDRESS` / `GUI_PORT` environment variables), and ensure `python3`
+is installed for the web UI to run.
+
+Example exposing the installer on all interfaces and a different port:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | \
+  sudo bash -s -- --gui --gui-bind-address 0.0.0.0 --gui-port 9000
+```
 
 ### Master Node Installation
 
@@ -174,6 +182,8 @@ Note: The worker node must use the same CRI as the master node.
 | --completion-shells | Shells to configure (auto/bash/zsh/fish) | --completion-shells bash,zsh |
 | --install-helm | Install Helm package manager | --install-helm true |
 | --gui | Launch the browser-based installer (requires python3) | --gui |
+| --gui-bind-address | Bind address for the web installer | --gui --gui-bind-address 0.0.0.0 |
+| --gui-port | Port for the web installer | --gui --gui-port 9000 |
 
 ## Cleanup Guide
 
