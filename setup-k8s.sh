@@ -63,7 +63,7 @@ while [ $i -lt ${#original_args[@]} ]; do
     case "$arg" in
         --offline)
             OFFLINE_MODE="true"
-            ((i++))
+            ((i += 1))
             continue
             ;;
         --gui)
@@ -76,7 +76,7 @@ while [ $i -lt ${#original_args[@]} ]; do
                     continue
                 fi
             fi
-            ((i++))
+            ((i += 1))
             continue
             ;;
         --gui=*)
@@ -85,11 +85,11 @@ while [ $i -lt ${#original_args[@]} ]; do
             if [ -n "$gui_value" ]; then
                 parse_gui_endpoint_arg "$gui_value"
             fi
-            ((i++))
+            ((i += 1))
             continue
             ;;
     esac
-    ((i++))
+    ((i += 1))
 done
 
 # Function to load modules
