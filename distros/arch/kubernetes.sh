@@ -101,7 +101,7 @@ setup_kubernetes_arch() {
         echo "AUR installation failed. Trying direct binary download..."
         
         # Get the latest stable version
-        KUBE_VERSION=$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)
+        KUBE_VERSION=$(curl -s --retry 3 --retry-delay 2 https://storage.googleapis.com/kubernetes-release/release/stable.txt)
         echo "Downloading Kubernetes version: $KUBE_VERSION"
 
         # Detect architecture mapping for Kubernetes binaries
@@ -118,7 +118,7 @@ setup_kubernetes_arch() {
         # Download and install binaries
         for binary in kubeadm kubelet kubectl; do
             echo "Downloading $binary for arch $KARCH..."
-            curl -Lo /usr/local/bin/$binary "https://storage.googleapis.com/kubernetes-release/release/${KUBE_VERSION}/bin/linux/${KARCH}/$binary"
+            curl -Lo "/usr/local/bin/$binary" --retry 3 --retry-delay 2 "https://storage.googleapis.com/kubernetes-release/release/${KUBE_VERSION}/bin/linux/${KARCH}/$binary"
             chmod +x /usr/local/bin/$binary
         done
         

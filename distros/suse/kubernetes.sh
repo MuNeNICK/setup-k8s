@@ -1,8 +1,10 @@
 #!/bin/bash
 
-# Source common variables
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../../common/variables.sh"
+# Source common variables (only when not already loaded by the entry script)
+if [ -z "${K8S_VERSION+x}" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "${SCRIPT_DIR}/../../common/variables.sh" 2>/dev/null || true
+fi
 
 # Setup Kubernetes for SUSE
 setup_kubernetes_suse() {

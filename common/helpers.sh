@@ -89,12 +89,12 @@ pull-image-on-create: false
 EOF
 }
 
-# Helper: Generate kubeadm configuration for IPVS mode
+# Helper: Generate kubeadm configuration
 generate_kubeadm_config() {
     local config_file="/tmp/kubeadm-config.yaml"
-    
+
     echo "Generating kubeadm configuration..." >&2
-    
+
     # Start with base configuration
     cat > "$config_file" <<EOF
 apiVersion: kubeadm.k8s.io/v1beta3
@@ -103,7 +103,8 @@ EOF
 
     # Add CRI socket if not using default containerd
     if [ "$CRI" != "containerd" ]; then
-        local cri_socket=$(get_cri_socket)
+        local cri_socket
+        cri_socket=$(get_cri_socket)
         cat >> "$config_file" <<EOF
 nodeRegistration:
   criSocket: $cri_socket
@@ -117,35 +118,34 @@ apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
 EOF
 
-    # Parse KUBEADM_ARGS and add to config
-    if echo "$KUBEADM_ARGS" | grep -q "pod-network-cidr"; then
-        POD_CIDR=$(echo "$KUBEADM_ARGS" | sed -n 's/.*--pod-network-cidr \([^ ]*\).*/\1/p')
-        cat >> "$config_file" <<EOF
-networking:
-  podSubnet: $POD_CIDR
-EOF
+    # Parse KUBEADM_ARGS array and add to config
+    local POD_CIDR="" SERVICE_CIDR="" API_ADDR="" CP_ENDPOINT=""
+    local i=0
+    while [ $i -lt ${#KUBEADM_ARGS[@]} ]; do
+        case "${KUBEADM_ARGS[$i]}" in
+            --pod-network-cidr)   POD_CIDR="${KUBEADM_ARGS[$((i+1))]:-}";   ((i+=2)) ;;
+            --service-cidr)       SERVICE_CIDR="${KUBEADM_ARGS[$((i+1))]:-}"; ((i+=2)) ;;
+            --apiserver-advertise-address) API_ADDR="${KUBEADM_ARGS[$((i+1))]:-}"; ((i+=2)) ;;
+            --control-plane-endpoint)      CP_ENDPOINT="${KUBEADM_ARGS[$((i+1))]:-}"; ((i+=2)) ;;
+            *) ((i+=1)) ;;
+        esac
+    done
+
+    if [ -n "$POD_CIDR" ] || [ -n "$SERVICE_CIDR" ]; then
+        echo "networking:" >> "$config_file"
+        [ -n "$POD_CIDR" ]     && echo "  podSubnet: $POD_CIDR" >> "$config_file"
+        [ -n "$SERVICE_CIDR" ] && echo "  serviceSubnet: $SERVICE_CIDR" >> "$config_file"
     fi
-    
-    if echo "$KUBEADM_ARGS" | grep -q "service-cidr"; then
-        SERVICE_CIDR=$(echo "$KUBEADM_ARGS" | sed -n 's/.*--service-cidr \([^ ]*\).*/\1/p')
-        cat >> "$config_file" <<EOF
-  serviceSubnet: $SERVICE_CIDR
-EOF
-    fi
-    
-    if echo "$KUBEADM_ARGS" | grep -q "apiserver-advertise-address"; then
-        API_ADDR=$(echo "$KUBEADM_ARGS" | sed -n 's/.*--apiserver-advertise-address \([^ ]*\).*/\1/p')
+
+    if [ -n "$API_ADDR" ]; then
         cat >> "$config_file" <<EOF
 apiServer:
   advertiseAddress: $API_ADDR
 EOF
     fi
-    
-    if echo "$KUBEADM_ARGS" | grep -q "control-plane-endpoint"; then
-        CP_ENDPOINT=$(echo "$KUBEADM_ARGS" | sed -n 's/.*--control-plane-endpoint \([^ ]*\).*/\1/p')
-        cat >> "$config_file" <<EOF
-controlPlaneEndpoint: $CP_ENDPOINT
-EOF
+
+    if [ -n "$CP_ENDPOINT" ]; then
+        echo "controlPlaneEndpoint: $CP_ENDPOINT" >> "$config_file"
     fi
 
     # Add KubeProxyConfiguration for non-default proxy modes
@@ -167,16 +167,33 @@ kind: KubeProxyConfiguration
 mode: nftables
 EOF
     fi
-    
+
     echo "$config_file"
+}
+
+# Helper: Configure kubectl for a user after kubeadm init/join
+_configure_kubectl() {
+    echo "Configuring kubectl..."
+    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+        USER_HOME="/home/$SUDO_USER"
+        mkdir -p "$USER_HOME/.kube"
+        cp -f /etc/kubernetes/admin.conf "$USER_HOME/.kube/config"
+        chown -R "$SUDO_USER:$(id -gn "$SUDO_USER")" "$USER_HOME/.kube"
+        echo "Created kubectl configuration for user $SUDO_USER"
+    else
+        mkdir -p /root/.kube
+        cp -f /etc/kubernetes/admin.conf /root/.kube/config
+        echo "Created kubectl configuration for root user at /root/.kube/config"
+    fi
 }
 
 # Helper: Initialize Kubernetes cluster (master node)
 initialize_master() {
     echo "Initializing master node..."
-    
+
     # Generate configuration file if non-default proxy mode or complex config needed
-    if [ "$PROXY_MODE" != "iptables" ] || [ -n "$KUBEADM_ARGS" ]; then
+    if [ "$PROXY_MODE" != "iptables" ] || [ "${#KUBEADM_ARGS[@]}" -gt 0 ]; then
+        local CONFIG_FILE
         CONFIG_FILE=$(generate_kubeadm_config)
         echo "Using kubeadm configuration file: $CONFIG_FILE"
         kubeadm init --config "$CONFIG_FILE"
@@ -184,28 +201,15 @@ initialize_master() {
     else
         # Simple init for default iptables mode with no extra args
         if [ "$CRI" != "containerd" ]; then
-            local cri_socket=$(get_cri_socket)
+            local cri_socket
+            cri_socket=$(get_cri_socket)
             kubeadm init --cri-socket "$cri_socket"
         else
             kubeadm init
         fi
     fi
 
-    # Configure kubectl
-    echo "Configuring kubectl..."
-    if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
-        # If run with sudo by a non-root user
-        USER_HOME="/home/$SUDO_USER"
-        mkdir -p "$USER_HOME/.kube"
-        cp -f /etc/kubernetes/admin.conf "$USER_HOME/.kube/config"
-        chown -R "$SUDO_USER:$(id -gn $SUDO_USER)" "$USER_HOME/.kube"
-        echo "Created kubectl configuration for user $SUDO_USER"
-    else
-        # If run directly as root 
-        mkdir -p /root/.kube
-        cp -f /etc/kubernetes/admin.conf /root/.kube/config
-        echo "Created kubectl configuration for root user at /root/.kube/config"
-    fi
+    _configure_kubectl
 
     # Display join command
     echo "Displaying join command for worker nodes..."
@@ -221,40 +225,52 @@ initialize_master() {
 # Helper: Join worker node to cluster
 join_worker() {
     echo "Joining worker node to cluster..."
-    JOIN_ARGS="${JOIN_ADDRESS} --token ${JOIN_TOKEN} --discovery-token-ca-cert-hash ${DISCOVERY_TOKEN_HASH}"
+    local -a join_args=("${JOIN_ADDRESS}" --token "${JOIN_TOKEN}" --discovery-token-ca-cert-hash "${DISCOVERY_TOKEN_HASH}")
     if [ "$CRI" != "containerd" ]; then
-        local cri_socket=$(get_cri_socket)
-        JOIN_ARGS="$JOIN_ARGS --cri-socket $cri_socket"
+        local cri_socket
+        cri_socket=$(get_cri_socket)
+        join_args+=(--cri-socket "$cri_socket")
     fi
-    kubeadm join $JOIN_ARGS
-    
-    echo "Worker node has joined the cluster!"
+
+    # HA cluster: join as control-plane node
+    if [ "${JOIN_AS_CONTROL_PLANE:-false}" = true ]; then
+        join_args+=(--control-plane --certificate-key "${CERTIFICATE_KEY}")
+    fi
+
+    kubeadm join "${join_args[@]}"
+
+    # Configure kubectl for control-plane join
+    if [ "${JOIN_AS_CONTROL_PLANE:-false}" = true ]; then
+        _configure_kubectl
+        echo "Control-plane node has joined the cluster!"
+    else
+        echo "Worker node has joined the cluster!"
+    fi
 }
 
 # Helper: Clean up .kube directories
 cleanup_kube_configs() {
     # Clean up .kube directory
-    if [ -n "$SUDO_USER" ]; then
+    if [ -n "${SUDO_USER:-}" ]; then
         USER_HOME="/home/$SUDO_USER"
         echo "Cleanup: Removing .kube directory and config for user $SUDO_USER"
         rm -rf "$USER_HOME/.kube" || true
-        rm -f "$USER_HOME/.kube/config" || true
     fi
 
     # Clean up root's .kube directory
     ROOT_HOME=$(eval echo ~root)
     echo "Cleanup: Removing .kube directory and config for root user at $ROOT_HOME"
     rm -rf "$ROOT_HOME/.kube" || true
-    rm -f "$ROOT_HOME/.kube/config" || true
 
     # Clean up all users' .kube/config files
+    shopt -s nullglob
     for user_home in /home/*; do
         if [ -d "$user_home" ]; then
             echo "Cleanup: Removing .kube directory and config for user directory $user_home"
             rm -rf "$user_home/.kube" || true
-            rm -f "$user_home/.kube/config" || true
         fi
     done
+    shopt -u nullglob
 }
 
 # Helper: Reset containerd configuration

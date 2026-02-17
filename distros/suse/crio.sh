@@ -1,9 +1,11 @@
 #!/bin/bash
 
-# Source common helpers and variables
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../../common/helpers.sh"
-source "${SCRIPT_DIR}/../../common/variables.sh"
+# Source common helpers and variables (only when not already loaded by the entry script)
+if ! type -t configure_crictl &>/dev/null; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "${SCRIPT_DIR}/../../common/helpers.sh" 2>/dev/null || true
+    source "${SCRIPT_DIR}/../../common/variables.sh" 2>/dev/null || true
+fi
 
 # SUSE Leap compatibility helpers for CRI-O vs Kubernetes
 get_suse_leap_supported_k8s_minor() {

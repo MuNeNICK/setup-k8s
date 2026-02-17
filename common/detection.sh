@@ -78,13 +78,14 @@ detect_distribution() {
 determine_k8s_version() {
     if [ -z "$K8S_VERSION" ]; then
         echo "Determining latest stable Kubernetes minor version..."
-        STABLE_VER=$(curl -fsSL https://dl.k8s.io/release/stable.txt 2>/dev/null || true)
+        STABLE_VER=$(curl -fsSL --retry 3 --retry-delay 2 https://dl.k8s.io/release/stable.txt 2>/dev/null || true)
         if echo "$STABLE_VER" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
             K8S_VERSION=$(echo "$STABLE_VER" | sed -E 's/^v([0-9]+\.[0-9]+)\..*/\1/')
             echo "Using detected stable Kubernetes minor: ${K8S_VERSION}"
         else
-            K8S_VERSION="1.32"
+            K8S_VERSION="${K8S_VERSION_FALLBACK:-1.32}"
             echo "Warning: Could not detect stable version; falling back to ${K8S_VERSION}"
+            echo "Hint: Set K8S_VERSION_FALLBACK or use --kubernetes-version to override."
         fi
     fi
 }

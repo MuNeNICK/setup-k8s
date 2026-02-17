@@ -1,8 +1,10 @@
 #!/bin/bash
 
-# Source common helpers
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../../common/helpers.sh"
+# Source common helpers (only when not already loaded by the entry script)
+if ! type -t configure_containerd_toml &>/dev/null; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "${SCRIPT_DIR}/../../common/helpers.sh" 2>/dev/null || true
+fi
 
 # Setup containerd for Debian/Ubuntu
 setup_containerd_debian() {
@@ -13,11 +15,16 @@ setup_containerd_debian() {
     
     # Add Docker repository (for containerd) without using lsb_release
     CODENAME=$(get_debian_codename)
+    if [ ! -f /etc/apt/keyrings/docker.gpg ]; then
+        if [ "$DISTRO_NAME" = "ubuntu" ]; then
+            curl -fsSL --retry 3 --retry-delay 2 https://download.docker.com/linux/ubuntu/gpg | gpg --batch --yes --dearmor -o /etc/apt/keyrings/docker.gpg
+        else
+            curl -fsSL --retry 3 --retry-delay 2 https://download.docker.com/linux/debian/gpg | gpg --batch --yes --dearmor -o /etc/apt/keyrings/docker.gpg
+        fi
+    fi
     if [ "$DISTRO_NAME" = "ubuntu" ]; then
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --batch --yes --dearmor -o /etc/apt/keyrings/docker.gpg
         echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu ${CODENAME} stable" | tee /etc/apt/sources.list.d/docker.list
     else
-        curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --batch --yes --dearmor -o /etc/apt/keyrings/docker.gpg
         echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian ${CODENAME} stable" | tee /etc/apt/sources.list.d/docker.list
     fi
     

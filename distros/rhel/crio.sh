@@ -1,9 +1,11 @@
 #!/bin/bash
 
-# Source common helpers and variables
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../../common/helpers.sh"
-source "${SCRIPT_DIR}/../../common/variables.sh"
+# Source common helpers and variables (only when not already loaded by the entry script)
+if ! type -t configure_crictl &>/dev/null; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "${SCRIPT_DIR}/../../common/helpers.sh" 2>/dev/null || true
+    source "${SCRIPT_DIR}/../../common/variables.sh" 2>/dev/null || true
+fi
 
 # Helper: Get OBS target for RHEL family distributions
 get_obs_target_rhel() {
@@ -50,7 +52,7 @@ setup_crio_rhel() {
         local series="1.${candidate_minor}"
         echo "Probing CRI-O rpm repo on pkgs.k8s.io for v${series}..."
         local pkgs_key="https://pkgs.k8s.io/addons:/cri-o:/stable:/v${series}/rpm/repodata/repomd.xml.key"
-        if curl -fsI "$pkgs_key" >/dev/null 2>&1; then
+        if curl -fsI --retry 3 --retry-delay 2 "$pkgs_key" >/dev/null 2>&1; then
             cat > /etc/yum.repos.d/cri-o.repo <<EOF
 [cri-o]
 name=CRI-O v${series}
@@ -67,7 +69,7 @@ EOF
         if [ -n "$target" ]; then
             local obs_base="https://download.opensuse.org/repositories/devel:/kubic:/cri-o:/${series}/${target}/"
             local obs_key="${obs_base}repodata/repomd.xml.key"
-            if curl -fsI "$obs_key" >/dev/null 2>&1; then
+            if curl -fsI --retry 3 --retry-delay 2 "$obs_key" >/dev/null 2>&1; then
                 cat > /etc/yum.repos.d/cri-o.repo <<EOF
 [cri-o]
 name=CRI-O v${series} (${target})

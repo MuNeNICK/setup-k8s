@@ -5,11 +5,28 @@
 # Install Helm
 install_helm() {
     echo "Installing Helm package manager..."
-    
-    # Download and run the official installer
-    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-    
-    return $?
+
+    # Download the official installer to a temporary file for inspection
+    local installer
+    installer=$(mktemp -t get-helm-3-XXXXXX.sh)
+    if ! curl -fsSL --retry 3 --retry-delay 2 https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 -o "$installer"; then
+        echo "Error: Failed to download Helm installer" >&2
+        rm -f "$installer"
+        return 1
+    fi
+
+    # Basic validation: ensure it looks like a shell script
+    if ! head -1 "$installer" | grep -q '^#!/'; then
+        echo "Error: Downloaded Helm installer does not appear to be a valid shell script" >&2
+        rm -f "$installer"
+        return 1
+    fi
+
+    # Execute the verified installer
+    bash "$installer"
+    local rc=$?
+    rm -f "$installer"
+    return $rc
 }
 
 # Setup Helm for a specific user

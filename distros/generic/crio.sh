@@ -1,8 +1,10 @@
 #!/bin/bash
 
-# Source common helpers
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../../common/helpers.sh"
+# Source common helpers (only when not already loaded by the entry script)
+if ! type -t configure_crictl &>/dev/null; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "${SCRIPT_DIR}/../../common/helpers.sh" 2>/dev/null || true
+fi
 
 # Setup CRI-O for generic distributions
 setup_crio_generic() {

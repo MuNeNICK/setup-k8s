@@ -611,15 +611,15 @@ PYTHON
     done <<< "$gui_output"
 
     if [ -n "$gui_pod_network_cidr" ]; then
-        KUBEADM_ARGS="$KUBEADM_ARGS --pod-network-cidr $gui_pod_network_cidr"
+        KUBEADM_ARGS+=(--pod-network-cidr "$gui_pod_network_cidr")
     fi
     if [ -n "$gui_service_cidr" ]; then
-        KUBEADM_ARGS="$KUBEADM_ARGS --service-cidr $gui_service_cidr"
+        KUBEADM_ARGS+=(--service-cidr "$gui_service_cidr")
     fi
     if [ -n "$gui_api_addr" ]; then
-        KUBEADM_ARGS="$KUBEADM_ARGS --apiserver-advertise-address $gui_api_addr"
+        KUBEADM_ARGS+=(--apiserver-advertise-address "$gui_api_addr")
     fi
     if [ -n "$gui_cp_endpoint" ]; then
-        KUBEADM_ARGS="$KUBEADM_ARGS --control-plane-endpoint $gui_cp_endpoint"
+        KUBEADM_ARGS+=(--control-plane-endpoint "$gui_cp_endpoint")
     fi
 }

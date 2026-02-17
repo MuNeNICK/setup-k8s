@@ -1,5 +1,7 @@
 # Kubernetes Cluster Management Scripts
 
+[![ShellCheck & Unit Tests](https://github.com/MuNeNICK/setup-k8s/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/MuNeNICK/setup-k8s/actions/workflows/shellcheck.yml)
+
 A comprehensive set of scripts for managing Kubernetes clusters on various Linux distributions, including installation, configuration, and cleanup operations.
 
 ## Table of Contents
@@ -186,6 +188,11 @@ Note: The worker node must use the same CRI as the master node.
 | --completion-shells | Shells to configure (auto/bash/zsh/fish) | --completion-shells bash,zsh |
 | --install-helm | Install Helm package manager | --install-helm true |
 | --gui [address[:port]] | Launch the browser-based installer (requires python3) | --gui 0.0.0.0:9000 |
+| --control-plane | Join as control-plane node (HA cluster) | --control-plane |
+| --certificate-key KEY | Certificate key for HA control-plane join | --certificate-key abc123 |
+| --dry-run | Show configuration summary without making changes | --dry-run |
+| --verbose | Enable debug logging | --verbose |
+| --quiet | Suppress informational messages (errors only) | --quiet |
 
 ## Cleanup Guide
 
@@ -396,26 +403,26 @@ If the script fails to detect your distribution correctly:
 
 | Distribution | Version | Test Date | Status | Notes |
 |-------------|---------|-----------|---------|-------|
-| Ubuntu | 24.04 LTS | 2025-08-25 | ✅ Tested | |
-| Ubuntu | 22.04 LTS | 2025-08-25 | ✅ Tested | |
-| Ubuntu | 20.04 LTS | 2025-08-25 | ✅ Tested | |
-| Debian | 12 (Bookworm) | 2025-08-25 | ✅ Tested | |
-| Debian | 11 (Bullseye) | 2025-08-25 | ✅ Tested | |
-| RHEL | 9 | 2025-08-25 | 🚫 Untested | Subscription required |
-| RHEL | 8 | 2025-08-25 | 🚫 Untested | Subscription required |
-| CentOS | 7 | 2025-08-25 | 🚫 Untested | EOL |
-| CentOS Stream | 9 | 2025-08-25 | ✅ Tested | |
-| CentOS Stream | 8 | 2025-08-25 | 🚫 Untested | EOL |
-| Rocky Linux | 9 | 2025-08-25 | ✅ Tested | |
-| Rocky Linux | 8 | 2025-08-25 | ⚠️ Partial | Kernel 4.18 - K8s 1.28 only¹ |
-| AlmaLinux | 9 | 2025-08-25 | ✅ Tested | |
-| AlmaLinux | 8 | 2025-08-25 | ⚠️ Partial | Kernel 4.18 - K8s 1.28 only¹ |
-| Fedora | 41 | 2025-08-25 | ✅ Tested | |
-| Fedora | 39 | 2025-08-25 | 🚫 Untested | EOL |
-| openSUSE | Leap 15.5 | 2025-08-25 | ✅ Tested | |
-| SLES | 15 SP5 | 2025-08-25 | 🚫 Untested | Subscription required |
-| Arch Linux | Rolling | 2025-08-25 | ✅ Tested | |
-| Manjaro | Rolling | 2025-08-25 | 🚫 Untested | No cloud image |
+| Ubuntu | 24.04 LTS | 2026-02-17 | ✅ Tested | |
+| Ubuntu | 22.04 LTS | 2026-02-17 | ✅ Tested | |
+| Ubuntu | 20.04 LTS | 2026-02-17 | ✅ Tested | |
+| Debian | 12 (Bookworm) | 2026-02-17 | ✅ Tested | |
+| Debian | 11 (Bullseye) | 2026-02-17 | ✅ Tested | |
+| RHEL | 9 | 2026-02-17 | 🚫 Untested | Subscription required |
+| RHEL | 8 | 2026-02-17 | 🚫 Untested | Subscription required |
+| CentOS | 7 | 2026-02-17 | 🚫 Untested | EOL |
+| CentOS Stream | 9 | 2026-02-17 | ✅ Tested | |
+| CentOS Stream | 8 | 2026-02-17 | 🚫 Untested | EOL |
+| Rocky Linux | 9 | 2026-02-17 | ✅ Tested | |
+| Rocky Linux | 8 | 2026-02-17 | ⚠️ Partial | Kernel 4.18 - K8s 1.28 only¹ |
+| AlmaLinux | 9 | 2026-02-17 | ✅ Tested | |
+| AlmaLinux | 8 | 2026-02-17 | ⚠️ Partial | Kernel 4.18 - K8s 1.28 only¹ |
+| Fedora | 41 | 2026-02-17 | ✅ Tested | |
+| Fedora | 39 | 2026-02-17 | 🚫 Untested | EOL |
+| openSUSE | Leap 15.5 | 2026-02-17 | ✅ Tested | |
+| SLES | 15 SP5 | 2026-02-17 | 🚫 Untested | Subscription required |
+| Arch Linux | Rolling | 2026-02-17 | ✅ Tested | |
+| Manjaro | Rolling | 2026-02-17 | 🚫 Untested | No cloud image |
 
 Status Legend:
 - ✅ Tested: Fully tested and working

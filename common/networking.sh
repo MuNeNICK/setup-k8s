@@ -83,10 +83,12 @@ reset_iptables() {
         ipvsadm -C || true
     fi
     
-    # Reset nftables rules if nft is available
+    # Reset K8s-related nftables tables if nft is available (avoid flushing all rules)
     if command -v nft &> /dev/null; then
-        echo "Resetting nftables rules..."
-        nft flush ruleset || true
+        echo "Resetting K8s-related nftables tables..."
+        nft list tables 2>/dev/null | grep -E 'kube-proxy|kubernetes' | while read -r _ family name; do
+            nft delete table "$family" "$name" 2>/dev/null || true
+        done
     fi
 }
 
@@ -148,12 +150,14 @@ check_nftables_availability() {
     fi
     
     # Check kernel version (nftables requires >= 3.13, recommended >= 4.14)
-    local kernel_version=$(uname -r | cut -d. -f1,2 | tr -d .)
-    if [ "$kernel_version" -lt 313 ]; then
+    local kernel_major kernel_minor
+    kernel_major=$(uname -r | cut -d. -f1)
+    kernel_minor=$(uname -r | cut -d. -f2)
+    if [ "$kernel_major" -lt 3 ] || { [ "$kernel_major" -eq 3 ] && [ "$kernel_minor" -lt 13 ]; }; then
         echo "Warning: Kernel version too old for nftables (requires >= 3.13)"
         nftables_available=false
-    elif [ "$kernel_version" -lt 414 ]; then
-        echo "Warning: Kernel version $kernel_version may have limited nftables support (>= 4.14 recommended)"
+    elif [ "$kernel_major" -lt 4 ] || { [ "$kernel_major" -eq 4 ] && [ "$kernel_minor" -lt 14 ]; }; then
+        echo "Warning: Kernel version ${kernel_major}.${kernel_minor} may have limited nftables support (>= 4.14 recommended)"
     fi
     
     if [ "$nftables_available" = false ] && [ "$PROXY_MODE" = "nftables" ]; then

@@ -1,8 +1,10 @@
 #!/bin/bash
 
-# Source common variables
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../../common/variables.sh"
+# Source common variables (only when not already loaded by the entry script)
+if [ -z "${K8S_VERSION+x}" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "${SCRIPT_DIR}/../../common/variables.sh" 2>/dev/null || true
+fi
 
 # Setup Kubernetes for RHEL/CentOS/Fedora
 setup_kubernetes_rhel() {
@@ -35,6 +37,8 @@ EOF
     # Check if installation was successful
     if ! command -v kubeadm &> /dev/null; then
         echo "Error: kubeadm installation failed. Trying alternative approach..."
+        echo "WARNING: Retrying with --nogpgcheck. GPG signature verification will be skipped." >&2
+        echo "WARNING: This is less secure. Verify packages manually if possible." >&2
         # Try installing with different options
         if [ "$PKG_MGR" = "dnf" ]; then
             $PKG_MGR install -y --nogpgcheck --nobest kubelet kubeadm kubectl || true

@@ -1,8 +1,10 @@
 #!/bin/bash
 
-# Source common helpers
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../../common/helpers.sh"
+# Source common helpers (only when not already loaded by the entry script)
+if ! type -t configure_containerd_toml &>/dev/null; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "${SCRIPT_DIR}/../../common/helpers.sh" 2>/dev/null || true
+fi
 
 # Setup containerd for SUSE
 setup_containerd_suse() {

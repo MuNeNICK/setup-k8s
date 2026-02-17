@@ -1,9 +1,11 @@
 #!/bin/bash
 
-# Source common helpers
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../../common/helpers.sh"
-source "${SCRIPT_DIR}/../../common/variables.sh"
+# Source common helpers (only when not already loaded by the entry script)
+if ! type -t configure_containerd_toml &>/dev/null; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "${SCRIPT_DIR}/../../common/helpers.sh" 2>/dev/null || true
+    source "${SCRIPT_DIR}/../../common/variables.sh" 2>/dev/null || true
+fi
 
 # Setup containerd for RHEL/CentOS/Fedora
 setup_containerd_rhel() {
@@ -33,7 +35,7 @@ setup_containerd_rhel() {
         if [[ "$DISTRO_VERSION" -ge 41 ]]; then
             # Fedora 41+ uses new syntax - download repo file directly
             echo "Using direct repo file download for Fedora 41+"
-            curl -fsSL https://download.docker.com/linux/fedora/docker-ce.repo -o /etc/yum.repos.d/docker-ce.repo
+            curl -fsSL --retry 3 --retry-delay 2 https://download.docker.com/linux/fedora/docker-ce.repo -o /etc/yum.repos.d/docker-ce.repo
         else
             $PKG_MGR config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
         fi

@@ -1,0 +1,7 @@
+# ShellCheck configuration for setup-k8s
+shell=bash
+
+# Allow sourcing from dynamic paths (modules loaded at runtime)
+disable=SC1090
+# Allow non-constant source paths
+disable=SC1091

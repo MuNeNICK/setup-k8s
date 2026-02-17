@@ -1,9 +1,11 @@
 #!/bin/bash
 
-# Source common helpers
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../../common/helpers.sh"
-source "${SCRIPT_DIR}/../../common/variables.sh"
+# Source common helpers (only when not already loaded by the entry script)
+if ! type -t configure_crictl &>/dev/null; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "${SCRIPT_DIR}/../../common/helpers.sh" 2>/dev/null || true
+    source "${SCRIPT_DIR}/../../common/variables.sh" 2>/dev/null || true
+fi
 
 # Setup CRI-O on Debian/Ubuntu using new isv:/cri-o repositories (2025)
 setup_crio_debian() {
@@ -28,13 +30,15 @@ setup_crio_debian() {
     # Use the new isv:/cri-o:/stable repository structure (available for v1.30+)
     echo "Adding CRI-O v${crio_series} repository..."
     
-    # Download and add GPG key
-    echo "Adding repository GPG key..."
-    curl -fsSL "https://download.opensuse.org/repositories/isv:/cri-o:/stable:/v${crio_series}/deb/Release.key" | \
-        gpg --batch --yes --dearmor -o /etc/apt/keyrings/crio-apt-keyring.gpg 2>/dev/null || {
-            echo "Failed to add GPG key for CRI-O v${crio_series}"
-            return 1
-        }
+    # Download and add GPG key (skip if already present)
+    if [ ! -f /etc/apt/keyrings/crio-apt-keyring.gpg ]; then
+        echo "Adding repository GPG key..."
+        curl -fsSL --retry 3 --retry-delay 2 "https://download.opensuse.org/repositories/isv:/cri-o:/stable:/v${crio_series}/deb/Release.key" | \
+            gpg --batch --yes --dearmor -o /etc/apt/keyrings/crio-apt-keyring.gpg 2>/dev/null || {
+                echo "Failed to add GPG key for CRI-O v${crio_series}"
+                return 1
+            }
+    fi
     
     # Add repository
     echo "deb [signed-by=/etc/apt/keyrings/crio-apt-keyring.gpg] https://download.opensuse.org/repositories/isv:/cri-o:/stable:/v${crio_series}/deb/ /" | \

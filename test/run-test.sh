@@ -4,7 +4,7 @@
 # Usage: ./run-test.sh <distro-name>
 #
 
-set -e
+set -euo pipefail
 
 # Constants
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -136,7 +136,7 @@ generate_bundled_scripts() {
             echo ""
         
         # Include all common modules
-        for module in variables detection validation helpers networking swap completion helm; do
+        for module in logging variables detection validation helpers networking swap completion helm; do
             echo "# === common/${module}.sh ==="
             cat "${SCRIPT_DIR}/../common/${module}.sh"
             echo ""
@@ -174,7 +174,7 @@ generate_bundled_scripts() {
             echo ""
             
             # Include all common modules
-            for module in variables detection validation helpers networking swap completion helm; do
+            for module in logging variables detection validation helpers networking swap completion helm; do
                 echo "# === common/${module}.sh ==="
                 cat "${SCRIPT_DIR}/../common/${module}.sh"
                 echo ""
@@ -247,7 +247,7 @@ generate_cloud_init() {
     if [ -z "$K8S_VERSION" ]; then
         log_info "Resolving latest stable Kubernetes minor on host..."
         local stable_txt
-        stable_txt=$(curl -fsSL https://dl.k8s.io/release/stable.txt 2>/dev/null || true)
+        stable_txt=$(curl -fsSL --retry 3 --retry-delay 2 https://dl.k8s.io/release/stable.txt 2>/dev/null || true)
         if echo "$stable_txt" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
             K8S_VERSION=$(echo "$stable_txt" | sed -E 's/^v([0-9]+\.[0-9]+)\..*/\1/')
             log_success "Detected stable minor: $K8S_VERSION"
@@ -441,65 +441,77 @@ run_vm_container() {
     return 0
 }
 
-# Show test results
+# Show test results (uses jq if available, falls back to grep/sed)
 show_test_results() {
     local distro=$1
-    
+
     if [ ! -f "results/test-result.json" ]; then
         log_error "Test result not found"
         return 1
     fi
-    
+
     log_info "Test Results for $distro:"
     echo "=================="
-    
-    # Read JSON content into variable for better parsing
-    local json_content=$(cat results/test-result.json)
-    
-    # Parse overall status
-    local overall_status=$(echo "$json_content" | grep -o '"status": *"[^"]*"' | head -1 | cut -d'"' -f4)
-    
-    # Setup test results - parse from the setup_test block
+
+    local overall_status="" setup_status="" setup_exit_code="" kubelet_status="" api_responsive=""
+    local cleanup_status="" cleanup_exit_code="" services_stopped="" config_cleaned="" packages_removed=""
+
+    if command -v jq &>/dev/null; then
+        # Preferred: use jq for robust JSON parsing
+        overall_status=$(jq -r '.status // "unknown"' results/test-result.json)
+        setup_status=$(jq -r '.setup_test.status // "unknown"' results/test-result.json)
+        setup_exit_code=$(jq -r '.setup_test.exit_code // "unknown"' results/test-result.json)
+        kubelet_status=$(jq -r '.setup_test.kubelet_status // "unknown"' results/test-result.json)
+        api_responsive=$(jq -r '.setup_test.api_responsive // "unknown"' results/test-result.json)
+        cleanup_status=$(jq -r '.cleanup_test.status // "unknown"' results/test-result.json)
+        cleanup_exit_code=$(jq -r '.cleanup_test.exit_code // "unknown"' results/test-result.json)
+        services_stopped=$(jq -r '.cleanup_test.services_stopped // "unknown"' results/test-result.json)
+        config_cleaned=$(jq -r '.cleanup_test.config_cleaned // "unknown"' results/test-result.json)
+        packages_removed=$(jq -r '.cleanup_test.packages_removed // "unknown"' results/test-result.json)
+    else
+        # Fallback: grep/sed parsing
+        local json_content
+        json_content=$(cat results/test-result.json)
+        overall_status=$(echo "$json_content" | grep -o '"status": *"[^"]*"' | head -1 | cut -d'"' -f4)
+        local setup_block
+        setup_block=$(echo "$json_content" | sed -n '/"setup_test":/,/^  }/p')
+        setup_status=$(echo "$setup_block" | grep '"status"' | head -1 | cut -d'"' -f4)
+        setup_exit_code=$(echo "$setup_block" | grep '"exit_code"' | grep -o '[0-9]*' | head -1)
+        kubelet_status=$(echo "$setup_block" | grep '"kubelet_status"' | cut -d'"' -f4)
+        api_responsive=$(echo "$setup_block" | grep '"api_responsive"' | sed 's/.*: *"\?\([^",]*\)"\?.*/\1/')
+        local cleanup_block
+        cleanup_block=$(echo "$json_content" | sed -n '/"cleanup_test":/,/^  }/p')
+        cleanup_status=$(echo "$cleanup_block" | grep '"status"' | head -1 | cut -d'"' -f4)
+        cleanup_exit_code=$(echo "$cleanup_block" | grep '"exit_code"' | grep -o '[0-9]*' | head -1)
+        services_stopped=$(echo "$cleanup_block" | grep '"services_stopped"' | cut -d'"' -f4)
+        config_cleaned=$(echo "$cleanup_block" | grep '"config_cleaned"' | cut -d'"' -f4)
+        packages_removed=$(echo "$cleanup_block" | grep '"packages_removed"' | cut -d'"' -f4)
+    fi
+
     echo "Setup Test:"
-    local setup_block=$(echo "$json_content" | sed -n '/"setup_test":/,/^  }/p')
-    local setup_status=$(echo "$setup_block" | grep '"status"' | head -1 | cut -d'"' -f4)
-    local setup_exit_code=$(echo "$setup_block" | grep '"exit_code"' | grep -o '[0-9]*' | head -1)
-    local kubelet_status=$(echo "$setup_block" | grep '"kubelet_status"' | cut -d'"' -f4)
-    local api_responsive=$(echo "$setup_block" | grep '"api_responsive"' | sed 's/.*: *"\?\([^",]*\)"\?.*/\1/')
-    
     echo "  Status: ${setup_status:-unknown}"
     echo "  Exit Code: ${setup_exit_code:-unknown}"
     echo "  Kubelet Status: ${kubelet_status:-unknown}"
     echo "  API Responsive: ${api_responsive:-unknown}"
-    
-    # Cleanup test results - parse from the cleanup_test block
     echo "Cleanup Test:"
-    local cleanup_block=$(echo "$json_content" | sed -n '/"cleanup_test":/,/^  }/p')
-    local cleanup_status=$(echo "$cleanup_block" | grep '"status"' | head -1 | cut -d'"' -f4)
-    local cleanup_exit_code=$(echo "$cleanup_block" | grep '"exit_code"' | grep -o '[0-9]*' | head -1)
-    local services_stopped=$(echo "$cleanup_block" | grep '"services_stopped"' | cut -d'"' -f4)
-    local config_cleaned=$(echo "$cleanup_block" | grep '"config_cleaned"' | cut -d'"' -f4)
-    local packages_removed=$(echo "$cleanup_block" | grep '"packages_removed"' | cut -d'"' -f4)
-    
     echo "  Status: ${cleanup_status:-unknown}"
     echo "  Exit Code: ${cleanup_exit_code:-unknown}"
     echo "  Services Stopped: ${services_stopped:-unknown}"
     echo "  Config Cleaned: ${config_cleaned:-unknown}"
     echo "  Packages Removed: ${packages_removed:-unknown}"
     echo "=================="
-    
-    # Determine results
+
     if [ "$overall_status" = "success" ]; then
-        log_success "✅ Test PASSED for $distro (both setup and cleanup succeeded)"
+        log_success "Test PASSED for $distro (both setup and cleanup succeeded)"
         return 0
     else
         if [ "$setup_status" != "success" ]; then
-            log_error "❌ Setup test FAILED for $distro"
+            log_error "Setup test FAILED for $distro"
         fi
         if [ "$cleanup_status" != "success" ] && [ "$cleanup_status" != "skipped" ]; then
-            log_error "❌ Cleanup test FAILED for $distro"
+            log_error "Cleanup test FAILED for $distro"
         fi
-        log_error "❌ Test FAILED for $distro"
+        log_error "Test FAILED for $distro"
         return 1
     fi
 }
@@ -554,10 +566,15 @@ test_all() {
         # Add individual test result details to summary
         if [ -f "results/test-result.json" ]; then
             echo "  Details from test-result.json:" >> "$summary_file"
-            # Extract setup and cleanup status
-            local setup_status=$(grep -A5 '"setup_test"' results/test-result.json | grep '"status"' | head -1 | cut -d'"' -f4)
-            local cleanup_status=$(grep -A5 '"cleanup_test"' results/test-result.json | grep '"status"' | head -1 | cut -d'"' -f4)
-            echo "    Setup: $setup_status, Cleanup: $cleanup_status" >> "$summary_file"
+            local s_status="" c_status=""
+            if command -v jq &>/dev/null; then
+                s_status=$(jq -r '.setup_test.status // "unknown"' results/test-result.json)
+                c_status=$(jq -r '.cleanup_test.status // "unknown"' results/test-result.json)
+            else
+                s_status=$(grep -A5 '"setup_test"' results/test-result.json | grep '"status"' | head -1 | cut -d'"' -f4)
+                c_status=$(grep -A5 '"cleanup_test"' results/test-result.json | grep '"status"' | head -1 | cut -d'"' -f4)
+            fi
+            echo "    Setup: $s_status, Cleanup: $c_status" >> "$summary_file"
         fi
     done
     

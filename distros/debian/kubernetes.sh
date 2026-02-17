@@ -1,8 +1,10 @@
 #!/bin/bash
 
-# Source common variables
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/../../common/variables.sh"
+# Source common variables (only when not already loaded by the entry script)
+if [ -z "${K8S_VERSION+x}" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "${SCRIPT_DIR}/../../common/variables.sh" 2>/dev/null || true
+fi
 
 # Setup Kubernetes for Debian/Ubuntu
 setup_kubernetes_debian() {
@@ -11,8 +13,10 @@ setup_kubernetes_debian() {
     # Create keyrings directory if it doesn't exist
     mkdir -p /etc/apt/keyrings
     
-    # Add Kubernetes repository
-    curl -fsSL https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/deb/Release.key | gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    # Add Kubernetes repository GPG key (skip if already present for this version)
+    if [ ! -f /etc/apt/keyrings/kubernetes-apt-keyring.gpg ]; then
+        curl -fsSL --retry 3 --retry-delay 2 "https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/deb/Release.key" | gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    fi
     echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list
     
     apt-get update
