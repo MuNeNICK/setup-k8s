@@ -401,28 +401,30 @@ If the script fails to detect your distribution correctly:
 
 ## Distribution Test Results
 
+Tested with Kubernetes v1.35 (latest stable).
+
 | Distribution | Version | Test Date | Status | Notes |
 |-------------|---------|-----------|---------|-------|
-| Ubuntu | 24.04 LTS | 2026-02-17 | ✅ Tested | |
-| Ubuntu | 22.04 LTS | 2026-02-17 | ✅ Tested | |
-| Ubuntu | 20.04 LTS | 2026-02-17 | ✅ Tested | |
-| Debian | 12 (Bookworm) | 2026-02-17 | ✅ Tested | |
-| Debian | 11 (Bullseye) | 2026-02-17 | ✅ Tested | |
-| RHEL | 9 | 2026-02-17 | 🚫 Untested | Subscription required |
-| RHEL | 8 | 2026-02-17 | 🚫 Untested | Subscription required |
-| CentOS | 7 | 2026-02-17 | 🚫 Untested | EOL |
-| CentOS Stream | 9 | 2026-02-17 | ✅ Tested | |
-| CentOS Stream | 8 | 2026-02-17 | 🚫 Untested | EOL |
-| Rocky Linux | 9 | 2026-02-17 | ✅ Tested | |
-| Rocky Linux | 8 | 2026-02-17 | ⚠️ Partial | Kernel 4.18 - K8s 1.28 only¹ |
-| AlmaLinux | 9 | 2026-02-17 | ✅ Tested | |
-| AlmaLinux | 8 | 2026-02-17 | ⚠️ Partial | Kernel 4.18 - K8s 1.28 only¹ |
-| Fedora | 41 | 2026-02-17 | ✅ Tested | |
-| Fedora | 39 | 2026-02-17 | 🚫 Untested | EOL |
-| openSUSE | Leap 15.5 | 2026-02-17 | ✅ Tested | |
-| SLES | 15 SP5 | 2026-02-17 | 🚫 Untested | Subscription required |
-| Arch Linux | Rolling | 2026-02-17 | ✅ Tested | |
-| Manjaro | Rolling | 2026-02-17 | 🚫 Untested | No cloud image |
+| Ubuntu | 24.04 LTS | 2026-02-18 | ✅ Tested | |
+| Ubuntu | 22.04 LTS | 2026-02-18 | ✅ Tested | |
+| Ubuntu | 20.04 LTS | 2026-02-18 | ⚠️ Partial | cgroups v1 only ¹ |
+| Debian | 12 (Bookworm) | 2026-02-18 | ✅ Tested | |
+| Debian | 11 (Bullseye) | 2026-02-18 | ✅ Tested | |
+| RHEL | 9 | - | 🚫 Untested | Subscription required |
+| RHEL | 8 | - | 🚫 Untested | Subscription required |
+| CentOS | 7 | - | 🚫 Untested | EOL |
+| CentOS Stream | 9 | 2026-02-18 | ✅ Tested | |
+| CentOS Stream | 8 | - | 🚫 Untested | EOL |
+| Rocky Linux | 9 | 2026-02-18 | ✅ Tested | |
+| Rocky Linux | 8 | 2026-02-18 | ⚠️ Partial | cgroups v1 only ¹ |
+| AlmaLinux | 9 | 2026-02-18 | ✅ Tested | |
+| AlmaLinux | 8 | 2026-02-18 | ⚠️ Partial | cgroups v1 only ¹ |
+| Fedora | 41 | 2026-02-18 | ✅ Tested | |
+| Fedora | 39 | - | 🚫 Untested | EOL |
+| openSUSE | Leap 15.5 | 2026-02-18 | ⚠️ Partial | cgroups v1 only ¹ |
+| SLES | 15 SP5 | - | 🚫 Untested | Subscription required |
+| Arch Linux | Rolling | 2026-02-18 | ✅ Tested | |
+| Manjaro | Rolling | - | 🚫 Untested | No cloud image |
 
 Status Legend:
 - ✅ Tested: Fully tested and working
@@ -431,6 +433,6 @@ Status Legend:
 - 🚫 Untested: Not yet tested
 
 Notes:
-¹ Rocky Linux 8 and AlmaLinux 8 have kernel 4.18 which is not supported by Kubernetes 1.29+. Use `--kubernetes-version 1.28` or upgrade kernel.
+¹ Kubernetes 1.35 disabled cgroups v1 support by default. Use `--kubernetes-version 1.34` or earlier on these distributions.
 
 Note: Test dates and results should be updated regularly. Please submit your test results via issues or pull requests.
