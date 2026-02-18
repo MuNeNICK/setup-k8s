@@ -4,7 +4,7 @@
 
 Download and run the installation script:
 ```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- [options]
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- init
 ```
 
 Manual download and inspection:
@@ -12,7 +12,7 @@ Manual download and inspection:
 curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh -o setup-k8s.sh
 less setup-k8s.sh
 chmod +x setup-k8s.sh
-sudo ./setup-k8s.sh [options]
+sudo ./setup-k8s.sh init
 ```
 
 ## Web Installer (--gui)
@@ -41,24 +41,24 @@ curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | \
   sudo bash -s -- --gui 0.0.0.0:9000
 ```
 
-## Master Node Installation
+## Cluster Initialization
 
 Basic setup with default containerd:
 ```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- --node-type master
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- init
 ```
 
 Setup with CRI-O runtime:
 ```bash
 curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- \
-  --node-type master \
+  init \
   --cri crio
 ```
 
 Advanced setup:
 ```bash
 curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- \
-  --node-type master \
+  init \
   --kubernetes-version 1.29 \
   --cri containerd \
   --pod-network-cidr 192.168.0.0/16 \
@@ -69,7 +69,7 @@ curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo ba
 Setup with IPVS mode for better performance:
 ```bash
 curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- \
-  --node-type master \
+  init \
   --proxy-mode ipvs \
   --pod-network-cidr 192.168.0.0/16
 ```
@@ -77,31 +77,42 @@ curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo ba
 Setup with nftables mode (requires K8s 1.29+):
 ```bash
 curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- \
-  --node-type master \
+  init \
   --proxy-mode nftables \
   --kubernetes-version 1.31 \
   --pod-network-cidr 192.168.0.0/16
 ```
 
-## Worker Node Installation
+## Joining a Cluster
 
-Obtain join information from master node:
+Obtain join information from the control-plane node:
 ```bash
-# Run on master node
+# Run on control-plane node
 kubeadm token create --print-join-command
 ```
 
-Join worker node:
+Join as a worker node:
 ```bash
 curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- \
-  --node-type worker \
+  join \
   --cri containerd \
   --join-token <token> \
   --join-address <address> \
   --discovery-token-hash <hash>
 ```
 
-Note: The worker node must use the same CRI as the master node.
+Join as a control-plane node (HA cluster):
+```bash
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- \
+  join \
+  --control-plane \
+  --certificate-key <key> \
+  --join-token <token> \
+  --join-address <address> \
+  --discovery-token-hash <hash>
+```
+
+Note: The joining node must use the same CRI as the existing cluster.
 
 ## Prerequisites
 

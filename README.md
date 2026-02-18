@@ -9,15 +9,15 @@ Proxy mode, CRI, version pinning, and many other options are fully configurable.
 
 ## Quick Start
 
-### Master Node
+### Initialize Cluster
 ```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- --node-type master
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- init
 ```
 
-### Worker Node
+### Join Cluster
 ```bash
 curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- \
-  --node-type worker \
+  join \
   --join-token <token> \
   --join-address <address> \
   --discovery-token-hash <hash>
@@ -25,7 +25,7 @@ curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo ba
 
 ### Cleanup
 ```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/cleanup-k8s.sh | sudo bash -s -- --node-type master
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/cleanup-k8s.sh | sudo bash -s -- --force
 ```
 
 ## Documentation

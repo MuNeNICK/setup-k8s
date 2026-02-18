@@ -425,8 +425,8 @@ run_vm_container() {
     fi
 
     # --- Phase 1: Run setup-k8s.sh ---
-    log_info "Starting Kubernetes setup (master node)..."
-    vm_ssh "bash -c 'nohup bash /tmp/setup-k8s.sh --node-type master ${k8s_version_arg} ${setup_extra_args_str} > /tmp/setup-k8s.log 2>&1; echo \$? > /tmp/setup-exit-code' &" >/dev/null 2>&1
+    log_info "Starting Kubernetes setup (init)..."
+    vm_ssh "bash -c 'nohup bash /tmp/setup-k8s.sh init ${k8s_version_arg} ${setup_extra_args_str} > /tmp/setup-k8s.log 2>&1; echo \$? > /tmp/setup-exit-code' &" >/dev/null 2>&1
 
     # Poll for setup completion
     local start_time

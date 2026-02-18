@@ -37,15 +37,77 @@ In clusters with 5000-10000 services:
 
 IPVS mode:
 ```bash
-./setup-k8s.sh --node-type master --proxy-mode ipvs
+./setup-k8s.sh init --proxy-mode ipvs
 ```
 
 nftables mode (requires K8s 1.29+):
 ```bash
-./setup-k8s.sh --node-type master --proxy-mode nftables --kubernetes-version 1.31
+./setup-k8s.sh init --proxy-mode nftables --kubernetes-version 1.31
 ```
 
 **Note**: If prerequisites are not met, the script will automatically fall back to iptables mode.
+
+## HA Cluster with kube-vip
+
+The script supports deploying a highly available control plane using [kube-vip](https://kube-vip.io/) for Virtual IP (VIP) management. kube-vip runs as a static pod on each control-plane node and provides a floating VIP using ARP-based leader election.
+
+### How It Works
+
+1. During `init`, the script deploys a kube-vip static pod manifest to `/etc/kubernetes/manifests/kube-vip.yaml` **before** running `kubeadm init`.
+2. The `--control-plane-endpoint` is automatically set to `<VIP>:6443` (unless manually overridden).
+3. After init, the script uploads certificates and displays the join command for additional control-plane nodes.
+4. Additional control-plane nodes join using `setup-k8s.sh join --control-plane --certificate-key <key> ...`.
+
+### Flags
+
+| Flag | Description | Required |
+|------|-------------|----------|
+| `--ha` | Enable HA mode (init only) | Yes |
+| `--ha-vip ADDRESS` | The Virtual IP address | Yes (when --ha) |
+| `--ha-interface IFACE` | Network interface to bind the VIP | No (auto-detected) |
+
+### Example: Initialize an HA Cluster
+
+```bash
+# On the first control-plane node
+sudo ./setup-k8s.sh init \
+  --ha \
+  --ha-vip 192.168.1.100 \
+  --pod-network-cidr 192.168.0.0/16
+```
+
+The script will output the certificate key and join command for additional control-plane nodes.
+
+### Example: Join Additional Control-Plane Nodes
+
+```bash
+# On each additional control-plane node
+sudo ./setup-k8s.sh join \
+  --control-plane \
+  --certificate-key <certificate-key> \
+  --ha-vip 192.168.1.100 \
+  --join-token <token> \
+  --join-address 192.168.1.100:6443 \
+  --discovery-token-hash <hash>
+```
+
+**Note:** `--ha-vip` deploys a kube-vip static pod on each control-plane node, enabling VIP failover if the initial node goes down.
+
+### Example: Join Worker Nodes
+
+```bash
+# On each worker node
+sudo ./setup-k8s.sh join \
+  --join-token <token> \
+  --join-address 192.168.1.100:6443 \
+  --discovery-token-hash <hash>
+```
+
+### Requirements
+
+- The VIP address must be an unused IP on the same subnet as the control-plane nodes.
+- The network interface is auto-detected from the default route if `--ha-interface` is omitted.
+- Both containerd and CRI-O are supported as container runtimes.
 
 ## CNI Setup
 Install a Container Network Interface (CNI) plugin:

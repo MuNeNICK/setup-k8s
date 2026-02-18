@@ -62,13 +62,14 @@ test_variables_defaults() {
         source "$PROJECT_ROOT/common/variables.sh"
         _assert_eq "LOG_LEVEL default" "1" "$LOG_LEVEL"
         _assert_eq "DRY_RUN default" "false" "$DRY_RUN"
-        _assert_eq "NODE_TYPE default" "master" "$NODE_TYPE"
+        _assert_eq "ACTION default" "" "$ACTION"
         _assert_eq "CRI default" "containerd" "$CRI"
         _assert_eq "PROXY_MODE default" "iptables" "$PROXY_MODE"
         _assert_eq "FORCE default" "false" "$FORCE"
         _assert_eq "ENABLE_COMPLETION default" "true" "$ENABLE_COMPLETION"
         _assert_eq "INSTALL_HELM default" "false" "$INSTALL_HELM"
         _assert_eq "JOIN_AS_CONTROL_PLANE default" "false" "$JOIN_AS_CONTROL_PLANE"
+        _assert_eq "HA_ENABLED default" "false" "$HA_ENABLED"
         _assert_eq "K8S_VERSION_FALLBACK default" "1.32" "$K8S_VERSION_FALLBACK"
         _assert_eq "KUBEADM_ARGS is array" "0" "${#KUBEADM_ARGS[@]}"
     )
@@ -139,16 +140,16 @@ test_parse_setup_args() {
         source "$PROJECT_ROOT/common/variables.sh"
         source "$PROJECT_ROOT/common/validation.sh"
 
-        parse_setup_args --node-type worker --cri crio --kubernetes-version 1.31 \
+        ACTION="join"
+        parse_setup_args --cri crio --kubernetes-version 1.31 \
             --join-token abc --join-address 1.2.3.4:6443 \
             --discovery-token-hash sha256:xyz \
             --proxy-mode ipvs --install-helm true \
             --pod-network-cidr 10.244.0.0/16 --service-cidr 10.96.0.0/12
 
-        _assert_eq "NODE_TYPE parsed" "worker" "$NODE_TYPE"
+        _assert_eq "ACTION" "join" "$ACTION"
         _assert_eq "CRI parsed" "crio" "$CRI"
         _assert_eq "K8S_VERSION parsed" "1.31" "$K8S_VERSION"
-        _assert_eq "K8S_VERSION_USER_SET" "true" "$K8S_VERSION_USER_SET"
         _assert_eq "JOIN_TOKEN parsed" "abc" "$JOIN_TOKEN"
         _assert_eq "JOIN_ADDRESS parsed" "1.2.3.4:6443" "$JOIN_ADDRESS"
         _assert_eq "PROXY_MODE parsed" "ipvs" "$PROXY_MODE"
@@ -168,11 +169,161 @@ test_parse_ha_args() {
         source "$PROJECT_ROOT/common/variables.sh"
         source "$PROJECT_ROOT/common/validation.sh"
 
-        parse_setup_args --node-type worker --control-plane --certificate-key mykey123 \
+        ACTION="join"
+        parse_setup_args --control-plane --certificate-key mykey123 \
             --join-token abc --join-address 1.2.3.4:6443 --discovery-token-hash sha256:xyz
 
         _assert_eq "JOIN_AS_CONTROL_PLANE" "true" "$JOIN_AS_CONTROL_PLANE"
         _assert_eq "CERTIFICATE_KEY" "mykey123" "$CERTIFICATE_KEY"
+    )
+}
+
+# ============================================================
+# Test: parse_setup_args HA kube-vip flags
+# ============================================================
+test_parse_ha_kube_vip_args() {
+    echo "=== Test: parse_setup_args HA kube-vip flags ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        ACTION="init"
+        parse_setup_args --ha --ha-vip 192.168.1.100 --ha-interface eth0
+
+        _assert_eq "HA_ENABLED" "true" "$HA_ENABLED"
+        _assert_eq "HA_VIP_ADDRESS" "192.168.1.100" "$HA_VIP_ADDRESS"
+        _assert_eq "HA_VIP_INTERFACE" "eth0" "$HA_VIP_INTERFACE"
+    )
+}
+
+# ============================================================
+# Test: _kube_vip_kubeconfig_path version guard
+# ============================================================
+test_kube_vip_kubeconfig_path() {
+    echo "=== Test: _kube_vip_kubeconfig_path version guard ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/helpers.sh"
+
+        K8S_VERSION="1.35"
+        _assert_eq "K8s 1.35 uses super-admin.conf" \
+            "/etc/kubernetes/super-admin.conf" "$(_kube_vip_kubeconfig_path)"
+
+        K8S_VERSION="1.29"
+        _assert_eq "K8s 1.29 uses super-admin.conf" \
+            "/etc/kubernetes/super-admin.conf" "$(_kube_vip_kubeconfig_path)"
+
+        K8S_VERSION="1.28"
+        _assert_eq "K8s 1.28 uses admin.conf" \
+            "/etc/kubernetes/admin.conf" "$(_kube_vip_kubeconfig_path)"
+
+        K8S_VERSION="1.27"
+        _assert_eq "K8s 1.27 uses admin.conf" \
+            "/etc/kubernetes/admin.conf" "$(_kube_vip_kubeconfig_path)"
+
+        K8S_VERSION=""
+        _assert_eq "empty version uses admin.conf" \
+            "/etc/kubernetes/admin.conf" "$(_kube_vip_kubeconfig_path)"
+    )
+}
+
+# ============================================================
+# Test: _generate_kube_vip_manifest produces valid YAML
+# ============================================================
+test_generate_kube_vip_manifest() {
+    echo "=== Test: _generate_kube_vip_manifest ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/helpers.sh"
+
+        local manifest
+        manifest=$(_generate_kube_vip_manifest "10.0.0.100" "eth0" "ghcr.io/kube-vip/kube-vip:v0.8.9" "/etc/kubernetes/super-admin.conf")
+
+        local has_vip="false"
+        if echo "$manifest" | grep -q 'value: "10.0.0.100"'; then has_vip="true"; fi
+        _assert_eq "manifest contains VIP" "true" "$has_vip"
+
+        local has_iface="false"
+        if echo "$manifest" | grep -q 'value: "eth0"'; then has_iface="true"; fi
+        _assert_eq "manifest contains interface" "true" "$has_iface"
+
+        local has_kubeconfig="false"
+        if echo "$manifest" | grep -q 'path: /etc/kubernetes/super-admin.conf'; then has_kubeconfig="true"; fi
+        _assert_eq "manifest contains kubeconfig path" "true" "$has_kubeconfig"
+
+        local has_image="false"
+        if echo "$manifest" | grep -q 'image: ghcr.io/kube-vip/kube-vip:v0.8.9'; then has_image="true"; fi
+        _assert_eq "manifest contains image" "true" "$has_image"
+    )
+}
+
+# ============================================================
+# Test: validate_ha_args for join --control-plane with --ha-vip
+# ============================================================
+test_validate_ha_join_cp() {
+    echo "=== Test: validate_ha_args join --control-plane ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        # join --control-plane with --ha-vip should pass (interface auto-detect may fail,
+        # so provide it explicitly)
+        ACTION="join"
+        JOIN_AS_CONTROL_PLANE=true
+        HA_VIP_ADDRESS="10.0.0.100"
+        HA_VIP_INTERFACE="eth0"
+        validate_ha_args
+        _assert_eq "join CP with ha-vip passes" "10.0.0.100" "$HA_VIP_ADDRESS"
+
+        # join worker with --ha-vip should fail
+        ACTION="join"
+        JOIN_AS_CONTROL_PLANE=false
+        HA_VIP_ADDRESS="10.0.0.100"
+        HA_VIP_INTERFACE="eth0"
+        local exit_code=0
+        (validate_ha_args) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "join worker with ha-vip rejected" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: _require_value catches missing arguments
+# ============================================================
+test_require_value() {
+    echo "=== Test: _require_value argument guard ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        # Simulating $# = 1 (only the flag, no value)
+        local exit_code=0
+        (_require_value 1 "--cri") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "_require_value rejects missing value" "0" "$exit_code"
+
+        # Simulating $# = 2 (flag + value present)
+        exit_code=0
+        (_require_value 2 "--cri") >/dev/null 2>&1 || exit_code=$?
+        _assert_eq "_require_value accepts present value" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: unknown option exits with non-zero
+# ============================================================
+test_unknown_option_exit_code() {
+    echo "=== Test: unknown option exit code ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        local exit_code=0
+        ACTION="init"
+        (parse_setup_args --bogus-flag) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "parse_setup_args rejects unknown option" "0" "$exit_code"
+
+        exit_code=0
+        (parse_cleanup_args --bogus-flag) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "parse_cleanup_args rejects unknown option" "0" "$exit_code"
     )
 }
 
@@ -258,6 +409,12 @@ test_logging
 test_kernel_version_comparison
 test_parse_setup_args
 test_parse_ha_args
+test_parse_ha_kube_vip_args
+test_kube_vip_kubeconfig_path
+test_generate_kube_vip_manifest
+test_validate_ha_join_cp
+test_require_value
+test_unknown_option_exit_code
 test_help_early_exit
 test_validate_proxy_mode
 test_pipefail_safety

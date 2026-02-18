@@ -3,12 +3,20 @@
 ## setup-k8s.sh
 
 ```
-Usage: setup-k8s.sh [options]
+Usage: setup-k8s.sh <init|join> [options]
 ```
+
+### Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `init` | Initialize a new Kubernetes cluster |
+| `join` | Join an existing cluster as a worker or control-plane node |
+
+### Options
 
 | Option | Description | Default | Example |
 |--------|-------------|---------|---------|
-| `--node-type TYPE` | Node type (master or worker) | — | `--node-type master` |
 | `--cri RUNTIME` | Container runtime (containerd or crio) | `containerd` | `--cri crio` |
 | `--proxy-mode MODE` | Kube-proxy mode (iptables, ipvs, or nftables) | `iptables` | `--proxy-mode nftables` |
 | `--pod-network-cidr CIDR` | Pod network CIDR | — | `--pod-network-cidr 192.168.0.0/16` |
@@ -16,11 +24,14 @@ Usage: setup-k8s.sh [options]
 | `--control-plane-endpoint ENDPOINT` | Control plane endpoint | — | `--control-plane-endpoint cluster.example.com` |
 | `--service-cidr CIDR` | Service CIDR | — | `--service-cidr 10.96.0.0/12` |
 | `--kubernetes-version VER` | Kubernetes version | — | `--kubernetes-version 1.29` |
-| `--join-token TOKEN` | Join token for worker nodes | — | `--join-token abcdef.1234567890abcdef` |
-| `--join-address ADDR` | Master node address for worker nodes | — | `--join-address 192.168.1.10:6443` |
-| `--discovery-token-hash HASH` | Discovery token hash for worker nodes | — | `--discovery-token-hash sha256:abc...` |
-| `--control-plane` | Join as control-plane node (HA cluster) | — | `--control-plane` |
+| `--join-token TOKEN` | Join token (join only) | — | `--join-token abcdef.1234567890abcdef` |
+| `--join-address ADDR` | Control plane address (join only) | — | `--join-address 192.168.1.10:6443` |
+| `--discovery-token-hash HASH` | Discovery token hash (join only) | — | `--discovery-token-hash sha256:abc...` |
+| `--control-plane` | Join as control-plane node (join only, HA cluster) | — | `--control-plane` |
 | `--certificate-key KEY` | Certificate key for control-plane join | — | `--certificate-key abc123` |
+| `--ha` | Enable HA mode with kube-vip (init only) | — | `--ha` |
+| `--ha-vip ADDRESS` | VIP address (required when --ha is set) | — | `--ha-vip 192.168.1.100` |
+| `--ha-interface IFACE` | Network interface for VIP | auto-detect | `--ha-interface eth0` |
 | `--enable-completion BOOL` | Enable shell completion setup | `true` | `--enable-completion false` |
 | `--completion-shells LIST` | Shells to configure (auto, bash, zsh, fish, or comma-separated) | `auto` | `--completion-shells bash,zsh` |
 | `--install-helm BOOL` | Install Helm package manager | `false` | `--install-helm true` |
@@ -41,7 +52,6 @@ Usage: cleanup-k8s.sh [options]
 |--------|-------------|---------|---------|
 | `--force` | Skip confirmation prompt | — | `--force` |
 | `--preserve-cni` | Preserve CNI configurations | — | `--preserve-cni` |
-| `--node-type TYPE` | Specify node type (master/worker) to override auto-detection | auto-detect | `--node-type master` |
 | `--verbose` | Enable debug logging | — | `--verbose` |
 | `--quiet` | Suppress informational messages (errors only) | — | `--quiet` |
 | `--offline` | Run in offline mode (use bundled modules) | — | `--offline` |

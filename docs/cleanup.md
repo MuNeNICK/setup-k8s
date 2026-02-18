@@ -9,25 +9,25 @@ curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/cleanup-k8s.sh | sudo 
 
 ## Worker Node Cleanup
 
-1. Drain the node (run on master):
+1. Drain the node (run on control-plane):
 ```bash
 kubectl drain <worker-node-name> --ignore-daemonsets
 kubectl delete node <worker-node-name>
 ```
 
-2. Run cleanup on worker:
+2. Run cleanup on the worker:
 ```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/cleanup-k8s.sh | sudo bash -s -- --node-type worker
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/cleanup-k8s.sh | sudo bash -s -- --force
 ```
 
-## Master Node Cleanup
+## Control-Plane Node Cleanup
 
 **Warning**: This will destroy your entire cluster.
 
 1. Ensure all worker nodes are removed first
 2. Run cleanup:
 ```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/cleanup-k8s.sh | sudo bash -s -- --node-type master
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/cleanup-k8s.sh | sudo bash -s -- --force
 ```
 
 ## Options

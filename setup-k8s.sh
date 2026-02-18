@@ -88,10 +88,13 @@ while [ $i -lt ${#original_args[@]} ]; do
     case "$arg" in
         --help|-h)
             cat <<'HELPEOF'
-Usage: setup-k8s.sh [options]
+Usage: setup-k8s.sh <init|join> [options]
+
+Subcommands:
+  init                    Initialize a new Kubernetes cluster
+  join                    Join an existing cluster as a worker or control-plane node
 
 Options:
-  --node-type TYPE        Node type (master or worker)
   --cri RUNTIME           Container runtime (containerd or crio). Default: containerd
   --proxy-mode MODE       Kube-proxy mode (iptables, ipvs, or nftables). Default: iptables
   --pod-network-cidr CIDR Pod network CIDR (e.g., 192.168.0.0/16)
@@ -99,11 +102,14 @@ Options:
   --control-plane-endpoint ENDPOINT   Control plane endpoint
   --service-cidr CIDR     Service CIDR (e.g., 10.96.0.0/12)
   --kubernetes-version VER Kubernetes version (e.g., 1.29, 1.28)
-  --join-token TOKEN      Join token for worker nodes
-  --join-address ADDR     Master node address for worker nodes
-  --discovery-token-hash HASH  Discovery token hash for worker nodes
-  --control-plane         Join as control-plane node (HA cluster)
+  --join-token TOKEN      Join token (join only)
+  --join-address ADDR     Control plane address (join only)
+  --discovery-token-hash HASH  Discovery token hash (join only)
+  --control-plane         Join as control-plane node (join only, HA cluster)
   --certificate-key KEY   Certificate key for control-plane join
+  --ha                    Enable HA mode with kube-vip (init only)
+  --ha-vip ADDRESS        VIP address (required when --ha; also for join --control-plane)
+  --ha-interface IFACE    Network interface for VIP (auto-detected if omitted)
   --enable-completion BOOL  Enable shell completion setup (default: true)
   --completion-shells LIST  Shells to configure (auto, bash, zsh, fish, or comma-separated)
   --install-helm BOOL     Install Helm package manager (default: false)
@@ -158,13 +164,19 @@ HELPEOF
             ((i += 1))
             continue
             ;;
+        init|join)
+            ACTION="$arg"
+            ((i += 1))
+            continue
+            ;;
     esac
     ((i += 1))
 done
 
-# Declare DRY_RUN / LOG_LEVEL defaults if not set by early parse
+# Declare DRY_RUN / LOG_LEVEL / ACTION defaults if not set by early parse
 DRY_RUN="${DRY_RUN:-false}"
 LOG_LEVEL="${LOG_LEVEL:-1}"
+ACTION="${ACTION:-}"
 
 # Function to load modules
 load_modules() {
@@ -254,7 +266,7 @@ main() {
         fi
     fi
 
-    # Strip special flags that have already been handled
+    # Strip special flags and subcommand that have already been handled
     local -a cli_args=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -269,6 +281,10 @@ main() {
                 fi
                 ;;
             --gui=*)
+                shift
+                ;;
+            init|join)
+                # Already handled in early parse
                 shift
                 ;;
             *)
@@ -293,8 +309,8 @@ main() {
 
     # Validate inputs
     check_root
-    validate_node_type
-    validate_worker_args
+    validate_action
+    validate_join_args
     validate_cri
     validate_completion_options
 
@@ -309,10 +325,13 @@ main() {
     # Validate proxy mode after K8S_VERSION is determined
     validate_proxy_mode
 
+    # Validate HA arguments
+    validate_ha_args
+
     # Dry-run: show configuration summary and exit
     if [ "$DRY_RUN" = true ]; then
         echo "=== Dry-run Configuration Summary ==="
-        echo "Node type: ${NODE_TYPE}"
+        echo "Action: ${ACTION}"
         echo "Container Runtime: ${CRI}"
         echo "Proxy mode: ${PROXY_MODE}"
         echo "Kubernetes Version (minor): ${K8S_VERSION}"
@@ -325,12 +344,17 @@ main() {
         if [ "$JOIN_AS_CONTROL_PLANE" = true ]; then
             echo "HA Mode: joining as control-plane"
         fi
+        if [ "$HA_ENABLED" = true ]; then
+            echo "HA Mode: kube-vip enabled"
+            echo "HA VIP: ${HA_VIP_ADDRESS}"
+            echo "HA Interface: ${HA_VIP_INTERFACE}"
+        fi
         echo "=== End of dry-run (no changes made) ==="
         exit 0
     fi
 
     echo "Starting Kubernetes initialization script..."
-    echo "Node type: ${NODE_TYPE}"
+    echo "Action: ${ACTION}"
     echo "Container Runtime: ${CRI}"
     echo "Proxy mode: ${PROXY_MODE}"
     echo "Kubernetes Version (minor): ${K8S_VERSION}"
@@ -389,11 +413,11 @@ main() {
     # Reset iptables rules
     reset_iptables
 
-    # Initialize or join cluster based on node type
-    if [[ "$NODE_TYPE" == "master" ]]; then
-        initialize_master
+    # Initialize or join cluster based on action
+    if [[ "$ACTION" == "init" ]]; then
+        initialize_cluster
     else
-        join_worker
+        join_cluster
     fi
 
     # Show installed versions

@@ -8,19 +8,19 @@ check_root() {
     fi
 }
 
-# Validate node type
-validate_node_type() {
-    if [[ "$NODE_TYPE" != "master" && "$NODE_TYPE" != "worker" ]]; then
-        echo "Error: Node type must be either 'master' or 'worker'"
+# Validate action (init or join)
+validate_action() {
+    if [[ "$ACTION" != "init" && "$ACTION" != "join" ]]; then
+        echo "Error: First argument must be 'init' or 'join' subcommand"
         exit 1
     fi
 }
 
-# Check required arguments for worker nodes
-validate_worker_args() {
-    if [[ "$NODE_TYPE" == "worker" ]]; then
+# Check required arguments for join
+validate_join_args() {
+    if [[ "$ACTION" == "join" ]]; then
         if [[ -z "$JOIN_TOKEN" || -z "$JOIN_ADDRESS" || -z "$DISCOVERY_TOKEN_HASH" ]]; then
-            echo "Error: Worker nodes require --join-token, --join-address, and --discovery-token-hash"
+            echo "Error: join requires --join-token, --join-address, and --discovery-token-hash"
             exit 1
         fi
         # Validate HA control-plane join args
@@ -111,12 +111,61 @@ validate_proxy_mode() {
     fi
 }
 
-# Help message for setup
+# Validate HA arguments
+validate_ha_args() {
+    if [ "$HA_ENABLED" = true ]; then
+        if [ "$ACTION" != "init" ]; then
+            echo "Error: --ha is only valid with the 'init' subcommand" >&2
+            exit 1
+        fi
+        if [ -z "$HA_VIP_ADDRESS" ]; then
+            echo "Error: --ha requires --ha-vip ADDRESS" >&2
+            exit 1
+        fi
+    fi
+
+    # VIP address applies to both init --ha and join --control-plane
+    if [ -n "$HA_VIP_ADDRESS" ]; then
+        # On join, --ha-vip requires --control-plane
+        if [ "$ACTION" = "join" ] && [ "$JOIN_AS_CONTROL_PLANE" != true ]; then
+            echo "Error: --ha-vip on join requires --control-plane" >&2
+            exit 1
+        fi
+        # Auto-detect interface if not specified
+        if [ -z "$HA_VIP_INTERFACE" ]; then
+            HA_VIP_INTERFACE=$(ip route get 1 2>/dev/null | awk '{print $5; exit}')
+            if [ -z "$HA_VIP_INTERFACE" ]; then
+                echo "Error: Could not auto-detect network interface. Please specify --ha-interface" >&2
+                exit 1
+            fi
+        fi
+        # Auto-set --control-plane-endpoint for init
+        if [ "$ACTION" = "init" ]; then
+            local cp_endpoint_set=false
+            local i=0
+            while [ $i -lt ${#KUBEADM_ARGS[@]} ]; do
+                if [ "${KUBEADM_ARGS[$i]}" = "--control-plane-endpoint" ]; then
+                    cp_endpoint_set=true
+                    break
+                fi
+                ((i+=1))
+            done
+            if [ "$cp_endpoint_set" = false ]; then
+                KUBEADM_ARGS+=(--control-plane-endpoint "${HA_VIP_ADDRESS}:6443")
+            fi
+        fi
+    fi
+}
+
+# Help message for setup (accepts optional exit code, default 0)
 show_setup_help() {
-    echo "Usage: $0 [options]"
+    echo "Usage: $0 <init|join> [options]"
+    echo ""
+    echo "Subcommands:"
+    echo "  init                    Initialize a new Kubernetes cluster"
+    echo "  join                    Join an existing cluster as a worker or control-plane node"
     echo ""
     echo "Options:"
-    echo "  --node-type TYPE        Node type (master or worker)"
     echo "  --cri RUNTIME           Container runtime (containerd or crio). Default: containerd"
     echo "  --proxy-mode MODE       Kube-proxy mode (iptables, ipvs, or nftables). Default: iptables"
     echo "  --pod-network-cidr CIDR Pod network CIDR (e.g., 192.168.0.0/16)"
@@ -124,11 +173,14 @@ show_setup_help() {
     echo "  --control-plane-endpoint ENDPOINT   Control plane endpoint"
     echo "  --service-cidr CIDR     Service CIDR (e.g., 10.96.0.0/12)"
     echo "  --kubernetes-version VER Kubernetes version (e.g., 1.29, 1.28)"
-    echo "  --join-token TOKEN      Join token for worker nodes"
-    echo "  --join-address ADDR     Master node address for worker nodes"
-    echo "  --discovery-token-hash HASH  Discovery token hash for worker nodes"
-    echo "  --control-plane         Join as control-plane node (HA cluster)"
+    echo "  --join-token TOKEN      Join token (join only)"
+    echo "  --join-address ADDR     Control plane address (join only)"
+    echo "  --discovery-token-hash HASH  Discovery token hash (join only)"
+    echo "  --control-plane         Join as control-plane node (join only, HA cluster)"
     echo "  --certificate-key KEY   Certificate key for control-plane join"
+    echo "  --ha                    Enable HA mode with kube-vip (init only)"
+    echo "  --ha-vip ADDRESS        VIP address (required when --ha; also for join --control-plane)"
+    echo "  --ha-interface IFACE    Network interface for VIP (auto-detected if omitted)"
     echo "  --enable-completion BOOL  Enable shell completion setup (default: true)"
     echo "  --completion-shells LIST  Shells to configure (auto, bash, zsh, fish, or comma-separated)"
     echo "  --install-helm BOOL     Install Helm package manager (default: false)"
@@ -137,21 +189,28 @@ show_setup_help() {
     echo "  --verbose               Enable debug logging"
     echo "  --quiet                 Suppress informational messages"
     echo "  --help                  Display this help message"
-    exit 0
+    exit "${1:-0}"
 }
 
-# Help message for cleanup
+# Help message for cleanup (accepts optional exit code, default 0)
 show_cleanup_help() {
     echo "Usage: $0 [options]"
     echo ""
     echo "Options:"
     echo "  --force         Skip confirmation prompt"
     echo "  --preserve-cni  Preserve CNI configurations"
-    echo "  --node-type     Specify node type (master/worker) to override auto-detection"
     echo "  --verbose       Enable debug logging"
     echo "  --quiet         Suppress informational messages"
     echo "  --help          Display this help message"
-    exit 0
+    exit "${1:-0}"
+}
+
+# Guard for options requiring a value argument
+_require_value() {
+    if [[ $1 -lt 2 ]]; then
+        echo "Error: $2 requires a value" >&2
+        exit 1
+    fi
 }
 
 # Parse command line arguments for setup
@@ -162,31 +221,32 @@ parse_setup_args() {
                 show_setup_help
                 ;;
             --cri)
+                _require_value $# "$1"
                 CRI="$2"
                 shift 2
                 ;;
-            --node-type)
-                NODE_TYPE="$2"
-                shift 2
-                ;;
             --kubernetes-version)
+                _require_value $# "$1"
                 K8S_VERSION="$2"
-                export K8S_VERSION_USER_SET="true"
                 shift 2
                 ;;
             --join-token)
+                _require_value $# "$1"
                 JOIN_TOKEN="$2"
                 shift 2
                 ;;
             --join-address)
+                _require_value $# "$1"
                 JOIN_ADDRESS="$2"
                 shift 2
                 ;;
             --discovery-token-hash)
+                _require_value $# "$1"
                 DISCOVERY_TOKEN_HASH="$2"
                 shift 2
                 ;;
             --proxy-mode)
+                _require_value $# "$1"
                 PROXY_MODE="$2"
                 shift 2
                 ;;
@@ -195,28 +255,47 @@ parse_setup_args() {
                 shift
                 ;;
             --certificate-key)
+                _require_value $# "$1"
                 CERTIFICATE_KEY="$2"
                 shift 2
                 ;;
+            --ha)
+                HA_ENABLED=true
+                shift
+                ;;
+            --ha-vip)
+                _require_value $# "$1"
+                HA_VIP_ADDRESS="$2"
+                shift 2
+                ;;
+            --ha-interface)
+                _require_value $# "$1"
+                HA_VIP_INTERFACE="$2"
+                shift 2
+                ;;
             --enable-completion)
+                _require_value $# "$1"
                 ENABLE_COMPLETION="$2"
                 shift 2
                 ;;
             --install-helm)
+                _require_value $# "$1"
                 INSTALL_HELM="$2"
                 shift 2
                 ;;
             --completion-shells)
+                _require_value $# "$1"
                 COMPLETION_SHELLS="$2"
                 shift 2
                 ;;
             --pod-network-cidr|--apiserver-advertise-address|--control-plane-endpoint|--service-cidr)
+                _require_value $# "$1"
                 KUBEADM_ARGS+=("$1" "$2")
                 shift 2
                 ;;
             *)
-                echo "Unknown option: $1"
-                show_setup_help
+                echo "Unknown option: $1" >&2
+                show_setup_help 1
                 ;;
         esac
     done
@@ -237,13 +316,9 @@ parse_cleanup_args() {
                 export PRESERVE_CNI=true
                 shift
                 ;;
-            --node-type)
-                NODE_TYPE="$2"
-                shift 2
-                ;;
             *)
-                echo "Unknown option: $1"
-                show_cleanup_help
+                echo "Unknown option: $1" >&2
+                show_cleanup_help 1
                 ;;
         esac
     done

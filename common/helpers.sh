@@ -95,30 +95,7 @@ generate_kubeadm_config() {
 
     echo "Generating kubeadm configuration..." >&2
 
-    # Start with base configuration
-    cat > "$config_file" <<EOF
-apiVersion: kubeadm.k8s.io/v1beta3
-kind: InitConfiguration
-EOF
-
-    # Add CRI socket if not using default containerd
-    if [ "$CRI" != "containerd" ]; then
-        local cri_socket
-        cri_socket=$(get_cri_socket)
-        cat >> "$config_file" <<EOF
-nodeRegistration:
-  criSocket: $cri_socket
-EOF
-    fi
-
-    # Add ClusterConfiguration
-    cat >> "$config_file" <<EOF
----
-apiVersion: kubeadm.k8s.io/v1beta3
-kind: ClusterConfiguration
-EOF
-
-    # Parse KUBEADM_ARGS array and add to config
+    # Parse KUBEADM_ARGS array first
     local POD_CIDR="" SERVICE_CIDR="" API_ADDR="" CP_ENDPOINT=""
     local i=0
     while [ $i -lt ${#KUBEADM_ARGS[@]} ]; do
@@ -131,17 +108,41 @@ EOF
         esac
     done
 
+    # InitConfiguration
+    cat > "$config_file" <<EOF
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: InitConfiguration
+EOF
+
+    # localAPIEndpoint under InitConfiguration (not ClusterConfiguration)
+    if [ -n "$API_ADDR" ]; then
+        cat >> "$config_file" <<EOF
+localAPIEndpoint:
+  advertiseAddress: $API_ADDR
+EOF
+    fi
+
+    # Add CRI socket if not using default containerd
+    if [ "$CRI" != "containerd" ]; then
+        local cri_socket
+        cri_socket=$(get_cri_socket)
+        cat >> "$config_file" <<EOF
+nodeRegistration:
+  criSocket: $cri_socket
+EOF
+    fi
+
+    # ClusterConfiguration
+    cat >> "$config_file" <<EOF
+---
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: ClusterConfiguration
+EOF
+
     if [ -n "$POD_CIDR" ] || [ -n "$SERVICE_CIDR" ]; then
         echo "networking:" >> "$config_file"
         [ -n "$POD_CIDR" ]     && echo "  podSubnet: $POD_CIDR" >> "$config_file"
         [ -n "$SERVICE_CIDR" ] && echo "  serviceSubnet: $SERVICE_CIDR" >> "$config_file"
-    fi
-
-    if [ -n "$API_ADDR" ]; then
-        cat >> "$config_file" <<EOF
-apiServer:
-  advertiseAddress: $API_ADDR
-EOF
     fi
 
     if [ -n "$CP_ENDPOINT" ]; then
@@ -187,44 +188,227 @@ _configure_kubectl() {
     fi
 }
 
-# Helper: Initialize Kubernetes cluster (master node)
-initialize_master() {
-    echo "Initializing master node..."
+# Helper: Deploy kube-vip static pod for HA VIP
+# Helper: Determine kubeconfig path for kube-vip.
+# K8s 1.29+ generates super-admin.conf (server: localhost:6443) which avoids
+# the chicken-and-egg problem where admin.conf points to the VIP that kube-vip
+# hasn't yet claimed.  For K8s < 1.29 super-admin.conf doesn't exist, so fall
+# back to admin.conf (which still points to localhost on those versions).
+_kube_vip_kubeconfig_path() {
+    local k8s_minor
+    k8s_minor=$(echo "$K8S_VERSION" | cut -d. -f2)
+    if [ -n "$k8s_minor" ] && [ "$k8s_minor" -ge 29 ] 2>/dev/null; then
+        echo "/etc/kubernetes/super-admin.conf"
+    else
+        echo "/etc/kubernetes/admin.conf"
+    fi
+}
 
-    # Generate configuration file if non-default proxy mode or complex config needed
+# Helper: Generate kube-vip static pod manifest (unified for all CRIs)
+_generate_kube_vip_manifest() {
+    local vip="$1" iface="$2" image="$3" kubeconfig_path="$4"
+    cat <<KVEOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kube-vip
+  namespace: kube-system
+spec:
+  containers:
+  - name: kube-vip
+    image: ${image}
+    args:
+    - manager
+    env:
+    - name: vip_arp
+      value: "true"
+    - name: port
+      value: "6443"
+    - name: vip_interface
+      value: "${iface}"
+    - name: vip_cidr
+      value: "32"
+    - name: cp_enable
+      value: "true"
+    - name: cp_namespace
+      value: kube-system
+    - name: vip_ddns
+      value: "false"
+    - name: vip_leaderelection
+      value: "true"
+    - name: vip_leasename
+      value: plndr-cp-lock
+    - name: vip_leaseduration
+      value: "5"
+    - name: vip_renewdeadline
+      value: "3"
+    - name: vip_retryperiod
+      value: "1"
+    - name: address
+      value: "${vip}"
+    securityContext:
+      capabilities:
+        add:
+        - NET_ADMIN
+        - NET_RAW
+    volumeMounts:
+    - mountPath: /etc/kubernetes/admin.conf
+      name: kubeconfig
+  hostAliases:
+  - hostnames:
+    - kubernetes
+    ip: 127.0.0.1
+  hostNetwork: true
+  volumes:
+  - hostPath:
+      path: ${kubeconfig_path}
+    name: kubeconfig
+KVEOF
+}
+
+# Helper: Remove pre-added VIP on failure
+_rollback_vip() {
+    local vip="$HA_VIP_ADDRESS"
+    local iface="$HA_VIP_INTERFACE"
+    if ip addr show dev "$iface" 2>/dev/null | grep -q "inet ${vip}/"; then
+        echo "Rolling back pre-added VIP $vip from $iface..."
+        ip addr del "${vip}/32" dev "$iface" 2>/dev/null || true
+    fi
+}
+
+# Helper: Verify kube-vip kubeconfig file exists after kubeadm init/join.
+# If the expected file doesn't exist, patch the manifest to use admin.conf.
+_verify_kube_vip_kubeconfig() {
+    local expected_path
+    expected_path=$(_kube_vip_kubeconfig_path)
+    if [ ! -f "$expected_path" ]; then
+        echo "Warning: Expected kubeconfig $expected_path not found"
+        if [ "$expected_path" != "/etc/kubernetes/admin.conf" ] && [ -f "/etc/kubernetes/admin.conf" ]; then
+            echo "Patching kube-vip manifest to use /etc/kubernetes/admin.conf instead..."
+            sed -i "s|path: ${expected_path}|path: /etc/kubernetes/admin.conf|" \
+                /etc/kubernetes/manifests/kube-vip.yaml 2>/dev/null || true
+        fi
+    fi
+}
+
+deploy_kube_vip() {
+    local vip="$HA_VIP_ADDRESS"
+    local iface="$HA_VIP_INTERFACE"
+    local kube_vip_image="ghcr.io/kube-vip/kube-vip:v0.8.9"
+    local manifest_dir="/etc/kubernetes/manifests"
+    local kubeconfig_path
+    kubeconfig_path=$(_kube_vip_kubeconfig_path)
+
+    echo "Deploying kube-vip for HA (VIP=$vip, interface=$iface)..."
+    echo "  kubeconfig: $kubeconfig_path"
+    mkdir -p "$manifest_dir"
+
+    # Pull image based on CRI
+    if [ "$CRI" = "crio" ]; then
+        echo "Pulling kube-vip image via crictl..."
+        crictl pull "$kube_vip_image"
+    else
+        echo "Pulling kube-vip image via ctr..."
+        ctr image pull "$kube_vip_image"
+    fi
+
+    # Generate manifest from unified template (same for all CRIs)
+    _generate_kube_vip_manifest "$vip" "$iface" "$kube_vip_image" "$kubeconfig_path" \
+        > "${manifest_dir}/kube-vip.yaml"
+
+    echo "kube-vip manifest written to ${manifest_dir}/kube-vip.yaml"
+
+    # Pre-add VIP to the interface so it is reachable during kubeadm init
+    # before kube-vip can perform leader election.
+    # kube-vip will take over management of this address once it starts.
+    if ! ip addr show dev "$iface" | grep -q "inet ${vip}/"; then
+        echo "Pre-adding VIP $vip to $iface for bootstrap..."
+        ip addr add "${vip}/32" dev "$iface"
+    fi
+}
+
+# Helper: Initialize Kubernetes cluster
+initialize_cluster() {
+    echo "Initializing cluster..."
+
+    # Deploy kube-vip before kubeadm init if HA is enabled
+    if [ "$HA_ENABLED" = true ]; then
+        deploy_kube_vip
+    fi
+
+    # Run kubeadm init, capturing exit code for rollback
+    local init_exit=0
     if [ "$PROXY_MODE" != "iptables" ] || [ "${#KUBEADM_ARGS[@]}" -gt 0 ]; then
         local CONFIG_FILE
         CONFIG_FILE=$(generate_kubeadm_config)
         echo "Using kubeadm configuration file: $CONFIG_FILE"
-        kubeadm init --config "$CONFIG_FILE"
+        kubeadm init --config "$CONFIG_FILE" || init_exit=$?
         rm -f "$CONFIG_FILE"
     else
-        # Simple init for default iptables mode with no extra args
         if [ "$CRI" != "containerd" ]; then
             local cri_socket
             cri_socket=$(get_cri_socket)
-            kubeadm init --cri-socket "$cri_socket"
+            kubeadm init --cri-socket "$cri_socket" || init_exit=$?
         else
-            kubeadm init
+            kubeadm init || init_exit=$?
         fi
+    fi
+
+    if [ "$init_exit" -ne 0 ]; then
+        echo "Error: kubeadm init failed (exit code: $init_exit)"
+        if [ "$HA_ENABLED" = true ]; then
+            _rollback_vip
+        fi
+        return "$init_exit"
+    fi
+
+    # Verify kube-vip kubeconfig exists after init
+    if [ "$HA_ENABLED" = true ]; then
+        _verify_kube_vip_kubeconfig
     fi
 
     _configure_kubectl
 
-    # Display join command
+    # Display join command for worker nodes
     echo "Displaying join command for worker nodes..."
     kubeadm token create --print-join-command
 
-    echo "Master node initialization complete!"
+    # For HA clusters, upload certs and display control-plane join command
+    if [ "$HA_ENABLED" = true ]; then
+        echo ""
+        echo "=== HA Cluster: Control-Plane Join Information ==="
+        local cert_key
+        cert_key=$(kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1)
+        if [ -z "$cert_key" ]; then
+            echo "Error: Failed to retrieve certificate key from upload-certs"
+            echo "You can manually run: kubeadm init phase upload-certs --upload-certs"
+            return 1
+        fi
+        echo "Certificate key: $cert_key"
+        echo ""
+        echo "To join additional control-plane nodes, run:"
+        echo "  setup-k8s.sh join --control-plane --certificate-key $cert_key \\"
+        echo "    --ha-vip ${HA_VIP_ADDRESS} \\"
+        echo "    --join-token <token> --join-address <address> --discovery-token-hash <hash>"
+        echo "================================================="
+    fi
+
+    echo "Cluster initialization complete!"
     echo "Next steps:"
     echo "1. Install a CNI plugin"
     echo "2. For single-node clusters, remove the taint with:"
     echo "   kubectl taint nodes --all node-role.kubernetes.io/control-plane-"
 }
 
-# Helper: Join worker node to cluster
-join_worker() {
-    echo "Joining worker node to cluster..."
+# Helper: Join node to cluster
+join_cluster() {
+    echo "Joining node to cluster..."
+
+    # Deploy kube-vip on additional control-plane nodes
+    if [ "${JOIN_AS_CONTROL_PLANE:-false}" = true ] && [ -n "$HA_VIP_ADDRESS" ]; then
+        deploy_kube_vip
+    fi
+
     local -a join_args=("${JOIN_ADDRESS}" --token "${JOIN_TOKEN}" --discovery-token-ca-cert-hash "${DISCOVERY_TOKEN_HASH}")
     if [ "$CRI" != "containerd" ]; then
         local cri_socket
@@ -237,7 +421,21 @@ join_worker() {
         join_args+=(--control-plane --certificate-key "${CERTIFICATE_KEY}")
     fi
 
-    kubeadm join "${join_args[@]}"
+    local join_exit=0
+    kubeadm join "${join_args[@]}" || join_exit=$?
+
+    if [ "$join_exit" -ne 0 ]; then
+        echo "Error: kubeadm join failed (exit code: $join_exit)"
+        if [ "${JOIN_AS_CONTROL_PLANE:-false}" = true ] && [ -n "$HA_VIP_ADDRESS" ]; then
+            _rollback_vip
+        fi
+        return "$join_exit"
+    fi
+
+    # Verify kube-vip kubeconfig exists for control-plane join
+    if [ "${JOIN_AS_CONTROL_PLANE:-false}" = true ] && [ -n "$HA_VIP_ADDRESS" ]; then
+        _verify_kube_vip_kubeconfig
+    fi
 
     # Configure kubectl for control-plane join
     if [ "${JOIN_AS_CONTROL_PLANE:-false}" = true ]; then

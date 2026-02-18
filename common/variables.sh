@@ -8,9 +8,8 @@ export DRY_RUN="${DRY_RUN:-false}"
 
 # Default values for global variables
 export K8S_VERSION=""
-export K8S_VERSION_USER_SET="false"
 export K8S_VERSION_FALLBACK="${K8S_VERSION_FALLBACK:-1.32}"
-export NODE_TYPE="master"  # Default is master node
+export ACTION=""  # init or join (set by subcommand)
 export JOIN_TOKEN=""
 export JOIN_ADDRESS=""
 export DISCOVERY_TOKEN_HASH=""
@@ -23,6 +22,9 @@ export PROXY_MODE="iptables"  # iptables, ipvs, or nftables (nftables requires K
 # HA cluster support
 export JOIN_AS_CONTROL_PLANE=false
 export CERTIFICATE_KEY=""
+export HA_ENABLED=false
+export HA_VIP_ADDRESS=""
+export HA_VIP_INTERFACE=""
 
 # Additional variables for cleanup
 export FORCE=false

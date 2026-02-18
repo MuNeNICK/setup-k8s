@@ -48,7 +48,6 @@ Usage: cleanup-k8s.sh [options]
 Options:
   --force         Skip confirmation prompt
   --preserve-cni  Preserve CNI configurations
-  --node-type     Specify node type (master/worker) to override auto-detection
   --verbose       Enable debug logging
   --quiet         Suppress informational messages (errors only)
   --offline       Run in offline mode (use bundled modules)

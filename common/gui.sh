@@ -262,13 +262,15 @@ button:hover { background: #1d4ed8; }
 .note { font-size: 13px; color: #475467; margin-bottom: 8px; }
 </style>
 <script>
-function updateWorkerFields() {
-  var select = document.getElementById('node_type');
-  var worker = document.getElementById('worker-fields');
-  if (!select || !worker) { return; }
-  worker.style.display = select.value === 'worker' ? 'block' : 'none';
+function updateFields() {
+  var select = document.getElementById('action');
+  var joinFields = document.getElementById('join-fields');
+  var haFields = document.getElementById('ha-fields');
+  if (!select) { return; }
+  if (joinFields) { joinFields.style.display = select.value === 'join' ? 'block' : 'none'; }
+  if (haFields) { haFields.style.display = select.value === 'init' ? 'block' : 'none'; }
 }
-document.addEventListener('DOMContentLoaded', updateWorkerFields);
+document.addEventListener('DOMContentLoaded', updateFields);
 </script>
 </head>
 <body>
@@ -277,10 +279,10 @@ document.addEventListener('DOMContentLoaded', updateWorkerFields);
   <p class=\"note\">Fill out the form and submit to kick off the installation from this terminal session.</p>
   <form method=\"post\">
     <div class=\"grid\">
-      <label>Node type
-        <select name=\"node_type\" id=\"node_type\" onchange=\"updateWorkerFields()\">
-          <option value=\"master\" selected>Master (control plane)</option>
-          <option value=\"worker\">Worker</option>
+      <label>Action
+        <select name=\"action\" id=\"action\" onchange=\"updateFields()\">
+          <option value=\"init\" selected>Initialize Cluster</option>
+          <option value=\"join\">Join Cluster</option>
         </select>
       </label>
       <label>Container runtime
@@ -313,8 +315,8 @@ document.addEventListener('DOMContentLoaded', updateWorkerFields);
       </label>
     </div>
 
-    <div id=\"worker-fields\" class=\"card\" style=\"display:none;\">
-      <h3>Worker join information</h3>
+    <div id=\"join-fields\" class=\"card\" style=\"display:none;\">
+      <h3>Join information</h3>
       <p class=\"note\">Provide the kubeadm join information from the control-plane node.</p>
       <div class=\"grid\">
         <label>Join token
@@ -325,6 +327,32 @@ document.addEventListener('DOMContentLoaded', updateWorkerFields);
         </label>
         <label>Discovery token hash
           <input type=\"text\" name=\"discovery_token_hash\" placeholder=\"sha256:...\">
+        </label>
+      </div>
+      <div class=\"grid\" style=\"margin-top:12px;\">
+        <input type=\"hidden\" name=\"control_plane\" value=\"false\">
+        <label style=\"flex-direction:row; align-items:center; font-weight:500;\">
+          <input type=\"checkbox\" name=\"control_plane\" value=\"true\"> Join as control-plane node
+        </label>
+        <label>Certificate key
+          <input type=\"text\" name=\"certificate_key\" placeholder=\"(required for control-plane join)\">
+        </label>
+      </div>
+    </div>
+
+    <div id=\"ha-fields\" class=\"card\">
+      <h3>HA Cluster (kube-vip)</h3>
+      <p class=\"note\">Enable HA mode to deploy kube-vip for VIP-based control plane availability.</p>
+      <input type=\"hidden\" name=\"ha_enabled\" value=\"false\">
+      <label style=\"flex-direction:row; align-items:center; font-weight:500;\">
+        <input type=\"checkbox\" name=\"ha_enabled\" value=\"true\"> Enable HA mode
+      </label>
+      <div class=\"grid\" style=\"margin-top:12px;\">
+        <label>VIP address
+          <input type=\"text\" name=\"ha_vip\" placeholder=\"192.168.1.100\">
+        </label>
+        <label>VIP interface (optional)
+          <input type=\"text\" name=\"ha_interface\" placeholder=\"auto-detect\">
         </label>
       </div>
     </div>
@@ -409,7 +437,7 @@ body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; back
 </html>"""
 
 FIELDS = [
-    "NODE_TYPE",
+    "ACTION",
     "CRI",
     "PROXY_MODE",
     "K8S_VERSION",
@@ -420,6 +448,11 @@ FIELDS = [
     "JOIN_TOKEN",
     "JOIN_ADDRESS",
     "DISCOVERY_TOKEN_HASH",
+    "JOIN_AS_CONTROL_PLANE",
+    "CERTIFICATE_KEY",
+    "HA_ENABLED",
+    "HA_VIP_ADDRESS",
+    "HA_VIP_INTERFACE",
     "ENABLE_COMPLETION",
     "COMPLETION_SHELLS",
     "INSTALL_HELM",
@@ -438,7 +471,7 @@ def normalize(form):
         return "true" if value == "true" else "false"
 
     return {
-        "NODE_TYPE": get("node_type", "master") or "master",
+        "ACTION": get("action", "init") or "init",
         "CRI": get("cri", "containerd") or "containerd",
         "PROXY_MODE": get("proxy_mode", "iptables") or "iptables",
         "K8S_VERSION": get("kubernetes_version", ""),
@@ -449,6 +482,11 @@ def normalize(form):
         "JOIN_TOKEN": get("join_token", ""),
         "JOIN_ADDRESS": get("join_address", ""),
         "DISCOVERY_TOKEN_HASH": get("discovery_token_hash", ""),
+        "JOIN_AS_CONTROL_PLANE": bool_value("control_plane", "false"),
+        "CERTIFICATE_KEY": get("certificate_key", ""),
+        "HA_ENABLED": bool_value("ha_enabled", "false"),
+        "HA_VIP_ADDRESS": get("ha_vip", ""),
+        "HA_VIP_INTERFACE": get("ha_interface", ""),
         "ENABLE_COMPLETION": bool_value("enable_completion", "true"),
         "COMPLETION_SHELLS": get("completion_shells", "auto") or "auto",
         "INSTALL_HELM": bool_value("install_helm", "false"),
@@ -562,8 +600,8 @@ PYTHON
     while IFS='=' read -r key value; do
         value=${value%$'\r'}
         case "$key" in
-            NODE_TYPE)
-                export NODE_TYPE="$value"
+            ACTION)
+                export ACTION="$value"
                 ;;
             CRI)
                 export CRI="$value"
@@ -573,9 +611,6 @@ PYTHON
                 ;;
             K8S_VERSION)
                 export K8S_VERSION="$value"
-                if [ -n "$value" ]; then
-                    export K8S_VERSION_USER_SET="true"
-                fi
                 ;;
             POD_NETWORK_CIDR)
                 gui_pod_network_cidr="$value"
@@ -597,6 +632,25 @@ PYTHON
                 ;;
             DISCOVERY_TOKEN_HASH)
                 export DISCOVERY_TOKEN_HASH="$value"
+                ;;
+            JOIN_AS_CONTROL_PLANE)
+                if [ "$value" = "true" ]; then
+                    export JOIN_AS_CONTROL_PLANE=true
+                fi
+                ;;
+            CERTIFICATE_KEY)
+                export CERTIFICATE_KEY="$value"
+                ;;
+            HA_ENABLED)
+                if [ "$value" = "true" ]; then
+                    export HA_ENABLED=true
+                fi
+                ;;
+            HA_VIP_ADDRESS)
+                export HA_VIP_ADDRESS="$value"
+                ;;
+            HA_VIP_INTERFACE)
+                export HA_VIP_INTERFACE="$value"
                 ;;
             ENABLE_COMPLETION)
                 export ENABLE_COMPLETION="$value"
