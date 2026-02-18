@@ -5,14 +5,14 @@ GUI_PROGRESS_SERVER_PID=""
 GUI_PROGRESS_URL=""
 GUI_PROGRESS_LOGGING_ACTIVE="false"
 
-gui_append_exit_trap() {
-    local new_cmd="$1"
-    local existing_trap
-    existing_trap=$(trap -p EXIT | sed -n "s/^trap -- '\(.*\)' EXIT$/\1/p")
-    if [ -n "$existing_trap" ]; then
-        trap "$existing_trap"$'\n'"$new_cmd" EXIT
-    else
-        trap "$new_cmd" EXIT
+_GUI_CLEANUP_REGISTERED="false"
+_gui_exit_cleanup() {
+    gui_cleanup_progress_server
+}
+gui_register_exit_trap() {
+    if [ "$_GUI_CLEANUP_REGISTERED" = "false" ]; then
+        trap _gui_exit_cleanup EXIT
+        _GUI_CLEANUP_REGISTERED="true"
     fi
 }
 
@@ -194,7 +194,7 @@ PYTHON
         return 1
     fi
 
-    gui_append_exit_trap "gui_cleanup_progress_server"
+    gui_register_exit_trap
     return 0
 }
 

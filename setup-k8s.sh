@@ -55,16 +55,17 @@ parse_gui_endpoint_arg() {
     fi
 }
 
-# Helper to safely append commands to the EXIT trap
+# EXIT trap: collect cleanup paths and run them on exit
+_EXIT_CLEANUP_DIRS=()
+_run_exit_cleanup() {
+    for dir in "${_EXIT_CLEANUP_DIRS[@]}"; do
+        rm -rf "$dir"
+    done
+}
+trap _run_exit_cleanup EXIT
+
 _append_exit_trap() {
-    local new_cmd="$1"
-    local existing_trap
-    existing_trap=$(trap -p EXIT | sed -n "s/^trap -- '\(.*\)' EXIT$/\1/p") || true
-    if [ -n "$existing_trap" ]; then
-        trap "${existing_trap}"$'\n'"${new_cmd}" EXIT
-    else
-        trap "${new_cmd}" EXIT
-    fi
+    _EXIT_CLEANUP_DIRS+=("$1")
 }
 
 # Helper to call dynamically-named functions with safety check
@@ -179,7 +180,7 @@ load_modules() {
     # Create temporary directory for modules
     local temp_dir
     temp_dir=$(mktemp -d -t setup-k8s-XXXXXX)
-    _append_exit_trap "rm -rf '${temp_dir}'"
+    _append_exit_trap "$temp_dir"
 
     # Download common modules
     echo "Downloading common modules..." >&2

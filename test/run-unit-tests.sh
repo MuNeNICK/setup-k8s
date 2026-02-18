@@ -237,8 +237,10 @@ test_pipefail_safety() {
         bash -c 'set -euo pipefail; madison_out=$(seq 1 1000 | sed "s/^/kubeadm | 1.32./"); echo "$madison_out" | awk -v ver="1.32" "\$0 ~ ver {print \$3; exit}"'
 
     # Same pattern but piped directly — would SIGPIPE under pipefail
-    _assert_exit_code "direct pipe awk early exit SIGPIPE (sanity check)" 141 \
-        bash -c 'set -euo pipefail; seq 1 100000 | awk "{print; exit}"'
+    # Exit code varies by environment (141 locally, 1 on some CI), so just assert non-zero
+    local sigpipe_exit=0
+    bash -c 'set -euo pipefail; seq 1 100000 | awk "{print; exit}"' >/dev/null 2>&1 || sigpipe_exit=$?
+    _assert_ne "direct pipe awk early exit SIGPIPE (sanity check)" "0" "$sigpipe_exit"
 
     # Negative test: confirm grep WOULD fail under pipefail
     _assert_exit_code "grep pipeline fails under pipefail (sanity check)" 1 \
