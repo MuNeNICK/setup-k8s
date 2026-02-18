@@ -11,12 +11,12 @@ Proxy mode, CRI, version pinning, and many other options are fully configurable.
 
 ### Master Node
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- --node-type master
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- --node-type master
 ```
 
 ### Worker Node
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/setup-k8s.sh | sudo bash -s -- \
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- \
   --node-type worker \
   --join-token <token> \
   --join-address <address> \
@@ -25,7 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/setup-k8s.s
 
 ### Cleanup
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main/cleanup-k8s.sh | sudo bash -s -- --node-type master
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/cleanup-k8s.sh | sudo bash -s -- --node-type master
 ```
 
 ## Documentation
