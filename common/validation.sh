@@ -198,6 +198,7 @@ show_cleanup_help() {
     echo "Options:"
     echo "  --force         Skip confirmation prompt"
     echo "  --preserve-cni  Preserve CNI configurations"
+    echo "  --remove-helm   Remove Helm binary and configuration"
     echo "  --verbose       Enable debug logging"
     echo "  --quiet         Suppress informational messages"
     echo "  --help          Display this help message"
@@ -313,6 +314,10 @@ parse_cleanup_args() {
                 ;;
             --preserve-cni)
                 export PRESERVE_CNI=true
+                shift
+                ;;
+            --remove-helm)
+                REMOVE_HELM=true
                 shift
                 ;;
             *)

@@ -9,7 +9,7 @@ install_helm() {
     # Download the official installer to a temporary file for inspection
     local installer
     installer=$(mktemp -t get-helm-3-XXXXXX.sh)
-    if ! curl -fsSL --retry 3 --retry-delay 2 https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 -o "$installer"; then
+    if ! curl -fsSL --retry 3 --retry-delay 2 https://raw.githubusercontent.com/helm/helm/v3.17.1/scripts/get-helm-3 -o "$installer"; then
         echo "Error: Failed to download Helm installer" >&2
         rm -f "$installer"
         return 1
@@ -18,6 +18,13 @@ install_helm() {
     # Basic validation: ensure it looks like a shell script
     if ! head -1 "$installer" | grep -q '^#!/'; then
         echo "Error: Downloaded Helm installer does not appear to be a valid shell script" >&2
+        rm -f "$installer"
+        return 1
+    fi
+
+    # Syntax check: reject corrupted or malicious downloads
+    if ! bash -n "$installer" 2>/dev/null; then
+        echo "Error: Downloaded Helm installer contains syntax errors" >&2
         rm -f "$installer"
         return 1
     fi

@@ -55,5 +55,5 @@ jobs:
       - name: Cleanup workspace artifacts
         if: always()
         run: |
-          sudo rm -rf test/images || true
+          sudo rm -rf test/data || true
           sudo rm -rf test/results || true

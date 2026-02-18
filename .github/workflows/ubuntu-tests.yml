@@ -15,42 +15,34 @@ jobs:
         include:
           - name: ubuntu2404-online-latest
             distro: ubuntu-2404
-            mode: online
             k8s_version: ""
             setup_args: ""
           - name: ubuntu2404-offline-default
             distro: ubuntu-2404
-            mode: offline
             k8s_version: ""
             setup_args: ""
           - name: ubuntu2404-ipvs-crio
             distro: ubuntu-2404
-            mode: offline
             k8s_version: ""
             setup_args: "--proxy-mode ipvs --cri crio"
           - name: ubuntu2404-nftables-k130
             distro: ubuntu-2404
-            mode: offline
             k8s_version: "1.30"
             setup_args: "--proxy-mode nftables"
           - name: ubuntu2404-helm-completion
             distro: ubuntu-2404
-            mode: offline
             k8s_version: ""
             setup_args: "--install-helm true --completion-shells bash"
           - name: ubuntu2204-custom-k8s
             distro: ubuntu-2204
-            mode: offline
             k8s_version: "1.31"
             setup_args: "--install-helm false"
           - name: ubuntu2204-cri-containerd-ipvs
             distro: ubuntu-2204
-            mode: offline
             k8s_version: ""
             setup_args: "--proxy-mode ipvs --cri containerd"
           - name: ubuntu2004-legacy-k128
             distro: ubuntu-2004
-            mode: offline
             k8s_version: "1.28"
             setup_args: ""
     steps:
@@ -60,7 +52,6 @@ jobs:
       - name: Run setup-k8s option test
         working-directory: test
         env:
-          MODE: ${{ matrix.mode }}
           SETUP_ARGS: ${{ matrix.setup_args }}
           K8S_VERSION: ${{ matrix.k8s_version }}
           DISTRO: ${{ matrix.distro }}
@@ -93,5 +84,5 @@ jobs:
       - name: Cleanup workspace artifacts
         if: always()
         run: |
-          sudo rm -rf test/images || true
+          sudo rm -rf test/data || true
           sudo rm -rf test/results || true

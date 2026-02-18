@@ -107,9 +107,13 @@ setup_kubernetes_arch() {
     else
         # Try alternative approach: directly downloading binaries
         echo "AUR installation failed. Trying direct binary download..."
-        
-        # Get the latest stable version
-        KUBE_VERSION=$(curl -s --retry 3 --retry-delay 2 https://storage.googleapis.com/kubernetes-release/release/stable.txt)
+
+        # Resolve full version from K8S_VERSION (minor) or fall back to latest stable
+        if [ -n "${K8S_VERSION:-}" ]; then
+            KUBE_VERSION=$(curl -sSL --retry 3 --retry-delay 2 "https://dl.k8s.io/release/stable-${K8S_VERSION}.txt")
+        else
+            KUBE_VERSION=$(curl -sSL --retry 3 --retry-delay 2 "https://dl.k8s.io/release/stable.txt")
+        fi
         echo "Downloading Kubernetes version: $KUBE_VERSION"
 
         # Detect architecture mapping for Kubernetes binaries
@@ -123,11 +127,25 @@ setup_kubernetes_arch() {
             *) KARCH="amd64" ; echo "Unknown arch $UNAME_ARCH, defaulting to amd64" ;;
         esac
 
-        # Download and install binaries
+        # Download and install binaries with SHA256 verification
         for binary in kubeadm kubelet kubectl; do
             echo "Downloading $binary for arch $KARCH..."
-            curl -Lo "/usr/local/bin/$binary" --retry 3 --retry-delay 2 "https://storage.googleapis.com/kubernetes-release/release/${KUBE_VERSION}/bin/linux/${KARCH}/$binary"
-            chmod +x /usr/local/bin/$binary
+            curl -fsSLo "/usr/local/bin/$binary" --retry 3 --retry-delay 2 \
+                "https://dl.k8s.io/release/${KUBE_VERSION}/bin/linux/${KARCH}/$binary"
+
+            echo "Verifying SHA256 checksum for $binary..."
+            local expected_sha256
+            expected_sha256=$(curl -fsSL --retry 3 --retry-delay 2 \
+                "https://dl.k8s.io/release/${KUBE_VERSION}/bin/linux/${KARCH}/$binary.sha256")
+            local actual_sha256
+            actual_sha256=$(sha256sum "/usr/local/bin/$binary" | awk '{print $1}')
+            if [ "$expected_sha256" != "$actual_sha256" ]; then
+                echo "Error: SHA256 checksum mismatch for $binary (expected=$expected_sha256, actual=$actual_sha256)" >&2
+                rm -f "/usr/local/bin/$binary"
+                return 1
+            fi
+
+            chmod +x "/usr/local/bin/$binary"
         done
         
         # Create kubelet service file if it doesn't exist

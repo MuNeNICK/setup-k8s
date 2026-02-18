@@ -40,6 +40,10 @@ _validate_shell_module() {
         echo "Error: Module file '$file' does not appear to be a valid shell script" >&2
         return 1
     fi
+    if ! bash -n "$file" 2>/dev/null; then
+        echo "Error: Module file '$file' contains syntax errors" >&2
+        return 1
+    fi
     return 0
 }
 
@@ -67,6 +71,7 @@ Usage: cleanup-k8s.sh [options]
 Options:
   --force         Skip confirmation prompt
   --preserve-cni  Preserve CNI configurations
+  --remove-helm   Remove Helm binary and configuration
   --verbose       Enable debug logging
   --quiet         Suppress informational messages (errors only)
   --offline       Run in offline mode (use bundled modules)
@@ -249,8 +254,10 @@ main() {
     # Cleanup shell completions
     cleanup_kubernetes_completions
 
-    # Cleanup Helm if it was installed
-    cleanup_helm
+    # Cleanup Helm only when explicitly requested
+    if [ "${REMOVE_HELM:-false}" = true ]; then
+        cleanup_helm
+    fi
 
     echo "Cleanup complete! Please reboot the system for all changes to take effect."
 }

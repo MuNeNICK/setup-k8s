@@ -9,47 +9,45 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
+# Temporary file for collecting assertion results across subshells
+_RESULTS_FILE=$(mktemp -t unit-test-results-XXXXXX)
+_cleanup_results() { rm -f "$_RESULTS_FILE"; }
+trap _cleanup_results EXIT
 
-# Test helpers
+# Test helpers — append PASS/FAIL to temp file so subshell results are visible
 _assert_eq() {
     local desc="$1" expected="$2" actual="$3"
-    TESTS_RUN=$((TESTS_RUN + 1))
     if [ "$expected" = "$actual" ]; then
         echo "  PASS: $desc"
-        TESTS_PASSED=$((TESTS_PASSED + 1))
+        echo "PASS" >> "$_RESULTS_FILE"
     else
         echo "  FAIL: $desc (expected='$expected', actual='$actual')"
-        TESTS_FAILED=$((TESTS_FAILED + 1))
+        echo "FAIL" >> "$_RESULTS_FILE"
     fi
 }
 
 _assert_ne() {
     local desc="$1" not_expected="$2" actual="$3"
-    TESTS_RUN=$((TESTS_RUN + 1))
     if [ "$not_expected" != "$actual" ]; then
         echo "  PASS: $desc"
-        TESTS_PASSED=$((TESTS_PASSED + 1))
+        echo "PASS" >> "$_RESULTS_FILE"
     else
         echo "  FAIL: $desc (should not be '$not_expected')"
-        TESTS_FAILED=$((TESTS_FAILED + 1))
+        echo "FAIL" >> "$_RESULTS_FILE"
     fi
 }
 
 _assert_exit_code() {
     local desc="$1" expected_code="$2"
     shift 2
-    TESTS_RUN=$((TESTS_RUN + 1))
     local actual_code=0
     "$@" >/dev/null 2>&1 || actual_code=$?
     if [ "$expected_code" -eq "$actual_code" ]; then
         echo "  PASS: $desc"
-        TESTS_PASSED=$((TESTS_PASSED + 1))
+        echo "PASS" >> "$_RESULTS_FILE"
     else
         echo "  FAIL: $desc (expected exit=$expected_code, actual exit=$actual_code)"
-        TESTS_FAILED=$((TESTS_FAILED + 1))
+        echo "FAIL" >> "$_RESULTS_FILE"
     fi
 }
 
@@ -420,6 +418,9 @@ test_validate_proxy_mode
 test_pipefail_safety
 
 echo ""
+TESTS_RUN=$(wc -l < "$_RESULTS_FILE")
+TESTS_PASSED=$(grep -c '^PASS$' "$_RESULTS_FILE" || true)
+TESTS_FAILED=$(grep -c '^FAIL$' "$_RESULTS_FILE" || true)
 echo "==================================="
 echo "Results: $TESTS_RUN tests, $TESTS_PASSED passed, $TESTS_FAILED failed"
 echo "==================================="

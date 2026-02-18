@@ -45,7 +45,7 @@ EOF
         else
             $PKG_MGR install -y --nogpgcheck kubelet kubeadm kubectl || true
         fi
-        
+
         # If still not installed, try installing from CentOS 8 repository for CentOS 9
         if ! command -v kubeadm &> /dev/null && [ "$DISTRO_NAME" = "centos" ] && [[ "$DISTRO_VERSION" == "9"* ]]; then
             echo "Trying to install Kubernetes components from CentOS 8 repository..."

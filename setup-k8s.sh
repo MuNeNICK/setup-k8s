@@ -40,6 +40,10 @@ _validate_shell_module() {
         echo "Error: Module file '$file' does not appear to be a valid shell script" >&2
         return 1
     fi
+    if ! bash -n "$file" 2>/dev/null; then
+        echo "Error: Module file '$file' contains syntax errors" >&2
+        return 1
+    fi
     return 0
 }
 

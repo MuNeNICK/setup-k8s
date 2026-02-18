@@ -84,8 +84,8 @@ API Responsive: true
 ## docker-vm-runner integration
 
 - `run-e2e-tests.sh` launches the public `ghcr.io/munenick/docker-vm-runner:latest` image. Override via `DOCKER_VM_RUNNER_IMAGE` to test new builds.
-- `test/images/` is bind-mounted to `/images` inside the container. Cached QCOW2 images live under `images/base/`; per-test writable disks live under `images/vms/`.
-- `test/images/state/` stores libvirt metadata and certificates (`/var/lib/docker-vm-runner` inside the container). Delete this directory to reset docker-vm-runner state between runs.
+- `test/data/` is bind-mounted to `/data` inside the container. Cached QCOW2 images live under `data/base/`; per-test writable disks live under `data/vms/`.
+- `test/data/state/` stores libvirt metadata and certificates (`/var/lib/docker-vm-runner` inside the container). Delete this directory to reset docker-vm-runner state between runs.
 - `results/cloud-init/user-data.yaml` contains the rendered cloud-init payload that is mounted into the VM via docker-vm-runner.
 
 Environment overrides:
@@ -93,7 +93,7 @@ Environment overrides:
 | Variable | Purpose |
 | --- | --- |
 | `DOCKER_VM_RUNNER_IMAGE` | Container image tag to run (default `ghcr.io/munenick/docker-vm-runner:latest`). |
-| `VM_IMAGES_DIR` | Host directory bound to `/images`. |
+| `VM_DATA_DIR` | Host directory bound to `/data`. |
 | `VM_STATE_DIR` | Host directory bound to `/var/lib/docker-vm-runner`. |
 
 ## Detailed Usage
@@ -189,21 +189,21 @@ TIMEOUT_TOTAL=1800    # Extend to 30 minutes
 
 ### KVM Access Error
 ```bash
-# Set /dev/kvm permissions
-sudo chmod 666 /dev/kvm
+# Add your user to the kvm group (re-login required)
+sudo usermod -aG kvm $USER
 ```
 
 ### Download Failure
 ```bash
 # Clear cached base images (docker-vm-runner will re-download)
-rm -f images/base/*.qcow2
+rm -f data/base/*.qcow2
 ```
 
 ### VM Boot Failure
 ```bash
 # Remove working disks/state and rerun the test
-rm -rf images/vms/*
-rm -rf images/state/*
+rm -rf data/vms/*
+rm -rf data/state/*
 ```
 
 ### Test Timeout
@@ -224,8 +224,8 @@ cd setup-k8s/test
 DOCKER_VM_RUNNER_IMAGE=docker-vm-runner:local \
 docker run --rm -it \
   --device /dev/kvm:/dev/kvm \
-  -v "$PWD/images:/images" \
-  -v "$PWD/images/state:/var/lib/docker-vm-runner" \
+  -v "$PWD/data:/data" \
+  -v "$PWD/data/state:/var/lib/docker-vm-runner" \
   "$DOCKER_VM_RUNNER_IMAGE" bash
 ```
 

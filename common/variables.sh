@@ -38,3 +38,6 @@ export KUBEADM_ARGS
 export ENABLE_COMPLETION=true  # Enable shell completion setup for kubectl, kubeadm, etc.
 export INSTALL_HELM=false  # Install Helm package manager
 export COMPLETION_SHELLS="auto"  # auto, bash, zsh, fish, or comma-separated list
+
+# Cleanup options
+export REMOVE_HELM=false  # Remove Helm during cleanup (opt-in via --remove-helm)
