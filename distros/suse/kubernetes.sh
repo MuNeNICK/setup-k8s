@@ -18,7 +18,7 @@ setup_kubernetes_suse() {
     
     # Install Kubernetes components (non-interactive mode)
     zypper --non-interactive refresh
-    zypper --non-interactive install -y kubelet kubeadm kubectl
+    zypper --non-interactive install --allow-vendor-change -y kubelet kubeadm kubectl
     
     # Enable and start kubelet
     systemctl enable --now kubelet

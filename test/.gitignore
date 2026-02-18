@@ -1,9 +1,8 @@
-# Test artifacts
-images/
+# VM data (base images, disks, state)
+data/
+
+# Test results
 results/
-seed.iso
-seed-debug.iso
-cloud-init-temp/
 
 # Docker build cache
 .docker/

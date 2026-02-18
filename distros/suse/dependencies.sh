@@ -6,7 +6,7 @@ install_dependencies_suse() {
     zypper refresh
     
     # Install base dependencies
-    zypper install -y curl iptables iproute2 ethtool conntrack-tools socat cri-tools || true
+    zypper install -y curl iptables iproute2 ethtool conntrack-tools socat || true
     
     # Install IPVS packages only if IPVS mode is selected
     if [ "$PROXY_MODE" = "ipvs" ]; then

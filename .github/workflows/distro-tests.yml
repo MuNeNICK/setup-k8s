@@ -40,7 +40,7 @@ jobs:
           BASH_DEBUG: '0'
         run: |
           set -euo pipefail
-          ./run-test.sh --online ${{ matrix.distro }}
+          ./run-e2e-tests.sh --online ${{ matrix.distro }}
 
       - name: Upload logs
         if: always()

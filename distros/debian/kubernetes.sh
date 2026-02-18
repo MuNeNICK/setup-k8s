@@ -21,8 +21,10 @@ setup_kubernetes_debian() {
     
     apt-get update
     
-    # Find available version
-    VERSION_STRING=$(apt-cache madison kubeadm | grep ${K8S_VERSION} | head -1 | awk '{print $3}')
+    # Find available version (avoid pipe to prevent SIGPIPE under pipefail)
+    local madison_out
+    madison_out=$(apt-cache madison kubeadm)
+    VERSION_STRING=$(echo "$madison_out" | awk -v ver="${K8S_VERSION}" '$0 ~ ver {print $3; exit}')
     if [ -z "$VERSION_STRING" ]; then
         echo "Specified version ${K8S_VERSION} not found"
         exit 1

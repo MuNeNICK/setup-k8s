@@ -78,7 +78,7 @@ jobs:
             setup_flag=(--setup-args "$SETUP_ARGS")
           fi
 
-          ./run-test.sh $mode_flag $k8s_flag "${setup_flag[@]}" "$DISTRO"
+          ./run-e2e-tests.sh $mode_flag $k8s_flag "${setup_flag[@]}" "$DISTRO"
 
       - name: Upload logs
         if: always()

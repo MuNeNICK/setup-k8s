@@ -13,7 +13,7 @@ get_debian_codename() {
             return 0
         fi
         # Fallback mapping for some well-known VERSION_ID values
-        case "$ID:$VERSION_ID" in
+        case "$ID:${VERSION_ID:-}" in
             ubuntu:24.04) echo "noble" ; return 0 ;;
             ubuntu:22.04) echo "jammy" ; return 0 ;;
             ubuntu:20.04) echo "focal" ; return 0 ;;

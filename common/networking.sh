@@ -86,7 +86,7 @@ reset_iptables() {
     # Reset K8s-related nftables tables if nft is available (avoid flushing all rules)
     if command -v nft &> /dev/null; then
         echo "Resetting K8s-related nftables tables..."
-        nft list tables 2>/dev/null | grep -E 'kube-proxy|kubernetes' | while read -r _ family name; do
+        nft list tables 2>/dev/null | awk '/kube-proxy|kubernetes/ {print $2, $3}' | while read -r family name; do
             nft delete table "$family" "$name" 2>/dev/null || true
         done
     fi

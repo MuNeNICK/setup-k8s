@@ -20,11 +20,11 @@ jobs:
       - name: Run ShellCheck on distro modules
         run: shellcheck -s bash -S warning distros/**/*.sh
       - name: Run ShellCheck on test runner
-        run: shellcheck -s bash -S warning test/run-test.sh
+        run: shellcheck -s bash -S warning test/run-e2e-tests.sh
 
   unit-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Run unit tests
-        run: bash test/unit/run_unit_tests.sh
+        run: bash test/run-unit-tests.sh

@@ -12,9 +12,8 @@ get_suse_leap_supported_k8s_minor() {
     local detected_minor=""
     if command -v zypper &>/dev/null; then
         detected_minor=$(zypper -q se -s 'kubernetes1.*-kubeadm' 2>/dev/null \
-            | grep -oE 'kubernetes1\.[0-9]+-kubeadm' \
-            | sed -E 's/.*kubernetes1\.([0-9]+)-kubeadm/\1/' \
-            | sort -nr | head -1 || true)
+            | awk -F'kubernetes1.' '/kubernetes1\.[0-9]+-kubeadm/ {split($2,a,"-"); print a[1]}' \
+            | sort -nr | head -1)
     fi
     if [ -z "$detected_minor" ]; then
         local crio_minor=""

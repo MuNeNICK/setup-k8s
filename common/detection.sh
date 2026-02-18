@@ -8,7 +8,7 @@ detect_distribution() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         DISTRO_NAME=$ID
-        DISTRO_VERSION=$VERSION_ID
+        DISTRO_VERSION=${VERSION_ID:-rolling}
     # Fallback methods
     elif [ -f /etc/debian_version ]; then
         DISTRO_NAME="debian"

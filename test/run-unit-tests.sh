@@ -1,13 +1,13 @@
 #!/bin/bash
 #
 # Simple unit test framework for setup-k8s
-# Run: bash test/unit/run_unit_tests.sh
+# Run: bash test/run-unit-tests.sh
 #
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 TESTS_RUN=0
 TESTS_PASSED=0
@@ -211,6 +211,41 @@ test_validate_proxy_mode() {
 }
 
 # ============================================================
+# Test: pipefail safety — awk pipelines must survive zero matches
+# ============================================================
+test_pipefail_safety() {
+    echo "=== Test: pipefail safety (awk vs grep under set -euo pipefail) ==="
+
+    # networking.sh: nft list tables | awk ... | while read
+    # Simulate empty input (no k8s-related nft tables)
+    _assert_exit_code "nft awk pipeline (no match)" 0 \
+        bash -c 'set -euo pipefail; echo "" | awk "/kube-proxy|kubernetes/ {print \$2, \$3}" | while read -r family name; do echo "$family $name"; done'
+
+    # debian/kubernetes.sh: apt-cache madison | awk -v ver=...
+    # Simulate no matching version
+    _assert_exit_code "apt-cache awk pipeline (no match)" 0 \
+        bash -c 'set -euo pipefail; echo "kubeadm | 1.30.0-1.1 | https://pkgs.k8s.io" | awk -v ver="9.99" "\$0 ~ ver {print \$3; exit}"'
+
+    # suse/crio.sh: zypper | awk -F ... | sort | head
+    # Simulate no matching package
+    _assert_exit_code "zypper awk pipeline (no match)" 0 \
+        bash -c "set -euo pipefail; echo 'no-match-here' | awk -F'kubernetes1.' '/kubernetes1\.[0-9]+-kubeadm/ {split(\$2,a,\"-\"); print a[1]}' | sort -nr | head -1"
+
+    # debian/kubernetes.sh: awk early exit with large input must not SIGPIPE
+    # Simulates apt-cache madison producing many lines; awk exits after first match
+    _assert_exit_code "awk early exit on large input (no SIGPIPE)" 0 \
+        bash -c 'set -euo pipefail; madison_out=$(seq 1 1000 | sed "s/^/kubeadm | 1.32./"); echo "$madison_out" | awk -v ver="1.32" "\$0 ~ ver {print \$3; exit}"'
+
+    # Same pattern but piped directly — would SIGPIPE under pipefail
+    _assert_exit_code "direct pipe awk early exit SIGPIPE (sanity check)" 141 \
+        bash -c 'set -euo pipefail; seq 1 100000 | awk "{print; exit}"'
+
+    # Negative test: confirm grep WOULD fail under pipefail
+    _assert_exit_code "grep pipeline fails under pipefail (sanity check)" 1 \
+        bash -c 'set -euo pipefail; echo "no-match" | grep "NOTFOUND" | head -1'
+}
+
+# ============================================================
 # Run all tests
 # ============================================================
 echo "Running setup-k8s unit tests..."
@@ -223,6 +258,7 @@ test_parse_setup_args
 test_parse_ha_args
 test_help_early_exit
 test_validate_proxy_mode
+test_pipefail_safety
 
 echo ""
 echo "==================================="

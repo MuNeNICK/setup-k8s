@@ -62,11 +62,11 @@ sudo usermod -aG kvm $USER
 cd setup-k8s/test
 
 # Test specific distribution
-./run-test.sh ubuntu-2404
+./run-e2e-tests.sh ubuntu-2404
 
 # Other distribution examples
-./run-test.sh debian-12
-./run-test.sh centos-stream-9
+./run-e2e-tests.sh debian-12
+./run-e2e-tests.sh centos-stream-9
 ```
 
 ### 3. Check Results
@@ -83,7 +83,7 @@ API Responsive: true
 
 ## docker-vm-runner integration
 
-- `run-test.sh` launches the public `ghcr.io/munenick/docker-vm-runner:latest` image. Override via `DOCKER_VM_RUNNER_IMAGE` to test new builds.
+- `run-e2e-tests.sh` launches the public `ghcr.io/munenick/docker-vm-runner:latest` image. Override via `DOCKER_VM_RUNNER_IMAGE` to test new builds.
 - `test/images/` is bind-mounted to `/images` inside the container. Cached QCOW2 images live under `images/base/`; per-test writable disks live under `images/vms/`.
 - `test/images/state/` stores libvirt metadata and certificates (`/var/lib/docker-vm-runner` inside the container). Delete this directory to reset docker-vm-runner state between runs.
 - `results/cloud-init/user-data.yaml` contains the rendered cloud-init payload that is mounted into the VM via docker-vm-runner.
@@ -102,13 +102,13 @@ Environment overrides:
 
 ```bash
 # Display help
-./run-test.sh --help
+./run-e2e-tests.sh --help
 
 # List supported distributions
-./run-test.sh --help
+./run-e2e-tests.sh --help
 
 # Test specific distribution
-./run-test.sh <distro-name>
+./run-e2e-tests.sh <distro-name>
 ```
 
 ### Log Inspection
@@ -152,13 +152,11 @@ docker pull ghcr.io/munenick/docker-vm-runner:latest
 
 ```
 test/
-├── run-test.sh              # Main execution script
-├── distro-urls.conf         # Distribution configuration
-├── cloud-init-template.yaml # Generic cloud-init template
-├── images/                 # Cloud image cache (base/, vms/, state/)
-└── results/                # Test artifacts
-    ├── cloud-init/user-data.yaml # Rendered payload fed into docker-vm-runner
-    ├── logs/                    # Execution logs streamed from the VM console
+├── run-e2e-tests.sh         # E2E test runner (VM-based setup/cleanup)
+├── run-unit-tests.sh        # Unit tests for shell modules
+├── data/                    # Cloud image cache (base/, vms/, state/)
+└── results/                 # Test artifacts
+    ├── logs/                    # Execution logs
     └── test-result.json         # Latest JSON summary
 
 ```
@@ -177,7 +175,7 @@ newdistro-1.0_user=newuser
 
 ### Timeout Adjustment
 
-Modify constants in `run-test.sh`:
+Modify constants in `run-e2e-tests.sh`:
 
 ```bash
 TIMEOUT_TOTAL=1800    # Extend to 30 minutes
@@ -185,7 +183,7 @@ TIMEOUT_TOTAL=1800    # Extend to 30 minutes
 
 ### VM Configuration Tuning
 
-`docker-vm-runner` exposes resource settings through environment variables (e.g., `MEMORY`, `CPUS`, `DISK_SIZE`). Add extra `-e` entries to the `docker_cmd` array in `run-test.sh` when you need to tweak these values for all tests.
+`docker-vm-runner` exposes resource settings through environment variables (e.g., `MEMORY`, `CPUS`, `DISK_SIZE`). Add extra `-e` entries to the `docker_cmd` array in `run-e2e-tests.sh` when you need to tweak these values for all tests.
 
 ## Common Issues
 
@@ -219,7 +217,7 @@ rm -rf images/state/*
 
 ```bash
 # Verbose logging
-BASH_DEBUG=1 ./run-test.sh ubuntu-2404
+BASH_DEBUG=1 ./run-e2e-tests.sh ubuntu-2404
 
 # Manual VM launch using docker-vm-runner
 cd setup-k8s/test
