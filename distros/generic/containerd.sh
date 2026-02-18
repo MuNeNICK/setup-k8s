@@ -15,7 +15,7 @@ setup_containerd_generic() {
     # Try to configure containerd if it's installed
     if command -v containerd &> /dev/null; then
         configure_containerd_toml
-        configure_crictl containerd
+        configure_crictl
     else
         echo "containerd not found. Please install it manually."
     fi

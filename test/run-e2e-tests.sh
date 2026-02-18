@@ -307,8 +307,10 @@ run_vm_container() {
     local distro=$1
     local k8s_version_arg=$2
     local setup_extra_args_str=$3
-    local container_name="k8s-vm-${distro}-$(date +%s)"
-    local log_file="results/logs/${distro}-$(date +%Y%m%d-%H%M%S).log"
+    local container_name
+    container_name="k8s-vm-${distro}-$(date +%s)"
+    local log_file
+    log_file="results/logs/${distro}-$(date +%Y%m%d-%H%M%S).log"
 
     log_info "Starting docker-vm-runner for: $distro"
     log_info "VM resources: memory=${VM_MEMORY}MB cpus=${VM_CPUS} disk=${VM_DISK_SIZE}"
@@ -427,7 +429,8 @@ run_vm_container() {
     vm_ssh "bash -c 'nohup bash /tmp/setup-k8s.sh --node-type master ${k8s_version_arg} ${setup_extra_args_str} > /tmp/setup-k8s.log 2>&1; echo \$? > /tmp/setup-exit-code' &" >/dev/null 2>&1
 
     # Poll for setup completion
-    local start_time=$(date +%s)
+    local start_time
+    start_time=$(date +%s)
     while true; do
         local elapsed=$(( $(date +%s) - start_time ))
         if [ $elapsed -gt $TIMEOUT_TOTAL ]; then
@@ -693,7 +696,8 @@ test_all() {
     local current=0
 
     # Create summary log file
-    local summary_file="results/test-all-summary-$(date +%Y%m%d-%H%M%S).log"
+    local summary_file
+    summary_file="results/test-all-summary-$(date +%Y%m%d-%H%M%S).log"
     mkdir -p results
 
     echo "Testing $total distributions in $TEST_MODE mode" | tee "$summary_file"
@@ -707,17 +711,20 @@ test_all() {
         echo -e "${BLUE}[$current/$total] Testing: $distro${NC}" | tee -a "$summary_file"
         echo "-----------------------------------" | tee -a "$summary_file"
 
-        local start_time=$(date +%s)
+        local start_time
+        start_time=$(date +%s)
 
+        local status
         if run_single_test "$distro"; then
             passed=$((passed + 1))
-            local status="PASSED"
+            status="PASSED"
         else
             failed=$((failed + 1))
-            local status="FAILED"
+            status="FAILED"
         fi
 
-        local end_time=$(date +%s)
+        local end_time
+        end_time=$(date +%s)
         local duration=$((end_time - start_time))
 
         echo "$distro: $status (${duration}s)" | tee -a "$summary_file"

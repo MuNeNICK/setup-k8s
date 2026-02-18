@@ -16,7 +16,7 @@ setup_crio_generic() {
     if command -v crio &> /dev/null; then
         echo "CRI-O found. Attempting basic configuration..."
         systemctl enable --now crio || true
-        configure_crictl crio
+        configure_crictl
     else
         echo "CRI-O not found. Please install it manually from:"
         echo "https://github.com/cri-o/cri-o/blob/main/install.md"

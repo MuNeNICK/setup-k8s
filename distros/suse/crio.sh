@@ -62,5 +62,5 @@ setup_crio_suse() {
     zypper refresh
     zypper install -y cri-o || echo "CRI-O may require specific repositories on your SUSE version."
     systemctl enable --now crio || true
-    configure_crictl crio
+    configure_crictl
 }

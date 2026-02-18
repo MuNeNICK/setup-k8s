@@ -66,7 +66,7 @@ CRIOCONF
     systemctl enable --now crio || true
 
     # Configure crictl to talk to CRI-O
-    configure_crictl crio
+    configure_crictl
 
     # Quick sanity check
     if ! systemctl is-active --quiet crio; then

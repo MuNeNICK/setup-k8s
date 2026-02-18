@@ -70,7 +70,7 @@ setup_containerd_rhel() {
     if command -v containerd &> /dev/null; then
         echo "Configuring containerd..."
         configure_containerd_toml
-        configure_crictl containerd
+        configure_crictl
         echo "Containerd configured and restarted."
     else
         echo "Error: containerd is not installed. Kubernetes setup may fail."

@@ -143,7 +143,8 @@ cleanup_helm() {
     # Remove all users' Helm directories
     for user_home in /home/*; do
         if [ -d "$user_home" ]; then
-            local username=$(basename "$user_home")
+            local username
+            username=$(basename "$user_home")
             
             if [ -d "$user_home/.config/helm" ]; then
                 echo "Removing Helm config for user $username"

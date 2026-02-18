@@ -171,7 +171,7 @@ parse_setup_args() {
                 ;;
             --kubernetes-version)
                 K8S_VERSION="$2"
-                K8S_VERSION_USER_SET="true"
+                export K8S_VERSION_USER_SET="true"
                 shift 2
                 ;;
             --join-token)
@@ -234,7 +234,7 @@ parse_cleanup_args() {
                 shift
                 ;;
             --preserve-cni)
-                PRESERVE_CNI=true
+                export PRESERVE_CNI=true
                 shift
                 ;;
             --node-type)

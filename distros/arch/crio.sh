@@ -83,7 +83,7 @@ setup_crio_arch() {
     
     # Wait for CRI-O to be ready
     echo "Waiting for CRI-O to be ready..."
-    for i in {1..30}; do
+    for _ in {1..30}; do
         if [ -S /var/run/crio/crio.sock ]; then
             echo "CRI-O is ready"
             break
@@ -96,5 +96,5 @@ setup_crio_arch() {
         return 1
     fi
     
-    configure_crictl crio
+    configure_crictl
 }

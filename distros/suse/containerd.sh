@@ -19,7 +19,7 @@ setup_containerd_suse() {
     if command -v containerd &> /dev/null; then
         echo "Configuring containerd..."
         configure_containerd_toml
-        configure_crictl containerd
+        configure_crictl
     else
         echo "Error: containerd installation failed"
         return 1

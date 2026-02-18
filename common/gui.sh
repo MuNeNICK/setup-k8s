@@ -563,18 +563,18 @@ PYTHON
         value=${value%$'\r'}
         case "$key" in
             NODE_TYPE)
-                NODE_TYPE="$value"
+                export NODE_TYPE="$value"
                 ;;
             CRI)
-                CRI="$value"
+                export CRI="$value"
                 ;;
             PROXY_MODE)
-                PROXY_MODE="$value"
+                export PROXY_MODE="$value"
                 ;;
             K8S_VERSION)
-                K8S_VERSION="$value"
+                export K8S_VERSION="$value"
                 if [ -n "$value" ]; then
-                    K8S_VERSION_USER_SET="true"
+                    export K8S_VERSION_USER_SET="true"
                 fi
                 ;;
             POD_NETWORK_CIDR)
@@ -590,22 +590,22 @@ PYTHON
                 gui_cp_endpoint="$value"
                 ;;
             JOIN_TOKEN)
-                JOIN_TOKEN="$value"
+                export JOIN_TOKEN="$value"
                 ;;
             JOIN_ADDRESS)
-                JOIN_ADDRESS="$value"
+                export JOIN_ADDRESS="$value"
                 ;;
             DISCOVERY_TOKEN_HASH)
-                DISCOVERY_TOKEN_HASH="$value"
+                export DISCOVERY_TOKEN_HASH="$value"
                 ;;
             ENABLE_COMPLETION)
-                ENABLE_COMPLETION="$value"
+                export ENABLE_COMPLETION="$value"
                 ;;
             COMPLETION_SHELLS)
-                COMPLETION_SHELLS="$value"
+                export COMPLETION_SHELLS="$value"
                 ;;
             INSTALL_HELM)
-                INSTALL_HELM="$value"
+                export INSTALL_HELM="$value"
                 ;;
         esac
     done <<< "$gui_output"

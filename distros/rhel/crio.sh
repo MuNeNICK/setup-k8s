@@ -10,7 +10,8 @@ fi
 # Helper: Get OBS target for RHEL family distributions
 get_obs_target_rhel() {
     local target=""
-    local major=$(echo "$DISTRO_VERSION" | cut -d. -f1)
+    local major
+    major=$(echo "$DISTRO_VERSION" | cut -d. -f1)
     case "$DISTRO_NAME" in
         centos)
             if [[ "$DISTRO_VERSION" == 9* ]]; then target="CentOS_9_Stream"; else target="CentOS_${major}"; fi ;;
@@ -45,7 +46,8 @@ setup_crio_rhel() {
 
     # Probe downwards for available repo (no hardcoded list)
     local selected=""
-    local minor_num=$(echo "$crio_series" | cut -d. -f2)
+    local minor_num
+    minor_num=$(echo "$crio_series" | cut -d. -f2)
     for offset in $(seq 0 12); do
         local candidate_minor=$((minor_num - offset))
         if [ $candidate_minor -lt 10 ]; then break; fi
@@ -65,7 +67,8 @@ EOF
             break
         fi
         echo "pkgs.k8s.io repo not available for v${series}; trying OBS..."
-        local target=$(get_obs_target_rhel)
+        local target
+        target=$(get_obs_target_rhel)
         if [ -n "$target" ]; then
             local obs_base="https://download.opensuse.org/repositories/devel:/kubic:/cri-o:/${series}/${target}/"
             local obs_key="${obs_base}repodata/repomd.xml.key"
@@ -99,7 +102,7 @@ EOF
     # Ensure CRI-O runs and configure crictl
     systemctl daemon-reload || true
     systemctl enable --now crio || true
-    configure_crictl crio
+    configure_crictl
 
     if ! systemctl is-active --quiet crio; then
         echo "Warning: CRI-O service is not active"

@@ -38,12 +38,10 @@ cleanup_suse() {
     fi
     
     # Check for remaining files
-    for file in "/etc/default/kubelet"; do
-        if [ -f "$file" ]; then
-            echo "Warning: File still exists: $file"
-            remaining_files=1
-        fi
-    done
+    if [ -f "/etc/default/kubelet" ]; then
+        echo "Warning: File still exists: /etc/default/kubelet"
+        remaining_files=1
+    fi
     
     if [ $remaining_files -eq 1 ]; then
         echo -e "\nSome files or packages could not be removed. You may want to remove them manually."

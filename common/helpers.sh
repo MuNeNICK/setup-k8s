@@ -77,8 +77,8 @@ get_cri_socket() {
 
 # Helper: configure crictl runtime endpoint
 configure_crictl() {
-    local runtime="$1"  # containerd|crio|docker
-    local endpoint=$(get_cri_socket)
+    local endpoint
+    endpoint=$(get_cri_socket)
     echo "Configuring crictl at /etc/crictl.yaml (endpoint: $endpoint)"
     cat > /etc/crictl.yaml <<EOF
 runtime-endpoint: $endpoint
@@ -279,7 +279,7 @@ reset_containerd_config() {
         echo "Resetting containerd configuration to default..."
         if command -v containerd &> /dev/null; then
             # Backup current config
-            cp /etc/containerd/config.toml /etc/containerd/config.toml.bak.$(date +%Y%m%d%H%M%S)
+            cp /etc/containerd/config.toml "/etc/containerd/config.toml.bak.$(date +%Y%m%d%H%M%S)"
             # Generate default config
             containerd config default > /etc/containerd/config.toml
             # Restart containerd if it's running

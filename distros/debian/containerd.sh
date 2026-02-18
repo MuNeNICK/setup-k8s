@@ -34,5 +34,5 @@ setup_containerd_debian() {
     
     # Configure containerd
     configure_containerd_toml
-    configure_crictl containerd
+    configure_crictl
 }

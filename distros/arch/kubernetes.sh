@@ -44,7 +44,7 @@ setup_kubernetes_arch() {
             " && YAY_BUILD_SUCCESS=true
             
             # Install the built package as root if successful
-            if [ "$YAY_BUILD_SUCCESS" = true ] && [ -f /tmp/yay-bin/yay-bin-*.pkg.tar.* ]; then
+            if [ "$YAY_BUILD_SUCCESS" = true ] && compgen -G "/tmp/yay-bin/yay-bin-*.pkg.tar.*" >/dev/null; then
                 pacman -U --noconfirm /tmp/yay-bin/yay-bin-*.pkg.tar.* || YAY_BUILD_SUCCESS=false
             fi
             

@@ -18,5 +18,5 @@ setup_containerd_arch() {
     
     systemctl restart containerd
     systemctl enable containerd
-    configure_crictl containerd
+    configure_crictl
 }
