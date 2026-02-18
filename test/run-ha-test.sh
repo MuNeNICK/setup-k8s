@@ -35,7 +35,7 @@ SSH_READY_TIMEOUT=300
 # SSH settings
 SSH_KEY_DIR=""
 SSH_PORT=""
-SSH_BASE_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5)
+SSH_BASE_OPTS=(-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5)
 SSH_OPTS=("${SSH_BASE_OPTS[@]}")
 
 # Cleanup state
@@ -79,11 +79,10 @@ _start_vm_container_watchdog() {
         kill "$_WATCHDOG_PID" >/dev/null 2>&1 || true
         _WATCHDOG_PID=""
     fi
-    setsid bash -c '
-parent_pid="$1"; container_name="$2"
+    setsid bash <<WATCHDOG_EOF </dev/null >/dev/null 2>&1 &
 while kill -0 "$parent_pid" >/dev/null 2>&1; do sleep 2; done
 docker stop "$container_name" >/dev/null 2>&1 || true
-' _ "$parent_pid" "$container_name" </dev/null >/dev/null 2>&1 &
+WATCHDOG_EOF
     _WATCHDOG_PID="$!"
 }
 
@@ -199,7 +198,8 @@ generate_bundled_cleanup() {
 # --- Main test logic ---
 
 run_ha_test() {
-    local container_name="k8s-ha-test-${DISTRO}-$(date +%s)"
+    local container_name
+    container_name="k8s-ha-test-${DISTRO}-$(date +%s)"
     local log_file
     log_file="results/logs/ha-${DISTRO}-$(date +%Y%m%d-%H%M%S).log"
 

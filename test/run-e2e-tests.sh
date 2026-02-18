@@ -50,7 +50,7 @@ SSH_READY_TIMEOUT=300 # 5 minutes for SSH to become available
 # SSH settings
 SSH_KEY_DIR=""
 SSH_PORT=""
-SSH_BASE_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5)
+SSH_BASE_OPTS=(-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5)
 SSH_OPTS=("${SSH_BASE_OPTS[@]}")
 
 # Global cleanup state (must be module-level for EXIT trap)
@@ -66,14 +66,12 @@ _start_vm_container_watchdog() {
         _WATCHDOG_PID=""
     fi
 
-    setsid bash -c '
-parent_pid="$1"
-container_name="$2"
+    setsid bash <<WATCHDOG_EOF </dev/null >/dev/null 2>&1 &
 while kill -0 "$parent_pid" >/dev/null 2>&1; do
     sleep 2
 done
 docker stop "$container_name" >/dev/null 2>&1 || true
-' _ "$parent_pid" "$container_name" </dev/null >/dev/null 2>&1 &
+WATCHDOG_EOF
     _WATCHDOG_PID="$!"
 }
 
@@ -753,7 +751,7 @@ test_all() {
 
     # List all individual log files
     echo "Individual test logs:" | tee -a "$summary_file"
-    ls -la results/logs/*.log 2>/dev/null | tail -n +2 | awk '{print "  " $9}' | tee -a "$summary_file"
+    find results/logs -name '*.log' -printf '  %p\n' 2>/dev/null | sort | tee -a "$summary_file"
 
     echo "" | tee -a "$summary_file"
     echo "Summary saved to: $summary_file"

@@ -184,7 +184,6 @@ show_setup_help() {
     echo "  --enable-completion BOOL  Enable shell completion setup (default: true)"
     echo "  --completion-shells LIST  Shells to configure (auto, bash, zsh, fish, or comma-separated)"
     echo "  --install-helm BOOL     Install Helm package manager (default: false)"
-    echo "  --gui [address[:port]]  Launch the interactive web installer (requires python3)"
     echo "  --dry-run               Show configuration summary and exit"
     echo "  --verbose               Enable debug logging"
     echo "  --quiet                 Suppress informational messages"

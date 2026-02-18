@@ -14,47 +14,6 @@ GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.githubusercontent.com/MuNeNICK/s
 # Check if running in offline mode
 OFFLINE_MODE="${OFFLINE_MODE:-false}"
 
-# GUI mode configuration (optional)
-GUI_MODE="${GUI_MODE:-false}"
-GUI_BIND_ADDRESS="${GUI_BIND_ADDRESS:-127.0.0.1}"
-GUI_PORT="${GUI_PORT:-8080}"
-
-# helper for validating GUI port input
-set_gui_port() {
-    local gui_port_value="$1"
-    if ! [[ "$gui_port_value" =~ ^[0-9]+$ ]] || (( gui_port_value < 1 || gui_port_value > 65535 )); then
-        echo "Error: GUI port must be a number between 1 and 65535" >&2
-        exit 1
-    fi
-    GUI_PORT="$gui_port_value"
-}
-
-parse_gui_endpoint_arg() {
-    local value="$1"
-    local address_part=""
-    local port_part=""
-
-    if [[ "$value" == *:* ]]; then
-        address_part="${value%%:*}"
-        port_part="${value##*:}"
-        # Allow formats like ":9000" to fall back to default host
-        if [ -z "$address_part" ]; then
-            address_part=""
-        fi
-    elif [[ "$value" =~ ^[0-9]+$ ]]; then
-        port_part="$value"
-    elif [ -n "$value" ]; then
-        address_part="$value"
-    fi
-
-    if [ -n "$address_part" ]; then
-        GUI_BIND_ADDRESS="$address_part"
-    fi
-    if [ -n "$port_part" ]; then
-        set_gui_port "$port_part"
-    fi
-}
-
 # EXIT trap: collect cleanup paths and run them on exit
 _EXIT_CLEANUP_DIRS=()
 _run_exit_cleanup() {
@@ -68,6 +27,22 @@ _append_exit_trap() {
     _EXIT_CLEANUP_DIRS+=("$1")
 }
 
+# Validate that a downloaded module looks like a shell script
+_validate_shell_module() {
+    local file="$1"
+    if [ ! -s "$file" ]; then
+        echo "Error: Module file '$file' is empty or missing" >&2
+        return 1
+    fi
+    local first_char
+    first_char=$(head -c1 "$file")
+    if [ "$first_char" != "#" ]; then
+        echo "Error: Module file '$file' does not appear to be a valid shell script" >&2
+        return 1
+    fi
+    return 0
+}
+
 # Helper to call dynamically-named functions with safety check
 _dispatch() {
     local func_name="$1"; shift
@@ -79,7 +54,7 @@ _dispatch() {
     fi
 }
 
-# Parse early arguments for offline / GUI / help / verbose / quiet / dry-run
+# Parse early arguments for offline / help / verbose / quiet / dry-run
 # (needs to happen before modules load)
 original_args=("$@")
 i=0
@@ -113,7 +88,6 @@ Options:
   --enable-completion BOOL  Enable shell completion setup (default: true)
   --completion-shells LIST  Shells to configure (auto, bash, zsh, fish, or comma-separated)
   --install-helm BOOL     Install Helm package manager (default: false)
-  --gui [address[:port]]  Launch the interactive web installer (requires python3)
   --offline               Run in offline mode (use bundled modules)
   --dry-run               Show configuration summary and exit without making changes
   --verbose               Enable debug logging
@@ -139,28 +113,6 @@ HELPEOF
             ;;
         --dry-run)
             DRY_RUN=true
-            ((i += 1))
-            continue
-            ;;
-        --gui)
-            GUI_MODE="true"
-            if (( i + 1 < ${#original_args[@]} )); then
-                next_arg="${original_args[$((i + 1))]}"
-                if [[ -n "$next_arg" && "$next_arg" != -* ]]; then
-                    parse_gui_endpoint_arg "$next_arg"
-                    ((i += 2))
-                    continue
-                fi
-            fi
-            ((i += 1))
-            continue
-            ;;
-        --gui=*)
-            GUI_MODE="true"
-            gui_value="${arg#*=}"
-            if [ -n "$gui_value" ]; then
-                parse_gui_endpoint_arg "$gui_value"
-            fi
             ((i += 1))
             continue
             ;;
@@ -196,13 +148,18 @@ load_modules() {
 
     # Download common modules
     echo "Downloading common modules..." >&2
-    local common_modules=(variables logging detection validation helpers networking swap completion helm gui)
+    local common_modules=(variables logging detection validation helpers networking swap completion helm)
     for module in "${common_modules[@]}"; do
         echo "  - Downloading common/${module}.sh" >&2
         if ! curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/${module}.sh" > "$temp_dir/${module}.sh"; then
             echo "Error: Failed to download common/${module}.sh" >&2
             return 1
         fi
+    done
+
+    # Validate downloaded common modules
+    for module in "${common_modules[@]}"; do
+        _validate_shell_module "$temp_dir/${module}.sh" || return 1
     done
 
     # Source common modules to get distribution detection
@@ -227,6 +184,11 @@ load_modules() {
         fi
     done
 
+    # Validate downloaded distro modules
+    for module in "${distro_modules[@]}"; do
+        _validate_shell_module "$temp_dir/${distro_family_local}_${module}.sh" || return 1
+    done
+
     # Source all modules
     echo "Loading all modules..." >&2
     for module in "${common_modules[@]}"; do
@@ -242,8 +204,27 @@ load_modules() {
 
 # Function to run offline (all modules already included)
 run_offline() {
-    # When running offline, all functions should already be defined
-    # This function is called when the script is bundled with all modules
+    # When running offline, all functions should already be defined (bundled).
+    # If key functions are missing, try sourcing from SCRIPT_DIR as a fallback.
+    if ! type -t parse_setup_args &>/dev/null; then
+        echo "Offline mode: functions not bundled, loading from $SCRIPT_DIR..." >&2
+        local common_modules=(variables logging detection validation helpers networking swap completion helm)
+        for module in "${common_modules[@]}"; do
+            if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
+                source "$SCRIPT_DIR/common/${module}.sh"
+            fi
+        done
+        # Detect distribution and load distro modules
+        if type -t detect_distribution &>/dev/null; then
+            detect_distribution
+            local distro_family="${DISTRO_FAMILY:-}"
+            if [ -n "$distro_family" ]; then
+                for module_file in "$SCRIPT_DIR/distros/$distro_family/"*.sh; do
+                    [ -f "$module_file" ] && source "$module_file"
+                done
+            fi
+        fi
+    fi
     return 0
 }
 
@@ -256,31 +237,11 @@ main() {
         load_modules || exit 1
     fi
 
-    # Ensure GUI helper is available if requested (helpful for local/offline runs)
-    if [ "$GUI_MODE" = "true" ] && ! type -t run_gui_installer >/dev/null 2>&1; then
-        if [ -f "$SCRIPT_DIR/common/gui.sh" ]; then
-            source "$SCRIPT_DIR/common/gui.sh"
-        else
-            echo "Error: GUI module is missing. Please update your checkout." >&2
-            exit 1
-        fi
-    fi
-
     # Strip special flags and subcommand that have already been handled
     local -a cli_args=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --offline|--verbose|--quiet|--dry-run)
-                shift
-                ;;
-            --gui)
-                if [[ $# -gt 1 && "$2" != -* ]]; then
-                    shift 2
-                else
-                    shift
-                fi
-                ;;
-            --gui=*)
                 shift
                 ;;
             init|join)
@@ -294,18 +255,8 @@ main() {
         esac
     done
 
-    if [ "$GUI_MODE" = "true" ]; then
-        if [ "${#cli_args[@]}" -gt 0 ]; then
-            echo "Note: CLI options are ignored when --gui mode is active." >&2
-        fi
-        run_gui_installer
-        if type -t gui_enable_progress_logging >/dev/null 2>&1; then
-            gui_enable_progress_logging
-        fi
-    else
-        # Parse command line arguments
-        parse_setup_args "${cli_args[@]+"${cli_args[@]}"}"
-    fi
+    # Parse command line arguments
+    parse_setup_args "${cli_args[@]+"${cli_args[@]}"}"
 
     # Validate inputs
     check_root

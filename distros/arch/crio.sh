@@ -17,7 +17,7 @@ setup_crio_arch() {
             echo "Replacing iptables with iptables-nft to resolve conflicts..."
             pacman -Rdd --noconfirm iptables || true
         fi
-        pacman -S --noconfirm iptables-nft || true
+        pacman -S --noconfirm iptables-nft
     else
         echo "iptables-nft already installed (as expected for CRI-O)"
     fi
@@ -46,17 +46,25 @@ setup_crio_arch() {
     # Use a temporary unprivileged user to run yay for CRI-O
     local CRIO_USER="crio_installer_$$"
     useradd -m -s /bin/bash "$CRIO_USER"
-    echo "$CRIO_USER ALL=(ALL) NOPASSWD: /usr/bin/pacman" >> /etc/sudoers
+    local sudoers_file="/etc/sudoers.d/99-${CRIO_USER}"
+    echo "$CRIO_USER ALL=(ALL) NOPASSWD: /usr/bin/pacman" > "$sudoers_file"
+    chmod 0440 "$sudoers_file"
+    if ! visudo -cf "$sudoers_file" >/dev/null 2>&1; then
+        echo "Error: Generated sudoers file is invalid" >&2
+        rm -f "$sudoers_file"
+        userdel -r "$CRIO_USER" 2>/dev/null || true
+        return 1
+    fi
     echo "Installing CRI-O and runtime dependencies from AUR..."
     su - "$CRIO_USER" -c "
         yay -S --noconfirm --needed --removemake --cleanafter cri-o conmon crun cni-plugins
     " || {
         echo "Failed to install CRI-O from AUR"
-        sed -i "/$CRIO_USER/d" /etc/sudoers || true
+        rm -f "$sudoers_file"
         userdel -r "$CRIO_USER" || true
         return 1
     }
-    sed -i "/$CRIO_USER/d" /etc/sudoers || true
+    rm -f "$sudoers_file"
     userdel -r "$CRIO_USER" || true
 
     # Configure CRI-O before starting

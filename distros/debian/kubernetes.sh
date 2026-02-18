@@ -31,6 +31,6 @@ setup_kubernetes_debian() {
     fi
     
     # Install Kubernetes components
-    apt-get install -y --allow-change-held-packages kubelet=${VERSION_STRING} kubeadm=${VERSION_STRING} kubectl=${VERSION_STRING}
+    apt-get install -y --allow-change-held-packages kubelet="${VERSION_STRING}" kubeadm="${VERSION_STRING}" kubectl="${VERSION_STRING}"
     apt-mark hold kubelet kubeadm kubectl
 }

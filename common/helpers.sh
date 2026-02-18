@@ -44,11 +44,15 @@ configure_containerd_toml() {
         sed -i 's#^\s*sandbox_image\s*=\s*".*"#  sandbox_image = "registry.k8s.io/pause:3.10"#' /etc/containerd/config.toml || true
     else
         # Insert under the CRI plugin section
-        awk '
+        if awk '
             BEGIN{inserted=0}
             {print}
             $0 ~ /^\[plugins\."io\.containerd\.grpc\.v1\.cri"\]/ && inserted==0 {print "  sandbox_image = \"registry.k8s.io/pause:3.10\""; inserted=1}
-        ' /etc/containerd/config.toml > /etc/containerd/config.toml.tmp 2>/dev/null && mv /etc/containerd/config.toml.tmp /etc/containerd/config.toml || true
+        ' /etc/containerd/config.toml > /etc/containerd/config.toml.tmp 2>/dev/null; then
+            mv /etc/containerd/config.toml.tmp /etc/containerd/config.toml
+        else
+            rm -f /etc/containerd/config.toml.tmp
+        fi
     fi
 
     systemctl daemon-reload || true
@@ -459,16 +463,6 @@ cleanup_kube_configs() {
     ROOT_HOME=$(eval echo ~root)
     echo "Cleanup: Removing .kube directory and config for root user at $ROOT_HOME"
     rm -rf "$ROOT_HOME/.kube" || true
-
-    # Clean up all users' .kube/config files
-    shopt -s nullglob
-    for user_home in /home/*; do
-        if [ -d "$user_home" ]; then
-            echo "Cleanup: Removing .kube directory and config for user directory $user_home"
-            rm -rf "$user_home/.kube" || true
-        fi
-    done
-    shopt -u nullglob
 }
 
 # Helper: Reset containerd configuration

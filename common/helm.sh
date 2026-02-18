@@ -42,7 +42,7 @@ setup_helm_for_user() {
     local helm_dir="$user_home/.config/helm"
     if [ ! -d "$helm_dir" ]; then
         mkdir -p "$helm_dir"
-        chown -R "$user:$(id -gn $user)" "$user_home/.config"
+        chown -R "$user:$(id -gn "$user")" "$user_home/.config"
     fi
     
     # Initialize helm for the user (if needed)
@@ -139,29 +139,6 @@ cleanup_helm() {
         echo "Removing Helm cache for root user"
         rm -rf /root/.cache/helm
     fi
-    
-    # Remove all users' Helm directories
-    for user_home in /home/*; do
-        if [ -d "$user_home" ]; then
-            local username
-            username=$(basename "$user_home")
-            
-            if [ -d "$user_home/.config/helm" ]; then
-                echo "Removing Helm config for user $username"
-                rm -rf "$user_home/.config/helm"
-            fi
-            
-            if [ -d "$user_home/.helm" ]; then
-                echo "Removing legacy Helm directory for user $username"
-                rm -rf "$user_home/.helm"
-            fi
-            
-            if [ -d "$user_home/.cache/helm" ]; then
-                echo "Removing Helm cache for user $username"
-                rm -rf "$user_home/.cache/helm"
-            fi
-        fi
-    done
     
     echo "Helm has been removed"
     return 0

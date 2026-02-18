@@ -72,16 +72,24 @@ setup_kubernetes_arch() {
             useradd -m -s /bin/bash "$KUBE_USER"
             
             # Give the temporary user sudo privileges without password for pacman
-            echo "$KUBE_USER ALL=(ALL) NOPASSWD: /usr/bin/pacman" >> /etc/sudoers
-            
+            local sudoers_file="/etc/sudoers.d/99-${KUBE_USER}"
+            echo "$KUBE_USER ALL=(ALL) NOPASSWD: /usr/bin/pacman" > "$sudoers_file"
+            chmod 0440 "$sudoers_file"
+            if ! visudo -cf "$sudoers_file" >/dev/null 2>&1; then
+                echo "Error: Generated sudoers file is invalid" >&2
+                rm -f "$sudoers_file"
+                userdel -r "$KUBE_USER" 2>/dev/null || true
+                return 1
+            fi
+
             # Install Kubernetes components as the temporary user
             echo "Installing Kubernetes components from AUR..."
             su - "$KUBE_USER" -c "
                 $AUR_HELPER -S --noconfirm --needed kubeadm-bin kubelet-bin kubectl-bin
-            " || true
-            
+            " || echo "Warning: AUR installation of Kubernetes components failed, will try direct binary download" >&2
+
             # Remove sudo privileges and clean up
-            sed -i "/$KUBE_USER/d" /etc/sudoers
+            rm -f "$sudoers_file"
             userdel -r "$KUBE_USER"
         else
             echo "No AUR helper available. Will use direct binary download."

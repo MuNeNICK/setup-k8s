@@ -5,6 +5,9 @@ set -euo pipefail
 # Ensure SUDO_USER is defined even when script runs as root without sudo
 SUDO_USER="${SUDO_USER:-}"
 
+# Get the directory where the script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Default GitHub base URL (can be overridden)
 GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main}"
 
@@ -22,6 +25,22 @@ trap _run_exit_cleanup EXIT
 
 _append_exit_trap() {
     _EXIT_CLEANUP_DIRS+=("$1")
+}
+
+# Validate that a downloaded module looks like a shell script
+_validate_shell_module() {
+    local file="$1"
+    if [ ! -s "$file" ]; then
+        echo "Error: Module file '$file' is empty or missing" >&2
+        return 1
+    fi
+    local first_char
+    first_char=$(head -c1 "$file")
+    if [ "$first_char" != "#" ]; then
+        echo "Error: Module file '$file' does not appear to be a valid shell script" >&2
+        return 1
+    fi
+    return 0
 }
 
 # Helper to call dynamically-named functions with safety check
@@ -91,6 +110,11 @@ load_modules() {
         fi
     done
 
+    # Validate downloaded common modules
+    for module in "${common_modules[@]}"; do
+        _validate_shell_module "$temp_dir/${module}.sh" || return 1
+    done
+
     # Source common modules to get distribution detection
     for module in variables logging detection; do
         source "$temp_dir/${module}.sh"
@@ -110,6 +134,9 @@ load_modules() {
         return 1
     fi
 
+    # Validate downloaded distro cleanup module
+    _validate_shell_module "$cleanup_module_file" || return 1
+
     # Source all modules
     echo "Loading all modules..." >&2
     for module in "${common_modules[@]}"; do
@@ -125,8 +152,25 @@ load_modules() {
 
 # Function to run offline (all modules already included)
 run_offline() {
-    # When running offline, all functions should already be defined
-    # This function is called when the script is bundled with all modules
+    # When running offline, all functions should already be defined (bundled).
+    # If key functions are missing, try sourcing from SCRIPT_DIR as a fallback.
+    if ! type -t parse_cleanup_args &>/dev/null; then
+        echo "Offline mode: functions not bundled, loading from $SCRIPT_DIR..." >&2
+        local common_modules=(variables logging detection validation helpers networking swap completion helm)
+        for module in "${common_modules[@]}"; do
+            if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
+                source "$SCRIPT_DIR/common/${module}.sh"
+            fi
+        done
+        # Detect distribution and load distro cleanup module
+        if type -t detect_distribution &>/dev/null; then
+            detect_distribution
+            local distro_family="${DISTRO_FAMILY:-}"
+            if [ -n "$distro_family" ] && [ -f "$SCRIPT_DIR/distros/$distro_family/cleanup.sh" ]; then
+                source "$SCRIPT_DIR/distros/$distro_family/cleanup.sh"
+            fi
+        fi
+    fi
     return 0
 }
 

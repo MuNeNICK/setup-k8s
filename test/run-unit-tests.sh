@@ -370,12 +370,12 @@ test_pipefail_safety() {
     # networking.sh: nft list tables | awk ... | while read
     # Simulate empty input (no k8s-related nft tables)
     _assert_exit_code "nft awk pipeline (no match)" 0 \
-        bash -c 'set -euo pipefail; echo "" | awk "/kube-proxy|kubernetes/ {print \$2, \$3}" | while read -r family name; do echo "$family $name"; done'
+        bash -c "set -euo pipefail; echo '' | awk '/kube-proxy|kubernetes/ {print \$2, \$3}' | while read -r family name; do echo \"\$family \$name\"; done"
 
     # debian/kubernetes.sh: apt-cache madison | awk -v ver=...
     # Simulate no matching version
     _assert_exit_code "apt-cache awk pipeline (no match)" 0 \
-        bash -c 'set -euo pipefail; echo "kubeadm | 1.30.0-1.1 | https://pkgs.k8s.io" | awk -v ver="9.99" "\$0 ~ ver {print \$3; exit}"'
+        bash -c "set -euo pipefail; echo 'kubeadm | 1.30.0-1.1 | https://pkgs.k8s.io' | awk -v ver='9.99' '\$0 ~ ver {print \$3; exit}'"
 
     # suse/crio.sh: zypper | awk -F ... | sort | head
     # Simulate no matching package
@@ -385,7 +385,7 @@ test_pipefail_safety() {
     # debian/kubernetes.sh: awk early exit with large input must not SIGPIPE
     # Simulates apt-cache madison producing many lines; awk exits after first match
     _assert_exit_code "awk early exit on large input (no SIGPIPE)" 0 \
-        bash -c 'set -euo pipefail; madison_out=$(seq 1 1000 | sed "s/^/kubeadm | 1.32./"); echo "$madison_out" | awk -v ver="1.32" "\$0 ~ ver {print \$3; exit}"'
+        bash -c "set -euo pipefail; madison_out=\$(seq 1 1000 | sed 's/^/kubeadm | 1.32./'); echo \"\$madison_out\" | awk -v ver='1.32' '\$0 ~ ver {print \$3; exit}'"
 
     # Same pattern but piped directly — would SIGPIPE under pipefail
     # Exit code varies by environment (141 locally, 1 on some CI), so just assert non-zero

@@ -35,24 +35,24 @@ install_dependencies_generic() {
     # Try to install other useful dependencies if package manager is available
     if command -v apt-get &> /dev/null; then
         apt-get install -y conntrack socat ethtool iproute2 cri-tools || true
-        [ "$PROXY_MODE" = "ipvs" ] && apt-get install -y ipvsadm ipset || true
-        [ "$PROXY_MODE" = "nftables" ] && apt-get install -y nftables || true
+        if [ "$PROXY_MODE" = "ipvs" ]; then apt-get install -y ipvsadm ipset || true; fi
+        if [ "$PROXY_MODE" = "nftables" ]; then apt-get install -y nftables || true; fi
     elif command -v dnf &> /dev/null; then
         dnf install -y conntrack-tools socat ethtool iproute cri-tools || true
-        [ "$PROXY_MODE" = "ipvs" ] && dnf install -y ipvsadm ipset || true
-        [ "$PROXY_MODE" = "nftables" ] && dnf install -y nftables || true
+        if [ "$PROXY_MODE" = "ipvs" ]; then dnf install -y ipvsadm ipset || true; fi
+        if [ "$PROXY_MODE" = "nftables" ]; then dnf install -y nftables || true; fi
     elif command -v yum &> /dev/null; then
         yum install -y conntrack-tools socat ethtool iproute cri-tools || true
-        [ "$PROXY_MODE" = "ipvs" ] && yum install -y ipvsadm ipset || true
-        [ "$PROXY_MODE" = "nftables" ] && yum install -y nftables || true
+        if [ "$PROXY_MODE" = "ipvs" ]; then yum install -y ipvsadm ipset || true; fi
+        if [ "$PROXY_MODE" = "nftables" ]; then yum install -y nftables || true; fi
     elif command -v zypper &> /dev/null; then
         zypper install -y conntrack-tools socat ethtool iproute2 cri-tools || true
-        [ "$PROXY_MODE" = "ipvs" ] && zypper install -y ipvsadm ipset || true
-        [ "$PROXY_MODE" = "nftables" ] && zypper install -y nftables || true
+        if [ "$PROXY_MODE" = "ipvs" ]; then zypper install -y ipvsadm ipset || true; fi
+        if [ "$PROXY_MODE" = "nftables" ]; then zypper install -y nftables || true; fi
     elif command -v pacman &> /dev/null; then
         pacman -Sy --noconfirm conntrack-tools socat ethtool iproute2 crictl || true
-        [ "$PROXY_MODE" = "ipvs" ] && pacman -Sy --noconfirm ipvsadm ipset || true
-        [ "$PROXY_MODE" = "nftables" ] && pacman -Sy --noconfirm nftables || true
+        if [ "$PROXY_MODE" = "ipvs" ]; then pacman -Sy --noconfirm ipvsadm ipset || true; fi
+        if [ "$PROXY_MODE" = "nftables" ]; then pacman -Sy --noconfirm nftables || true; fi
     fi
     
     # Print message about mode-specific packages

@@ -35,7 +35,6 @@ Usage: setup-k8s.sh <init|join> [options]
 | `--enable-completion BOOL` | Enable shell completion setup | `true` | `--enable-completion false` |
 | `--completion-shells LIST` | Shells to configure (auto, bash, zsh, fish, or comma-separated) | `auto` | `--completion-shells bash,zsh` |
 | `--install-helm BOOL` | Install Helm package manager | `false` | `--install-helm true` |
-| `--gui [address[:port]]` | Launch the interactive web installer (requires python3) | `127.0.0.1:8080` | `--gui 0.0.0.0:9000` |
 | `--offline` | Run in offline mode (use bundled modules) | — | `--offline` |
 | `--dry-run` | Show configuration summary and exit without making changes | — | `--dry-run` |
 | `--verbose` | Enable debug logging | — | `--verbose` |

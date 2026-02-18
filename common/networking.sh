@@ -68,11 +68,27 @@ EOF
     sysctl --system
 }
 
-# Reset iptables rules
+# Reset K8s-related iptables rules (selective cleanup to avoid flushing unrelated rules)
 reset_iptables() {
-    echo "Resetting iptables rules..."
+    echo "Resetting K8s-related iptables rules..."
     if command -v iptables &> /dev/null; then
-        iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X || true
+        # Delete K8s-related chains selectively instead of flushing all rules
+        local k8s_chain_prefixes="KUBE- FLANNEL- CNI- CILIUM_ WEAVE-"
+        for table in filter nat mangle; do
+            for prefix in $k8s_chain_prefixes; do
+                iptables -t "$table" -S 2>/dev/null | grep -oP "(?<=-j )${prefix}[^ ]+" | sort -u | while read -r chain; do
+                    iptables -t "$table" -D FORWARD -j "$chain" 2>/dev/null || true
+                    iptables -t "$table" -D INPUT -j "$chain" 2>/dev/null || true
+                    iptables -t "$table" -D OUTPUT -j "$chain" 2>/dev/null || true
+                    iptables -t "$table" -D PREROUTING -j "$chain" 2>/dev/null || true
+                    iptables -t "$table" -D POSTROUTING -j "$chain" 2>/dev/null || true
+                done
+                iptables -t "$table" -S 2>/dev/null | awk "/^-N ${prefix}/"'{print $2}' | while read -r chain; do
+                    iptables -t "$table" -F "$chain" 2>/dev/null || true
+                    iptables -t "$table" -X "$chain" 2>/dev/null || true
+                done
+            done
+        done
     else
         echo "Warning: iptables command not found, skipping iptables reset"
     fi
