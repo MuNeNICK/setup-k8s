@@ -39,6 +39,7 @@ SSH_READY_TIMEOUT=300
 SSH_KEY_DIR=""
 SSH_PORT=""
 SSH_BASE_OPTS=(-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5)
+# shellcheck disable=SC2034 # SSH_OPTS is used by sourced vm_harness.sh
 SSH_OPTS=("${SSH_BASE_OPTS[@]}")
 
 # Cleanup state
