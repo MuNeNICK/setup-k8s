@@ -13,9 +13,13 @@ detect_user_shell() {
 
     # Check /etc/passwd for the user's default shell
     if [ -z "$user_shell" ] && [ -n "${SUDO_USER:-}" ]; then
-        user_shell=$(getent passwd "$SUDO_USER" | cut -d: -f7 | xargs basename)
+        local _shell_path
+        _shell_path=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f7) || true
+        [ -n "$_shell_path" ] && user_shell=$(basename "$_shell_path")
     elif [ -z "$user_shell" ]; then
-        user_shell=$(getent passwd "${USER:-root}" | cut -d: -f7 | xargs basename)
+        local _shell_path
+        _shell_path=$(getent passwd "${USER:-root}" 2>/dev/null | cut -d: -f7) || true
+        [ -n "$_shell_path" ] && user_shell=$(basename "$_shell_path")
     fi
 
     # Default to bash if detection fails
@@ -34,39 +38,37 @@ _setup_tool_completion() {
     local alias_name="${3:-}"
 
     if ! command -v "$tool" &> /dev/null; then
-        echo "$tool not found, skipping completion setup"
+        log_info "$tool not found, skipping completion setup"
         return 1
     fi
 
-    echo "Setting up $tool completion for $shell_type..."
+    log_info "Setting up $tool completion for $shell_type..."
 
     case "$shell_type" in
         bash)
             # System-wide bash completion
             if [ -d /etc/bash_completion.d ]; then
-                "$tool" completion bash > "/etc/bash_completion.d/$tool" 2>/dev/null || {
-                    echo "$tool does not support bash completion"
+                if ! "$tool" completion bash > "/etc/bash_completion.d/$tool"; then
+                    log_warn "$tool bash completion setup failed"
                     return 1
-                }
-                echo "$tool bash completion installed to /etc/bash_completion.d/"
+                fi
+                log_info "$tool bash completion installed to /etc/bash_completion.d/"
             fi
 
-            # User-specific bash completion
-            if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-                local user_home="/home/$SUDO_USER"
+            # User-specific alias (completion is loaded system-wide above)
+            if [ -n "$alias_name" ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+                local user_home
+                user_home=$(get_user_home "$SUDO_USER")
                 if [ -f "$user_home/.bashrc" ]; then
-                    if ! grep -q "$tool completion bash" "$user_home/.bashrc"; then
+                    if ! grep -q "alias ${alias_name}=${tool}" "$user_home/.bashrc"; then
                         {
                             echo ""
-                            echo "# $tool completion"
-                            echo "source <($tool completion bash)"
-                            if [ -n "$alias_name" ]; then
-                                echo "alias ${alias_name}=${tool}"
-                                echo "complete -o default -F __start_${tool} ${alias_name}"
-                            fi
+                            echo "# $tool alias"
+                            echo "alias ${alias_name}=${tool}"
+                            echo "complete -o default -F __start_${tool} ${alias_name}"
                         } >> "$user_home/.bashrc"
                         chown "${SUDO_USER}:$(id -gn "$SUDO_USER")" "$user_home/.bashrc"
-                        echo "$tool bash completion added to $user_home/.bashrc"
+                        log_info "$tool bash alias added to $user_home/.bashrc"
                     fi
                 fi
             fi
@@ -75,33 +77,31 @@ _setup_tool_completion() {
         zsh)
             # System-wide zsh completion
             local zsh_dir=""
-            [ -d /usr/local/share/zsh/site-functions ] && zsh_dir="/usr/local/share/zsh/site-functions"
             [ -d /usr/share/zsh/site-functions ] && zsh_dir="/usr/share/zsh/site-functions"
+            [ -d /usr/local/share/zsh/site-functions ] && zsh_dir="/usr/local/share/zsh/site-functions"
 
             if [ -n "$zsh_dir" ]; then
-                "$tool" completion zsh > "${zsh_dir}/_${tool}" 2>/dev/null || {
-                    echo "$tool does not support zsh completion"
+                if ! "$tool" completion zsh > "${zsh_dir}/_${tool}"; then
+                    log_warn "$tool zsh completion setup failed"
                     return 1
-                }
-                echo "$tool zsh completion installed to ${zsh_dir}/"
+                fi
+                log_info "$tool zsh completion installed to ${zsh_dir}/"
             fi
 
-            # User-specific zsh completion
-            if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-                local user_home="/home/$SUDO_USER"
+            # User-specific alias (completion is loaded system-wide above)
+            if [ -n "$alias_name" ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+                local user_home
+                user_home=$(get_user_home "$SUDO_USER")
                 if [ -f "$user_home/.zshrc" ]; then
-                    if ! grep -q "$tool completion zsh" "$user_home/.zshrc"; then
+                    if ! grep -q "alias ${alias_name}=${tool}" "$user_home/.zshrc"; then
                         {
                             echo ""
-                            echo "# $tool completion"
-                            echo "source <($tool completion zsh)"
-                            if [ -n "$alias_name" ]; then
-                                echo "alias ${alias_name}=${tool}"
-                                echo "compdef ${alias_name}=${tool}"
-                            fi
+                            echo "# $tool alias"
+                            echo "alias ${alias_name}=${tool}"
+                            echo "compdef ${alias_name}=${tool}"
                         } >> "$user_home/.zshrc"
                         chown "${SUDO_USER}:$(id -gn "$SUDO_USER")" "$user_home/.zshrc"
-                        echo "$tool zsh completion added to $user_home/.zshrc"
+                        log_info "$tool zsh alias added to $user_home/.zshrc"
                     fi
                 fi
             fi
@@ -109,7 +109,8 @@ _setup_tool_completion() {
 
         fish)
             if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-                local user_home="/home/$SUDO_USER"
+                local user_home
+                user_home=$(get_user_home "$SUDO_USER")
                 local fish_dir="$user_home/.config/fish/completions"
 
                 if [ ! -d "$fish_dir" ]; then
@@ -117,12 +118,12 @@ _setup_tool_completion() {
                     chown -R "${SUDO_USER}:$(id -gn "$SUDO_USER")" "$user_home/.config"
                 fi
 
-                "$tool" completion fish > "$fish_dir/${tool}.fish" 2>/dev/null || {
-                    echo "$tool does not support fish completion"
+                if ! "$tool" completion fish > "$fish_dir/${tool}.fish"; then
+                    log_warn "$tool fish completion setup failed"
                     return 1
-                }
+                fi
                 chown "${SUDO_USER}:$(id -gn "$SUDO_USER")" "$fish_dir/${tool}.fish"
-                echo "$tool fish completion installed to $fish_dir/"
+                log_info "$tool fish completion installed to $fish_dir/"
 
                 # Add alias if config.fish exists
                 if [ -n "$alias_name" ] && [ -f "$user_home/.config/fish/config.fish" ]; then
@@ -139,7 +140,7 @@ _setup_tool_completion() {
             ;;
 
         *)
-            echo "Unsupported shell: $shell_type"
+            log_warn "Unsupported shell: $shell_type"
             return 1
             ;;
     esac
@@ -153,7 +154,7 @@ _cleanup_tool_completion() {
     local tool="$1"
     local alias_name="${2:-}"
 
-    echo "Removing $tool completions..."
+    log_info "Removing $tool completions..."
 
     # Remove system-wide completions
     rm -f "/etc/bash_completion.d/$tool"
@@ -162,50 +163,37 @@ _cleanup_tool_completion() {
 
     # Remove from user configs
     if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-        local user_home="/home/$SUDO_USER"
+        local user_home
+        user_home=$(get_user_home "$SUDO_USER")
 
         # Clean bashrc
         if [ -f "$user_home/.bashrc" ]; then
-            sed -i "/# ${tool} completion/,+1d" "$user_home/.bashrc" 2>/dev/null || true
-            if [ -n "$alias_name" ]; then
-                sed -i "/alias ${alias_name}=${tool}/d" "$user_home/.bashrc" 2>/dev/null || true
-                sed -i "/complete -o default -F __start_${tool} ${alias_name}/d" "$user_home/.bashrc" 2>/dev/null || true
-            fi
+            sed -i "/# ${tool} alias/d" "$user_home/.bashrc"
+            [ -n "$alias_name" ] && sed -i "/alias ${alias_name}=${tool}/d" "$user_home/.bashrc"
+            [ -n "$alias_name" ] && sed -i "/complete -o default -F __start_${tool} ${alias_name}/d" "$user_home/.bashrc"
         fi
 
         # Clean zshrc
         if [ -f "$user_home/.zshrc" ]; then
-            sed -i "/# ${tool} completion/,+1d" "$user_home/.zshrc" 2>/dev/null || true
-            if [ -n "$alias_name" ]; then
-                sed -i "/alias ${alias_name}=${tool}/d" "$user_home/.zshrc" 2>/dev/null || true
-                sed -i "/compdef ${alias_name}=${tool}/d" "$user_home/.zshrc" 2>/dev/null || true
-            fi
+            sed -i "/# ${tool} alias/d" "$user_home/.zshrc"
+            [ -n "$alias_name" ] && sed -i "/alias ${alias_name}=${tool}/d" "$user_home/.zshrc"
+            [ -n "$alias_name" ] && sed -i "/compdef ${alias_name}=${tool}/d" "$user_home/.zshrc"
         fi
 
         # Clean fish completions
         rm -f "$user_home/.config/fish/completions/${tool}.fish"
         if [ -n "$alias_name" ] && [ -f "$user_home/.config/fish/config.fish" ]; then
-            sed -i "/# ${tool} alias/,+1d" "$user_home/.config/fish/config.fish" 2>/dev/null || true
+            sed -i "/# ${tool} alias/d" "$user_home/.config/fish/config.fish"
+            sed -i "/alias ${alias_name} ${tool}/d" "$user_home/.config/fish/config.fish"
         fi
     fi
 
-    echo "$tool completions removed"
+    log_info "$tool completions removed"
 }
-
-# Public wrappers
-setup_kubectl_completion()  { _setup_tool_completion kubectl  "$1" k; }
-setup_kubeadm_completion()  { _setup_tool_completion kubeadm  "$1"; }
-setup_crictl_completion()   { _setup_tool_completion crictl   "$1"; }
-setup_helm_completion()     { _setup_tool_completion helm     "$1"; }
-
-cleanup_kubectl_completion()  { _cleanup_tool_completion kubectl  k; }
-cleanup_kubeadm_completion()  { _cleanup_tool_completion kubeadm; }
-cleanup_crictl_completion()   { _cleanup_tool_completion crictl; }
-cleanup_helm_completion()     { _cleanup_tool_completion helm; }
 
 # Main function to setup all completions
 setup_kubernetes_completions() {
-    echo "Setting up Kubernetes shell completions..."
+    log_info "Setting up Kubernetes shell completions..."
 
     # Detect shell(s) to configure
     local shells_to_configure=()
@@ -214,29 +202,29 @@ setup_kubernetes_completions() {
         local detected_shell
         detected_shell=$(detect_user_shell)
         shells_to_configure+=("$detected_shell")
-        echo "Auto-detected shell: $detected_shell"
+        log_info "Auto-detected shell: $detected_shell"
     else
         IFS=',' read -ra shells_to_configure <<< "$COMPLETION_SHELLS"
     fi
 
     for shell_type in "${shells_to_configure[@]}"; do
         shell_type=$(echo "$shell_type" | tr -d ' ')
-        echo "Configuring completions for $shell_type..."
-        setup_kubectl_completion "$shell_type"
-        setup_kubeadm_completion "$shell_type"
-        setup_crictl_completion "$shell_type" || true
-        setup_helm_completion "$shell_type" || true
+        log_info "Configuring completions for $shell_type..."
+        _setup_tool_completion kubectl "$shell_type" k || true
+        _setup_tool_completion kubeadm "$shell_type" || true
+        _setup_tool_completion crictl "$shell_type" || true
+        _setup_tool_completion helm "$shell_type" || true
     done
 
-    echo "Shell completion setup completed!"
-    echo ""
-    echo "To activate completions:"
-    echo "  - For bash: source ~/.bashrc or start a new terminal"
-    echo "  - For zsh: source ~/.zshrc or start a new terminal"
-    echo "  - For fish: completions are immediately available"
-    echo ""
-    echo "Useful aliases have been configured:"
-    echo "  - 'k' for kubectl"
+    log_info "Shell completion setup completed!"
+    log_info ""
+    log_info "To activate completions:"
+    log_info "  - For bash: source ~/.bashrc or start a new terminal"
+    log_info "  - For zsh: source ~/.zshrc or start a new terminal"
+    log_info "  - For fish: completions are immediately available"
+    log_info ""
+    log_info "Useful aliases have been configured:"
+    log_info "  - 'k' for kubectl"
 
     return 0
 }
@@ -246,16 +234,16 @@ setup_k8s_shell_completion() {
     if [ "$ENABLE_COMPLETION" = true ]; then
         setup_kubernetes_completions
     else
-        echo "Shell completion setup skipped (disabled by configuration)"
+        log_info "Shell completion setup skipped (disabled by configuration)"
     fi
 }
 
 # Main cleanup function for all Kubernetes completions
 cleanup_kubernetes_completions() {
-    echo "Cleaning up Kubernetes shell completions..."
-    cleanup_kubectl_completion
-    cleanup_kubeadm_completion
-    cleanup_crictl_completion
-    cleanup_helm_completion
-    echo "Shell completion cleanup completed!"
+    log_info "Cleaning up Kubernetes shell completions..."
+    _cleanup_tool_completion kubectl k
+    _cleanup_tool_completion kubeadm
+    _cleanup_tool_completion crictl
+    _cleanup_tool_completion helm
+    log_info "Shell completion cleanup completed!"
 }

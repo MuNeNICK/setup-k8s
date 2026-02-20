@@ -6,7 +6,14 @@ set -euo pipefail
 SUDO_USER="${SUDO_USER:-}"
 
 # Get the directory where the script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# When piped via stdin (curl | bash), BASH_SOURCE[0] is unset under set -u
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+
+# Detect stdin execution mode (curl | bash) — BASH_SOURCE[0] is empty or unset
+_STDIN_MODE=false
+if [ -z "${BASH_SOURCE[0]:-}" ] || [ "${BASH_SOURCE[0]:-}" = "bash" ] || [ "${BASH_SOURCE[0]:-}" = "/dev/stdin" ] || [ "${BASH_SOURCE[0]:-}" = "/proc/self/fd/0" ]; then
+    _STDIN_MODE=true
+fi
 
 # Default GitHub base URL (can be overridden)
 GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main}"
@@ -14,66 +21,33 @@ GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.githubusercontent.com/MuNeNICK/s
 # Check if running in offline mode
 OFFLINE_MODE="${OFFLINE_MODE:-false}"
 
-# EXIT trap: collect cleanup paths and run them on exit
-_EXIT_CLEANUP_DIRS=()
-_run_exit_cleanup() {
-    for dir in "${_EXIT_CLEANUP_DIRS[@]}"; do
-        rm -rf "$dir"
-    done
-}
-trap _run_exit_cleanup EXIT
-
-_append_exit_trap() {
-    _EXIT_CLEANUP_DIRS+=("$1")
-}
-
-# Validate that a downloaded module looks like a shell script
-_validate_shell_module() {
-    local file="$1"
-    if [ ! -s "$file" ]; then
-        echo "Error: Module file '$file' is empty or missing" >&2
-        return 1
-    fi
-    local first_char
-    first_char=$(head -c1 "$file")
-    if [ "$first_char" != "#" ]; then
-        echo "Error: Module file '$file' does not appear to be a valid shell script" >&2
-        return 1
-    fi
-    if ! bash -n "$file" 2>/dev/null; then
-        echo "Error: Module file '$file' contains syntax errors" >&2
-        return 1
-    fi
-    return 0
-}
-
-# Helper to call dynamically-named functions with safety check
-_dispatch() {
-    local func_name="$1"; shift
-    if type -t "$func_name" &>/dev/null; then
-        "$func_name" "$@"
-    else
-        echo "Error: Required function '$func_name' not found." >&2
-        exit 1
-    fi
-}
-
-# Parse early arguments for offline / help / verbose / quiet / dry-run
-# (needs to happen before modules load)
+# Single-pass argument parsing: extract subcommand, global flags, and build cli_args
+# before bootstrap to avoid unnecessary network fetch for --help / --offline.
+# Subcommand is detected strictly from the first positional argument only,
+# to avoid misinterpreting option values (e.g. --ha-interface deploy) as subcommands.
 original_args=("$@")
+ACTION=""
+cli_args=()
+_action_detected=false
 i=0
 while [ $i -lt ${#original_args[@]} ]; do
     arg="${original_args[$i]}"
+    # shellcheck disable=SC2034 # LOG_LEVEL used by logging module
     case "$arg" in
         --help|-h)
-            cat <<'HELPEOF'
-Usage: setup-k8s.sh <init|join> [options]
+            # Deploy --help is deferred to deploy parser
+            if [ "$_action_detected" = true ] && [ "$ACTION" = "deploy" ]; then
+                cli_args+=("$arg")
+            else
+                cat <<'HELPEOF'
+Usage: setup-k8s.sh <init|join|deploy> [options]
 
 Subcommands:
   init                    Initialize a new Kubernetes cluster
   join                    Join an existing cluster as a worker or control-plane node
+  deploy                  Deploy a cluster across remote nodes via SSH
 
-Options:
+Options (init/join):
   --cri RUNTIME           Container runtime (containerd or crio). Default: containerd
   --proxy-mode MODE       Kube-proxy mode (iptables, ipvs, or nftables). Default: iptables
   --pod-network-cidr CIDR Pod network CIDR (e.g., 192.168.0.0/16)
@@ -97,173 +71,176 @@ Options:
   --verbose               Enable debug logging
   --quiet                 Suppress informational messages (errors only)
   --help, -h              Display this help message
+
+Options (deploy):
+  --control-planes IPs    Comma-separated control-plane nodes (user@ip or ip)
+  --workers IPs           Comma-separated worker nodes (user@ip or ip)
+  --ssh-user USER         Default SSH user (default: root)
+  --ssh-port PORT         SSH port (default: 22)
+  --ssh-key PATH          Path to SSH private key
+  --ssh-password PASS     SSH password (requires sshpass)
+  --ssh-known-hosts FILE  known_hosts file for host key verification (recommended)
+  --ssh-host-key-check MODE  SSH host key policy: yes, no, or accept-new (default: yes)
+  --ha-vip ADDRESS        VIP for HA (required when >1 control-plane)
+
+  Run 'setup-k8s.sh deploy --help' for deploy-specific details.
 HELPEOF
-            exit 0
+                exit 0
+            fi
+            ((i += 1))
             ;;
         --offline)
             OFFLINE_MODE="true"
             ((i += 1))
-            continue
             ;;
         --verbose)
             LOG_LEVEL=2
             ((i += 1))
-            continue
             ;;
         --quiet)
             LOG_LEVEL=0
             ((i += 1))
-            continue
             ;;
         --dry-run)
             DRY_RUN=true
             ((i += 1))
-            continue
             ;;
-        init|join)
-            ACTION="$arg"
+        --ha|--control-plane)
+            cli_args+=("$arg")
             ((i += 1))
-            continue
+            ;;
+        -*)
+            # All other flags take a value: skip next token so it is never
+            # interpreted as a subcommand. Pass both through to cli_args.
+            if [ $((i+1)) -ge ${#original_args[@]} ]; then
+                echo "Error: $arg requires a value" >&2
+                exit 1
+            fi
+            cli_args+=("$arg" "${original_args[$((i+1))]}")
+            ((i += 2))
+            ;;
+        *)
+            # First non-flag positional argument is the subcommand (strip it from cli_args)
+            if [ "$_action_detected" = false ]; then
+                case "$arg" in
+                    init|join|deploy)
+                        ACTION="$arg"
+                        _action_detected=true
+                        ((i += 1))
+                        continue
+                        ;;
+                esac
+            fi
+            cli_args+=("$arg")
+            ((i += 1))
             ;;
     esac
-    ((i += 1))
 done
+unset _action_detected
 
-# Declare DRY_RUN / LOG_LEVEL / ACTION defaults if not set by early parse
-DRY_RUN="${DRY_RUN:-false}"
-LOG_LEVEL="${LOG_LEVEL:-1}"
-ACTION="${ACTION:-}"
-
-# Function to load modules
-load_modules() {
-    if [ "$OFFLINE_MODE" = "true" ]; then
-        # Offline mode: assume all functions are already loaded (bundled)
-        echo "Running in offline mode (bundled)" >&2
-        return 0
-    fi
-
-    # Online mode: fetch modules from GitHub
-    echo "Loading modules from GitHub..." >&2
-
-    # Create temporary directory for modules
-    local temp_dir
-    temp_dir=$(mktemp -d -t setup-k8s-XXXXXX)
-    _append_exit_trap "$temp_dir"
-
-    # Download common modules
-    echo "Downloading common modules..." >&2
-    local common_modules=(variables logging detection validation helpers networking swap completion helm)
-    for module in "${common_modules[@]}"; do
-        echo "  - Downloading common/${module}.sh" >&2
-        if ! curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/${module}.sh" > "$temp_dir/${module}.sh"; then
-            echo "Error: Failed to download common/${module}.sh" >&2
-            return 1
-        fi
-    done
-
-    # Validate downloaded common modules
-    for module in "${common_modules[@]}"; do
-        _validate_shell_module "$temp_dir/${module}.sh" || return 1
-    done
-
-    # Source common modules to get distribution detection
-    for module in variables logging detection; do
-        source "$temp_dir/${module}.sh"
-    done
-
-    # Detect distribution first
-    detect_distribution
-
-    # Store DISTRO_FAMILY in a local variable to ensure it persists
-    local distro_family_local="$DISTRO_FAMILY"
-
-    # Download distribution-specific modules
-    echo "Downloading modules for $distro_family_local..." >&2
-    local distro_modules=(dependencies containerd crio kubernetes cleanup)
-    for module in "${distro_modules[@]}"; do
-        echo "  - Downloading distros/$distro_family_local/${module}.sh" >&2
-        if ! curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/distros/$distro_family_local/${module}.sh" > "$temp_dir/${distro_family_local}_${module}.sh"; then
-            echo "Error: Failed to download distros/$distro_family_local/${module}.sh" >&2
-            return 1
-        fi
-    done
-
-    # Validate downloaded distro modules
-    for module in "${distro_modules[@]}"; do
-        _validate_shell_module "$temp_dir/${distro_family_local}_${module}.sh" || return 1
-    done
-
-    # Source all modules
-    echo "Loading all modules..." >&2
-    for module in "${common_modules[@]}"; do
-        source "$temp_dir/${module}.sh"
-    done
-    for module in "${distro_modules[@]}"; do
-        source "$temp_dir/${distro_family_local}_${module}.sh"
-    done
-
-    echo "All modules loaded successfully" >&2
-    return 0
-}
-
-# Function to run offline (all modules already included)
-run_offline() {
-    # When running offline, all functions should already be defined (bundled).
-    # If key functions are missing, try sourcing from SCRIPT_DIR as a fallback.
-    if ! type -t parse_setup_args &>/dev/null; then
-        echo "Offline mode: functions not bundled, loading from $SCRIPT_DIR..." >&2
-        local common_modules=(variables logging detection validation helpers networking swap completion helm)
-        for module in "${common_modules[@]}"; do
-            if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
-                source "$SCRIPT_DIR/common/${module}.sh"
-            fi
-        done
-        # Detect distribution and load distro modules
-        if type -t detect_distribution &>/dev/null; then
-            detect_distribution
-            local distro_family="${DISTRO_FAMILY:-}"
-            if [ -n "$distro_family" ]; then
-                for module_file in "$SCRIPT_DIR/distros/$distro_family/"*.sh; do
-                    [ -f "$module_file" ] && source "$module_file"
-                done
-            fi
+# Source shared bootstrap logic (exit traps, module validation, _dispatch)
+if ! type -t _validate_shell_module &>/dev/null; then
+    if [ "$_STDIN_MODE" = false ] && [ -f "$SCRIPT_DIR/common/bootstrap.sh" ]; then
+        source "$SCRIPT_DIR/common/bootstrap.sh"
+    elif [ "$OFFLINE_MODE" = "true" ]; then
+        # Bundled mode: bootstrap functions are expected to be already defined
+        :
+    else
+        # Running standalone (e.g. curl | bash): download bootstrap.sh from GitHub
+        _BOOTSTRAP_TMP=$(mktemp -t bootstrap-XXXXXX.sh)
+        if curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/bootstrap.sh" > "$_BOOTSTRAP_TMP" && [ -s "$_BOOTSTRAP_TMP" ]; then
+            # shellcheck disable=SC1090
+            source "$_BOOTSTRAP_TMP"
+            rm -f "$_BOOTSTRAP_TMP"
+        else
+            echo "Error: Failed to download bootstrap.sh from ${GITHUB_BASE_URL}" >&2
+            rm -f "$_BOOTSTRAP_TMP"
+            exit 1
         fi
     fi
-    return 0
+fi
+
+# Show dry-run configuration summary for init/join
+_setup_dry_run() {
+    log_info "=== Dry-run Configuration Summary ==="
+    log_info "Action: ${ACTION}"
+    log_info "Container Runtime: ${CRI}"
+    log_info "Proxy mode: ${PROXY_MODE}"
+    log_info "Kubernetes Version (minor): ${K8S_VERSION}"
+    log_info "Distribution: ${DISTRO_NAME:-unknown} (family: ${DISTRO_FAMILY:-unknown})"
+    log_info "Install Helm: ${INSTALL_HELM}"
+    log_info "Shell Completion: ${ENABLE_COMPLETION} (shells: ${COMPLETION_SHELLS})"
+    [ -n "$KUBEADM_POD_CIDR" ] && log_info "Pod network CIDR: $KUBEADM_POD_CIDR"
+    [ -n "$KUBEADM_SERVICE_CIDR" ] && log_info "Service CIDR: $KUBEADM_SERVICE_CIDR"
+    [ -n "$KUBEADM_API_ADDR" ] && log_info "API server address: $KUBEADM_API_ADDR"
+    [ -n "$KUBEADM_CP_ENDPOINT" ] && log_info "Control plane endpoint: $KUBEADM_CP_ENDPOINT"
+    if [ "$JOIN_AS_CONTROL_PLANE" = true ]; then
+        log_info "HA Mode: joining as control-plane"
+    fi
+    if [ "$HA_ENABLED" = true ]; then
+        log_info "HA Mode: kube-vip enabled"
+        log_info "HA VIP: ${HA_VIP_ADDRESS}"
+        log_info "HA Interface: ${HA_VIP_INTERFACE}"
+    fi
+    log_info "=== End of dry-run (no changes made) ==="
 }
 
 # Main execution starts here
 main() {
-    # Load modules or run offline
-    if [ "$OFFLINE_MODE" = "true" ]; then
-        run_offline
-    else
-        load_modules || exit 1
+    # Deploy subcommand: orchestrator runs locally, no root / distro detection needed
+    if [ "$ACTION" = "deploy" ]; then
+        if [ "$_STDIN_MODE" = true ]; then
+            echo "Error: 'deploy' subcommand requires a local checkout. It cannot run via stdin (curl | bash)." >&2
+            exit 1
+        fi
+        # Deploy uses associative arrays (declare -A) which require Bash 4.3+
+        if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3) )); then
+            echo "Error: Deploy mode requires Bash 4.3+ (current: $BASH_VERSION)" >&2
+            exit 1
+        fi
+        # Source only the common modules needed for deploy
+        local deploy_modules=(variables logging validation deploy)
+        for module in "${deploy_modules[@]}"; do
+            if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
+                source "$SCRIPT_DIR/common/${module}.sh"
+            else
+                echo "Error: Required module common/${module}.sh not found in $SCRIPT_DIR" >&2
+                exit 1
+            fi
+        done
+
+        parse_deploy_args "${cli_args[@]}"
+        validate_deploy_args
+
+        if [ "$DRY_RUN" = true ]; then
+            deploy_dry_run
+            exit 0
+        fi
+
+        deploy_cluster
+        exit $?
     fi
 
-    # Strip special flags and subcommand that have already been handled
-    local -a cli_args=()
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --offline|--verbose|--quiet|--dry-run)
-                shift
-                ;;
-            init|join)
-                # Already handled in early parse
-                shift
-                ;;
-            *)
-                cli_args+=("$1")
-                shift
-                ;;
-        esac
-    done
+    # Check root privileges early (before loading modules)
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "Error: This script must be run as root" >&2
+        exit 1
+    fi
+
+    # Load modules:
+    #   - Local checkout (common/ exists): source from SCRIPT_DIR
+    #   - Offline (bundled): use pre-defined functions
+    #   - stdin or single-file download: fetch from GitHub
+    if { [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; } || [ "$OFFLINE_MODE" = "true" ]; then
+        run_offline "parse_setup_args" dependencies containerd crio kubernetes
+    else
+        load_modules "setup-k8s" dependencies containerd crio kubernetes
+    fi
 
     # Parse command line arguments
-    parse_setup_args "${cli_args[@]+"${cli_args[@]}"}"
+    parse_setup_args "${cli_args[@]}"
 
     # Validate inputs
-    check_root
     validate_action
     validate_join_args
     validate_cri
@@ -285,34 +262,15 @@ main() {
 
     # Dry-run: show configuration summary and exit
     if [ "$DRY_RUN" = true ]; then
-        echo "=== Dry-run Configuration Summary ==="
-        echo "Action: ${ACTION}"
-        echo "Container Runtime: ${CRI}"
-        echo "Proxy mode: ${PROXY_MODE}"
-        echo "Kubernetes Version (minor): ${K8S_VERSION}"
-        echo "Distribution: ${DISTRO_NAME:-unknown} (family: ${DISTRO_FAMILY:-unknown})"
-        echo "Install Helm: ${INSTALL_HELM}"
-        echo "Shell Completion: ${ENABLE_COMPLETION} (shells: ${COMPLETION_SHELLS})"
-        if [ "${#KUBEADM_ARGS[@]}" -gt 0 ]; then
-            echo "Kubeadm args: ${KUBEADM_ARGS[*]}"
-        fi
-        if [ "$JOIN_AS_CONTROL_PLANE" = true ]; then
-            echo "HA Mode: joining as control-plane"
-        fi
-        if [ "$HA_ENABLED" = true ]; then
-            echo "HA Mode: kube-vip enabled"
-            echo "HA VIP: ${HA_VIP_ADDRESS}"
-            echo "HA Interface: ${HA_VIP_INTERFACE}"
-        fi
-        echo "=== End of dry-run (no changes made) ==="
+        _setup_dry_run
         exit 0
     fi
 
-    echo "Starting Kubernetes initialization script..."
-    echo "Action: ${ACTION}"
-    echo "Container Runtime: ${CRI}"
-    echo "Proxy mode: ${PROXY_MODE}"
-    echo "Kubernetes Version (minor): ${K8S_VERSION}"
+    log_info "Starting Kubernetes initialization script..."
+    log_info "Action: ${ACTION}"
+    log_info "Container Runtime: ${CRI}"
+    log_info "Proxy mode: ${PROXY_MODE}"
+    log_info "Kubernetes Version (minor): ${K8S_VERSION}"
 
     # Disable swap
     disable_swap
@@ -323,7 +281,7 @@ main() {
     configure_network_settings
 
     # Install dependencies
-    echo "Installing dependencies..."
+    log_info "Installing dependencies..."
     _dispatch "install_dependencies_${DISTRO_FAMILY}"
 
     # Check IPVS availability if IPVS mode is requested
@@ -337,30 +295,20 @@ main() {
     fi
 
     # Setup container runtime
-    echo "Setting up container runtime: ${CRI}..."
+    log_info "Setting up container runtime: ${CRI}..."
     if [ "$CRI" = "containerd" ]; then
         _dispatch "setup_containerd_${DISTRO_FAMILY}"
-    elif [ "$CRI" = "crio" ]; then
-        _dispatch "setup_crio_${DISTRO_FAMILY}"
     else
-        echo "Unsupported CRI: $CRI"
-        exit 1
+        _dispatch "setup_crio_${DISTRO_FAMILY}"
     fi
 
     # Setup Kubernetes
-    echo "Setting up Kubernetes..."
+    log_info "Setting up Kubernetes..."
     _dispatch "setup_kubernetes_${DISTRO_FAMILY}"
 
     # Pre-cleanup for fresh installation
-    echo "Performing pre-installation cleanup..."
-    if type -t "cleanup_pre_${DISTRO_FAMILY}" &> /dev/null; then
-        _dispatch "cleanup_pre_${DISTRO_FAMILY}"
-    else
-        # Fallback to generic pre-cleanup
-        kubeadm reset -f || true
-        rm -rf /etc/cni/net.d/* || true
-        rm -rf /var/lib/cni/ || true
-    fi
+    log_info "Performing pre-installation cleanup..."
+    cleanup_pre_common
 
     # Clean up existing kube configs
     cleanup_kube_configs
@@ -384,7 +332,7 @@ main() {
     # Setup shell completions
     setup_k8s_shell_completion
 
-    echo "Setup completed successfully!"
+    log_info "Setup completed successfully!"
 }
 
 main "$@"

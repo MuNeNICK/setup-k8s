@@ -45,7 +45,7 @@ nftables mode (requires K8s 1.29+):
 ./setup-k8s.sh init --proxy-mode nftables --kubernetes-version 1.31
 ```
 
-**Note**: If prerequisites are not met, the script will automatically fall back to iptables mode.
+**Note**: If prerequisites are not met, the script will exit with an error. Ensure all required packages and kernel modules are available before selecting IPVS or nftables mode.
 
 ## HA Cluster with kube-vip
 
@@ -108,6 +108,17 @@ sudo ./setup-k8s.sh join \
 - The VIP address must be an unused IP on the same subnet as the control-plane nodes.
 - The network interface is auto-detected from the default route if `--ha-interface` is omitted.
 - Both containerd and CRI-O are supported as container runtimes.
+
+## Remote Deployment via SSH
+
+For deploying to multiple nodes without manually running `init`/`join` on each, use the `deploy` subcommand. See [Reference - Deploy Options](reference.md#deploy-options) for full usage.
+
+Key points:
+- Runs from a local machine (no root required locally)
+- Generates a self-contained bundle and transfers it to all nodes
+- Supports both key-based and password-based SSH authentication
+- Workers join in parallel for faster deployment
+- Compatible with all init/join options (`--cri`, `--proxy-mode`, `--kubernetes-version`, etc.)
 
 ## CNI Setup
 Install a Container Network Interface (CNI) plugin:

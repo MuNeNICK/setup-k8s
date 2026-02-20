@@ -68,8 +68,10 @@ test_variables_defaults() {
         _assert_eq "INSTALL_HELM default" "false" "$INSTALL_HELM"
         _assert_eq "JOIN_AS_CONTROL_PLANE default" "false" "$JOIN_AS_CONTROL_PLANE"
         _assert_eq "HA_ENABLED default" "false" "$HA_ENABLED"
-        _assert_eq "K8S_VERSION_FALLBACK default" "1.32" "$K8S_VERSION_FALLBACK"
-        _assert_eq "KUBEADM_ARGS is array" "0" "${#KUBEADM_ARGS[@]}"
+        _assert_eq "KUBEADM_POD_CIDR default" "" "$KUBEADM_POD_CIDR"
+        _assert_eq "KUBEADM_SERVICE_CIDR default" "" "$KUBEADM_SERVICE_CIDR"
+        _assert_eq "KUBEADM_API_ADDR default" "" "$KUBEADM_API_ADDR"
+        _assert_eq "KUBEADM_CP_ENDPOINT default" "" "$KUBEADM_CP_ENDPOINT"
     )
 }
 
@@ -130,7 +132,7 @@ test_kernel_version_comparison() {
 }
 
 # ============================================================
-# Test: parse_setup_args with KUBEADM_ARGS array
+# Test: parse_setup_args
 # ============================================================
 test_parse_setup_args() {
     echo "=== Test: parse_setup_args ==="
@@ -152,9 +154,8 @@ test_parse_setup_args() {
         _assert_eq "JOIN_ADDRESS parsed" "1.2.3.4:6443" "$JOIN_ADDRESS"
         _assert_eq "PROXY_MODE parsed" "ipvs" "$PROXY_MODE"
         _assert_eq "INSTALL_HELM parsed" "true" "$INSTALL_HELM"
-        _assert_eq "KUBEADM_ARGS count" "4" "${#KUBEADM_ARGS[@]}"
-        _assert_eq "KUBEADM_ARGS[0]" "--pod-network-cidr" "${KUBEADM_ARGS[0]}"
-        _assert_eq "KUBEADM_ARGS[1]" "10.244.0.0/16" "${KUBEADM_ARGS[1]}"
+        _assert_eq "KUBEADM_POD_CIDR parsed" "10.244.0.0/16" "$KUBEADM_POD_CIDR"
+        _assert_eq "KUBEADM_SERVICE_CIDR parsed" "10.96.0.0/12" "$KUBEADM_SERVICE_CIDR"
     )
 }
 
@@ -373,17 +374,12 @@ test_pipefail_safety() {
     # debian/kubernetes.sh: apt-cache madison | awk -v ver=...
     # Simulate no matching version
     _assert_exit_code "apt-cache awk pipeline (no match)" 0 \
-        bash -c "set -euo pipefail; echo 'kubeadm | 1.30.0-1.1 | https://pkgs.k8s.io' | awk -v ver='9.99' '\$0 ~ ver {print \$3; exit}'"
-
-    # suse/crio.sh: zypper | awk -F ... | sort | head
-    # Simulate no matching package
-    _assert_exit_code "zypper awk pipeline (no match)" 0 \
-        bash -c "set -euo pipefail; echo 'no-match-here' | awk -F'kubernetes1.' '/kubernetes1\.[0-9]+-kubeadm/ {split(\$2,a,\"-\"); print a[1]}' | sort -nr | head -1"
+        bash -c "set -euo pipefail; echo 'kubeadm | 1.30.0-1.1 | https://pkgs.k8s.io' | awk -v ver='9.99.' 'index(\$0, ver) {print \$3; exit}'"
 
     # debian/kubernetes.sh: awk early exit with large input must not SIGPIPE
     # Simulates apt-cache madison producing many lines; awk exits after first match
     _assert_exit_code "awk early exit on large input (no SIGPIPE)" 0 \
-        bash -c "set -euo pipefail; madison_out=\$(seq 1 1000 | sed 's/^/kubeadm | 1.32./'); echo \"\$madison_out\" | awk -v ver='1.32' '\$0 ~ ver {print \$3; exit}'"
+        bash -c "set -euo pipefail; madison_out=\$(seq 1 1000 | sed 's/^/kubeadm | 1.32./'); echo \"\$madison_out\" | awk -v ver='1.32.' 'index(\$0, ver) {print \$3; exit}'"
 
     # Same pattern but piped directly — would SIGPIPE under pipefail
     # Exit code varies by environment (141 locally, 1 on some CI), so just assert non-zero

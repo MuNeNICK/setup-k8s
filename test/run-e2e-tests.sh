@@ -8,6 +8,9 @@ set -euo pipefail
 
 # Constants
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=test/lib/vm_harness.sh
+source "$SCRIPT_DIR/lib/vm_harness.sh"
+
 SETUP_K8S_SCRIPT="$SCRIPT_DIR/../setup-k8s.sh"
 CLEANUP_K8S_SCRIPT="$SCRIPT_DIR/../cleanup-k8s.sh"
 DOCKER_VM_RUNNER_IMAGE="${DOCKER_VM_RUNNER_IMAGE:-ghcr.io/munenick/docker-vm-runner:latest}"
@@ -57,49 +60,11 @@ SSH_OPTS=("${SSH_BASE_OPTS[@]}")
 _VM_CONTAINER_NAME=""
 _WATCHDOG_PID=""
 
-_start_vm_container_watchdog() {
-    local parent_pid=$1
-    local container_name=$2
-
-    if [ -n "$_WATCHDOG_PID" ]; then
-        kill "$_WATCHDOG_PID" >/dev/null 2>&1 || true
-        _WATCHDOG_PID=""
-    fi
-
-    setsid bash <<WATCHDOG_EOF </dev/null >/dev/null 2>&1 &
-while kill -0 "$parent_pid" >/dev/null 2>&1; do
-    sleep 2
-done
-docker stop "$container_name" >/dev/null 2>&1 || true
-WATCHDOG_EOF
-    _WATCHDOG_PID="$!"
+_e2e_cleanup_vm_container() {
+    _cleanup_vm_container "$_WATCHDOG_PID" "$_VM_CONTAINER_NAME"
+    _WATCHDOG_PID=""
+    _VM_CONTAINER_NAME=""
 }
-
-_cleanup_vm_container() {
-    if [ -n "$_WATCHDOG_PID" ]; then
-        kill "$_WATCHDOG_PID" >/dev/null 2>&1 || true
-        _WATCHDOG_PID=""
-    fi
-
-    if [ -n "$_VM_CONTAINER_NAME" ]; then
-        echo -e "${BLUE}[INFO]${NC} Stopping container $_VM_CONTAINER_NAME..."
-        docker stop "$_VM_CONTAINER_NAME" >/dev/null 2>&1 || true
-        _VM_CONTAINER_NAME=""
-    fi
-}
-
-# Colors for logging
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Logging functions
-log_info() { echo -e "${BLUE}[INFO]${NC} $*"; }
-log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*"; }
 
 # Help message
 show_help() {
@@ -112,7 +77,7 @@ Options:
   --all, -a                 Test all distributions sequentially
   --k8s-version <version>   Kubernetes version to test (e.g., 1.32, 1.31, 1.30)
   --setup-args ARGS         Extra args for setup-k8s.sh (use quotes)
-  --online                  Run test in online mode (fetch script from GitHub)
+  --online                  Run test in online mode (transfer local checkout to VM)
   --offline                 Run test in offline mode with bundled scripts (default)
   --memory <MB>             VM memory in MB (default: $VM_MEMORY)
   --cpus <count>            VM CPU count (default: $VM_CPUS)
@@ -128,7 +93,7 @@ EOF
     echo
     echo "Examples:"
     echo "  $0 ubuntu-2404                        # Test single distribution offline (bundled)"
-    echo "  $0 --online ubuntu-2404               # Test single distribution online (GitHub)"
+    echo "  $0 --online ubuntu-2404               # Test single distribution online (local checkout)"
     echo "  $0 --k8s-version 1.31 ubuntu-2404     # Test with specific k8s version"
     echo "  $0 --all                              # Test all distributions offline"
     echo "  $0 --all --online                     # Test all distributions online"
@@ -138,17 +103,13 @@ EOF
     echo "  $0 --k8s-version 1.32 rocky-linux-8"
     echo
     echo "Test Modes:"
-    echo "  Online:  Downloads setup-k8s.sh from GitHub during test execution"
+    echo "  Online:  Transfers local checkout to VM and sources modules from SCRIPT_DIR"
     echo "  Offline: Uses pre-bundled script with all modules included"
 }
 
 # Prepare data directory for docker-vm-runner (mounted as /data in container)
 prepare_runner_directories() {
     mkdir -p "$VM_DATA_DIR"
-}
-
-prepare_vm_runner_environment() {
-    prepare_runner_directories
 }
 
 # Load configuration function
@@ -170,141 +131,27 @@ load_config() {
     return 0
 }
 
-# Generate a temporary SSH keypair for this test session
-setup_ssh_key() {
-    SSH_KEY_DIR=$(mktemp -d)
-    ssh-keygen -t ed25519 -f "$SSH_KEY_DIR/id_test" -N "" -q
-    SSH_OPTS+=(-i "$SSH_KEY_DIR/id_test")
-}
-
-cleanup_ssh_key() {
-    if [ -n "$SSH_KEY_DIR" ] && [ -d "$SSH_KEY_DIR" ]; then
-        rm -rf "$SSH_KEY_DIR"
-        SSH_KEY_DIR=""
-    fi
-    # Reset SSH_OPTS to base (remove stale -i options from previous runs)
-    SSH_OPTS=("${SSH_BASE_OPTS[@]}")
-}
-
-# Find a free port for SSH forwarding
-find_free_port() {
-    python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()'
-}
-
-# SSH helper: run command on VM as root
-vm_ssh() {
-    ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" "$LOGIN_USER@localhost" "sudo $*"
-}
-
-# SSH helper: run command on VM as user
-vm_ssh_user() {
-    ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" "$LOGIN_USER@localhost" "$*"
-}
-
-# SCP helper: copy file to VM
-vm_scp() {
-    local local_path=$1 remote_path=$2
-    scp "${SSH_OPTS[@]}" -P "$SSH_PORT" "$local_path" "${LOGIN_USER}@localhost:${remote_path}"
-}
+# Global paths for generated bundles (set by generate_bundled_scripts)
+_SETUP_BUNDLE=""
+_CLEANUP_BUNDLE=""
 
 # Generate bundled scripts for offline mode
 generate_bundled_scripts() {
-    local setup_bundle="/tmp/setup-k8s-bundle.sh"
-    local cleanup_bundle="/tmp/cleanup-k8s-bundle.sh"
+    _SETUP_BUNDLE=$(mktemp /tmp/setup-k8s-bundle.XXXXXX.sh)
+    _CLEANUP_BUNDLE=$(mktemp /tmp/cleanup-k8s-bundle.XXXXXX.sh)
 
-    log_info "Generating bundled scripts (mode: $TEST_MODE)..."
-
-    # Only generate bundled scripts in offline mode
-    if [ "$TEST_MODE" = "offline" ]; then
-        # Generate setup bundle
-        {
-            echo "#!/bin/bash"
-            echo "# Bundled setup-k8s.sh with all modules"
-            echo "set -e"
-            echo ""
-            echo "# Force offline mode"
-            echo "OFFLINE_MODE=true"
-            echo ""
-
-        # Include all common modules
-        for module in logging variables detection validation helpers networking swap completion helm; do
-            echo "# === common/${module}.sh ==="
-            cat "${SCRIPT_DIR}/../common/${module}.sh"
-            echo ""
-        done
-
-        # Include all distro modules (removing source lines that reference other modules)
-        for distro_dir in "${SCRIPT_DIR}/../distros/"*/; do
-            if [ -d "$distro_dir" ]; then
-                distro_name=$(basename "$distro_dir")
-                echo "# === distros/${distro_name} modules ==="
-                for module_file in "$distro_dir"*.sh; do
-                    if [ -f "$module_file" ]; then
-                        echo "# === $(basename "$module_file") ==="
-                        # Remove source lines and SCRIPT_DIR declarations since everything is bundled
-                        awk '!/^source.*SCRIPT_DIR/ && !/^SCRIPT_DIR=/' "$module_file"
-                        echo ""
-                    fi
-                done
-            fi
-        done
-
-            # Include main setup script (without shebang)
-            echo "# === Main setup-k8s.sh ==="
-            tail -n +2 "$SETUP_K8S_SCRIPT"
-        } > "$setup_bundle"
-
-        # Generate cleanup bundle
-        {
-            echo "#!/bin/bash"
-            echo "# Bundled cleanup-k8s.sh with all modules"
-            echo "set -e"
-            echo ""
-            echo "# Force offline mode"
-            echo "OFFLINE_MODE=true"
-            echo ""
-
-            # Include all common modules
-            for module in logging variables detection validation helpers networking swap completion helm; do
-                echo "# === common/${module}.sh ==="
-                cat "${SCRIPT_DIR}/../common/${module}.sh"
-                echo ""
-            done
-
-            # Include all distro cleanup modules (removing source lines that reference other modules)
-            for distro_dir in "${SCRIPT_DIR}/../distros/"*/; do
-                if [ -d "$distro_dir" ]; then
-                    distro_name=$(basename "$distro_dir")
-                    if [ -f "$distro_dir/cleanup.sh" ]; then
-                        echo "# === distros/${distro_name}/cleanup.sh ==="
-                        # Remove source lines and SCRIPT_DIR declarations since everything is bundled
-                        awk '!/^source.*SCRIPT_DIR/ && !/^SCRIPT_DIR=/' "$distro_dir/cleanup.sh"
-                        echo ""
-                    fi
-                fi
-            done
-
-            # Include main cleanup script (without shebang)
-            echo "# === Main cleanup-k8s.sh ==="
-            tail -n +2 "$CLEANUP_K8S_SCRIPT"
-        } > "$cleanup_bundle"
-
-        log_info "Bundled scripts generated successfully for offline mode"
-    else
-        # For online mode, create empty files or minimal scripts
-        echo "#!/bin/bash" > "$setup_bundle"
-        echo "echo 'Online mode - should use curl'" >> "$setup_bundle"
-        echo "#!/bin/bash" > "$cleanup_bundle"
-        echo "echo 'Online mode - should use curl'" >> "$cleanup_bundle"
-        log_info "Placeholder scripts created for online mode"
-    fi
+    log_info "Generating bundled scripts..."
+    _generate_bundle "$SETUP_K8S_SCRIPT" "$_SETUP_BUNDLE" "all"
+    _generate_bundle "$CLEANUP_K8S_SCRIPT" "$_CLEANUP_BUNDLE" "cleanup"
+    log_info "Bundled scripts generated successfully"
 }
 
 # Execute and monitor VM via SSH
 run_vm_container() {
     local distro=$1
-    local k8s_version_arg=$2
-    local setup_extra_args_str=$3
+    local k8s_version_flag=$2
+    local k8s_version_val=$3
+    local setup_extra_args_str=$4
     local container_name
     container_name="k8s-vm-${distro}-$(date +%s)"
     local log_file
@@ -316,17 +163,14 @@ run_vm_container() {
     rm -f results/test-result.json
 
     # Clean up any leftover container from a previous failed test (safety net for --all mode)
-    _cleanup_vm_container
+    _e2e_cleanup_vm_container
 
     # Stop orphaned containers from previous interrupted runs (label-based)
-    for cid in $(docker ps -q --filter "label=managed-by=k8s-test-runner" 2>/dev/null); do
-        log_warn "Stopping orphaned test container: $(docker inspect --format '{{.Name}}' "$cid" 2>/dev/null | tr -d '/')"
-        docker stop "$cid" >/dev/null 2>&1 || true
-    done
+    cleanup_orphaned_containers "k8s-test-runner"
 
     # Register container for cleanup (module-level for EXIT trap)
     _VM_CONTAINER_NAME=""
-    trap '_cleanup_vm_container; cleanup_ssh_key' EXIT INT TERM HUP
+    trap '_e2e_cleanup_vm_container; cleanup_ssh_key' EXIT INT TERM HUP
 
     # Generate SSH keypair for this test
     setup_ssh_key
@@ -349,113 +193,63 @@ run_vm_container() {
         -e "DISK_SIZE=$VM_DISK_SIZE" \
         "$DOCKER_VM_RUNNER_IMAGE" >/dev/null
     _VM_CONTAINER_NAME="$container_name"
-    _start_vm_container_watchdog "$$" "$container_name"
+    _WATCHDOG_PID=$(_start_vm_container_watchdog "$$" "$container_name")
     log_success "Container started"
 
-    # Wait for cloud-init to complete via docker-vm-runner logs (guest agent based)
-    # SSH key injection happens during cloud-init, so SSH is not available until cloud-init succeeds.
-    log_info "Waiting for cloud-init to complete (timeout: ${SSH_READY_TIMEOUT}s)..."
-    local ci_elapsed=0
-    while [ $ci_elapsed -lt $SSH_READY_TIMEOUT ]; do
-        if ! docker inspect "$container_name" >/dev/null 2>&1; then
-            log_error "Container exited before cloud-init completed"
-            _cleanup_vm_container
-            return 1
-        fi
-        if docker logs "$container_name" 2>&1 | grep -qE "Cloud-init (complete|finished|disabled|did not finish)|Could not query cloud-init"; then
-            break
-        fi
-        sleep 5
-        ci_elapsed=$((ci_elapsed + 5))
-        if (( ci_elapsed % 30 == 0 )); then
-            log_info "Still waiting for cloud-init... (${ci_elapsed}s)"
-        fi
-    done
-
-    if [ $ci_elapsed -ge $SSH_READY_TIMEOUT ]; then
-        log_error "Cloud-init did not complete after ${SSH_READY_TIMEOUT}s"
-        _cleanup_vm_container
+    # Wait for cloud-init and SSH
+    wait_for_cloud_init "$container_name" "$SSH_READY_TIMEOUT" "$distro" || {
+        _e2e_cleanup_vm_container
+        cleanup_ssh_key
         return 1
-    fi
-    log_success "Cloud-init complete"
-
-    # Wait for SSH (should be available immediately after cloud-init)
-    log_info "Waiting for SSH..."
-    local ssh_elapsed=0
-    while [ $ssh_elapsed -lt 60 ]; do
-        if vm_ssh_user "echo ready" >/dev/null 2>&1; then
-            break
-        fi
-        sleep 3
-        ssh_elapsed=$((ssh_elapsed + 3))
-    done
-
-    if [ $ssh_elapsed -ge 60 ]; then
-        log_error "SSH not available after cloud-init completed"
-        _cleanup_vm_container
+    }
+    wait_for_ssh "$SSH_PORT" "$LOGIN_USER" 60 "$distro" || {
+        _e2e_cleanup_vm_container
+        cleanup_ssh_key
         return 1
-    fi
-    log_success "SSH is ready"
+    }
 
     # --- Deploy scripts ---
+    # vm_script_dir: base path on VM where setup-k8s.sh and cleanup-k8s.sh reside
+    local vm_script_dir="/tmp"
     if [ "$TEST_MODE" = "online" ]; then
-        log_info "Downloading setup-k8s.sh in VM..."
-        if ! vm_ssh "curl -fsSL --connect-timeout 10 --max-time 60 https://raw.github.com/MuNeNICK/setup-k8s/main/setup-k8s.sh -o /tmp/setup-k8s.sh && chmod +x /tmp/setup-k8s.sh" >/dev/null 2>&1; then
-            log_error "Failed to download setup-k8s.sh in VM"
-            _cleanup_vm_container
-            return 1
-        fi
-        log_info "Downloading cleanup-k8s.sh in VM..."
-        if ! vm_ssh "curl -fsSL --connect-timeout 10 --max-time 60 https://raw.github.com/MuNeNICK/setup-k8s/main/cleanup-k8s.sh -o /tmp/cleanup-k8s.sh && chmod +x /tmp/cleanup-k8s.sh" >/dev/null 2>&1; then
-            log_error "Failed to download cleanup-k8s.sh in VM"
-            _cleanup_vm_container
-            return 1
-        fi
-        log_success "Scripts downloaded in VM"
+        # Online mode: transfer the full local checkout to the VM so SCRIPT_DIR resolves
+        # correctly and local modules (common/, distros/) are found from SCRIPT_DIR.
+        # This ensures CI tests the checked-out revision, not the remote main branch.
+        vm_script_dir="/tmp/setup-k8s-src"
+        log_info "Transferring local project to VM for online mode..."
+        tar -cf - -C "${SCRIPT_DIR}/.." setup-k8s.sh cleanup-k8s.sh common/ distros/ \
+            | ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" "$LOGIN_USER@localhost" \
+                "sudo mkdir -p ${vm_script_dir} && sudo tar -xf - -C ${vm_script_dir} && sudo chmod +x ${vm_script_dir}/setup-k8s.sh ${vm_script_dir}/cleanup-k8s.sh"
+        log_success "Local project transferred to VM"
     else
         generate_bundled_scripts
         log_info "Transferring bundled scripts to VM..."
-        vm_scp "/tmp/setup-k8s-bundle.sh" "/tmp/setup-k8s.sh"
-        vm_scp "/tmp/cleanup-k8s-bundle.sh" "/tmp/cleanup-k8s.sh"
+        vm_scp "$_SETUP_BUNDLE" "/tmp/setup-k8s.sh"
+        vm_scp "$_CLEANUP_BUNDLE" "/tmp/cleanup-k8s.sh"
         vm_ssh "chmod +x /tmp/setup-k8s.sh /tmp/cleanup-k8s.sh" >/dev/null 2>&1
-        rm -f /tmp/setup-k8s-bundle.sh /tmp/cleanup-k8s-bundle.sh
+        rm -f "$_SETUP_BUNDLE" "$_CLEANUP_BUNDLE"
         log_success "Bundled scripts deployed to VM"
     fi
 
     # --- Phase 1: Run setup-k8s.sh ---
     log_info "Starting Kubernetes setup (init)..."
-    vm_ssh "bash -c 'nohup bash /tmp/setup-k8s.sh init ${k8s_version_arg} ${setup_extra_args_str} > /tmp/setup-k8s.log 2>&1; echo \$? > /tmp/setup-exit-code' &" >/dev/null 2>&1
+    local setup_cmd="bash ${vm_script_dir}/setup-k8s.sh init"
+    [ -n "$k8s_version_flag" ] && setup_cmd+=" $(printf '%q' "$k8s_version_flag") $(printf '%q' "$k8s_version_val")"
+    if [ -n "$setup_extra_args_str" ]; then
+        # setup_extra_args_str is already shell-escaped via printf '%q', append as-is
+        setup_cmd+=" $setup_extra_args_str"
+    fi
+    setup_cmd+=" > /tmp/setup-k8s.log 2>&1; echo \$? > /tmp/setup-exit-code"
+    vm_ssh "nohup bash -c '${setup_cmd}' </dev/null >/dev/null 2>&1 &"
 
     # Poll for setup completion
-    local start_time
-    start_time=$(date +%s)
-    while true; do
-        local elapsed=$(( $(date +%s) - start_time ))
-        if [ $elapsed -gt $TIMEOUT_TOTAL ]; then
-            log_error "Setup timeout after ${TIMEOUT_TOTAL}s"
-            vm_ssh "cat /tmp/setup-k8s.log" > "$log_file" 2>/dev/null || true
-            _cleanup_vm_container
-            return 1
-        fi
-        if ! docker inspect "$container_name" >/dev/null 2>&1; then
-            log_error "Container exited unexpectedly"
-            _cleanup_vm_container
-            return 1
-        fi
-        if vm_ssh "test -f /tmp/setup-exit-code" >/dev/null 2>&1; then
-            break
-        fi
-        local progress_line
-        progress_line=$(vm_ssh "tail -1 /tmp/setup-k8s.log" 2>/dev/null || true)
-        if [ -n "$progress_line" ]; then
-            log_info "[${elapsed}s] $progress_line"
-        fi
-        sleep 10
-    done
-
-    local setup_exit_code
-    setup_exit_code=$(vm_ssh "cat /tmp/setup-exit-code" 2>/dev/null || echo "1")
-    setup_exit_code=$(echo "$setup_exit_code" | tr -d '[:space:]')
+    if ! poll_vm_command vm_ssh "$container_name" /tmp/setup-exit-code /tmp/setup-k8s.log "$TIMEOUT_TOTAL"; then
+        vm_ssh "cat /tmp/setup-k8s.log" > "$log_file" 2>/dev/null || true
+        _e2e_cleanup_vm_container
+        cleanup_ssh_key
+        return 1
+    fi
+    local setup_exit_code="$POLL_EXIT_CODE"
     log_info "Setup completed with exit code: $setup_exit_code"
 
     if [ "$setup_exit_code" -ne 0 ]; then
@@ -498,29 +292,14 @@ run_vm_container() {
 
     if [ "$setup_test_status" = "success" ]; then
         log_info "Starting Kubernetes cleanup..."
-        vm_ssh "bash -c 'nohup bash /tmp/cleanup-k8s.sh --force > /tmp/cleanup-k8s.log 2>&1; echo \$? > /tmp/cleanup-exit-code' &" >/dev/null 2>&1
+        vm_ssh "nohup bash -c 'bash ${vm_script_dir}/cleanup-k8s.sh --force > /tmp/cleanup-k8s.log 2>&1; echo \$? > /tmp/cleanup-exit-code' </dev/null >/dev/null 2>&1 &"
 
-        # Poll for cleanup completion
-        start_time=$(date +%s)
-        while true; do
-            local elapsed=$(( $(date +%s) - start_time ))
-            if [ $elapsed -gt $TIMEOUT_TOTAL ]; then
-                log_error "Cleanup timeout"
-                break
-            fi
-            if ! docker inspect "$container_name" >/dev/null 2>&1; then
-                log_error "Container exited during cleanup"
-                _cleanup_vm_container
-                return 1
-            fi
-            if vm_ssh "test -f /tmp/cleanup-exit-code" >/dev/null 2>&1; then
-                break
-            fi
-            sleep 10
-        done
-
-        cleanup_exit_code=$(vm_ssh "cat /tmp/cleanup-exit-code" 2>/dev/null || echo "1")
-        cleanup_exit_code=$(echo "$cleanup_exit_code" | tr -d '[:space:]')
+        if ! poll_vm_command vm_ssh "$container_name" /tmp/cleanup-exit-code /tmp/cleanup-k8s.log "$TIMEOUT_TOTAL"; then
+            log_warn "Cleanup polling failed (timeout or container exit)"
+            cleanup_exit_code=1
+        else
+            cleanup_exit_code="$POLL_EXIT_CODE"
+        fi
         log_info "Cleanup completed with exit code: $cleanup_exit_code"
 
         # --- Phase 4: Verify cleanup ---
@@ -595,10 +374,10 @@ run_vm_container() {
 JSONEOF
 
     # Stop container
-    _cleanup_vm_container
+    _e2e_cleanup_vm_container
     cleanup_ssh_key
     trap - EXIT INT TERM HUP
-    return 0
+    [ "$final_status" = "success" ]
 }
 
 # Show test results (uses jq if available, falls back to grep/sed)
@@ -613,40 +392,33 @@ show_test_results() {
     log_info "Test Results for $distro:"
     echo "=================="
 
-    local overall_status="" setup_status="" setup_exit_code="" kubelet_status="" api_responsive=""
-    local cleanup_status="" cleanup_exit_code="" services_stopped="" config_cleaned="" packages_removed=""
-
-    if command -v jq &>/dev/null; then
-        # Preferred: use jq for robust JSON parsing
-        overall_status=$(jq -r '.status // "unknown"' results/test-result.json)
-        setup_status=$(jq -r '.setup_test.status // "unknown"' results/test-result.json)
-        setup_exit_code=$(jq -r '.setup_test.exit_code // "unknown"' results/test-result.json)
-        kubelet_status=$(jq -r '.setup_test.kubelet_status // "unknown"' results/test-result.json)
-        api_responsive=$(jq -r '.setup_test.api_responsive // "unknown"' results/test-result.json)
-        cleanup_status=$(jq -r '.cleanup_test.status // "unknown"' results/test-result.json)
-        cleanup_exit_code=$(jq -r '.cleanup_test.exit_code // "unknown"' results/test-result.json)
-        services_stopped=$(jq -r '.cleanup_test.services_stopped // "unknown"' results/test-result.json)
-        config_cleaned=$(jq -r '.cleanup_test.config_cleaned // "unknown"' results/test-result.json)
-        packages_removed=$(jq -r '.cleanup_test.packages_removed // "unknown"' results/test-result.json)
-    else
-        # Fallback: grep/sed parsing
-        local json_content
-        json_content=$(cat results/test-result.json)
-        overall_status=$(echo "$json_content" | grep -o '"status": *"[^"]*"' | head -1 | cut -d'"' -f4)
-        local setup_block
-        setup_block=$(echo "$json_content" | sed -n '/"setup_test":/,/^  }/p')
-        setup_status=$(echo "$setup_block" | grep '"status"' | head -1 | cut -d'"' -f4)
-        setup_exit_code=$(echo "$setup_block" | grep '"exit_code"' | grep -o '[0-9]*' | head -1)
-        kubelet_status=$(echo "$setup_block" | grep '"kubelet_status"' | cut -d'"' -f4)
-        api_responsive=$(echo "$setup_block" | grep '"api_responsive"' | sed 's/.*: *"\?\([^",]*\)"\?.*/\1/')
-        local cleanup_block
-        cleanup_block=$(echo "$json_content" | sed -n '/"cleanup_test":/,/^  }/p')
-        cleanup_status=$(echo "$cleanup_block" | grep '"status"' | head -1 | cut -d'"' -f4)
-        cleanup_exit_code=$(echo "$cleanup_block" | grep '"exit_code"' | grep -o '[0-9]*' | head -1)
-        services_stopped=$(echo "$cleanup_block" | grep '"services_stopped"' | cut -d'"' -f4)
-        config_cleaned=$(echo "$cleanup_block" | grep '"config_cleaned"' | cut -d'"' -f4)
-        packages_removed=$(echo "$cleanup_block" | grep '"packages_removed"' | cut -d'"' -f4)
+    if ! command -v jq &>/dev/null; then
+        log_warn "jq not found; printing raw JSON"
+        cat results/test-result.json
+        echo ""
+        # Match only the top-level "status" key (first occurrence in file)
+        local top_status
+        top_status=$(sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' results/test-result.json | head -1)
+        if [ "$top_status" = "success" ]; then
+            return 0
+        else
+            log_error "Test status is '${top_status:-unknown}' (parsed without jq)"
+            return 1
+        fi
     fi
+
+    local overall_status setup_status setup_exit_code kubelet_status api_responsive
+    local cleanup_status cleanup_exit_code services_stopped config_cleaned packages_removed
+    overall_status=$(jq -r '.status // "unknown"' results/test-result.json)
+    setup_status=$(jq -r '.setup_test.status // "unknown"' results/test-result.json)
+    setup_exit_code=$(jq -r '.setup_test.exit_code // "unknown"' results/test-result.json)
+    kubelet_status=$(jq -r '.setup_test.kubelet_status // "unknown"' results/test-result.json)
+    api_responsive=$(jq -r '.setup_test.api_responsive // "unknown"' results/test-result.json)
+    cleanup_status=$(jq -r '.cleanup_test.status // "unknown"' results/test-result.json)
+    cleanup_exit_code=$(jq -r '.cleanup_test.exit_code // "unknown"' results/test-result.json)
+    services_stopped=$(jq -r '.cleanup_test.services_stopped // "unknown"' results/test-result.json)
+    config_cleaned=$(jq -r '.cleanup_test.config_cleaned // "unknown"' results/test-result.json)
+    packages_removed=$(jq -r '.cleanup_test.packages_removed // "unknown"' results/test-result.json)
 
     echo "Setup Test:"
     echo "  Status: ${setup_status:-unknown}"
@@ -681,7 +453,7 @@ test_all() {
     log_info "Starting test for all distributions"
     log_info "Test mode: $TEST_MODE"
     if [ "$TEST_MODE" = "online" ]; then
-        log_info "Script source: GitHub (https://raw.github.com/MuNeNICK/setup-k8s/main/)"
+        log_info "Script source: Local checkout (transferred to VM, online fetch mode)"
     else
         log_info "Script source: Bundled (all modules included)"
     fi
@@ -734,9 +506,6 @@ test_all() {
             if command -v jq &>/dev/null; then
                 s_status=$(jq -r '.setup_test.status // "unknown"' results/test-result.json)
                 c_status=$(jq -r '.cleanup_test.status // "unknown"' results/test-result.json)
-            else
-                s_status=$(grep -A5 '"setup_test"' results/test-result.json | grep '"status"' | head -1 | cut -d'"' -f4)
-                c_status=$(grep -A5 '"cleanup_test"' results/test-result.json | grep '"status"' | head -1 | cut -d'"' -f4)
             fi
             echo "    Setup: $s_status, Cleanup: $c_status" >> "$summary_file"
         fi
@@ -772,7 +541,7 @@ run_single_test() {
     log_info "Starting K8s test for: $distro"
     log_info "Test mode: $TEST_MODE"
     if [ "$TEST_MODE" = "online" ]; then
-        log_info "Script source: GitHub (https://raw.github.com/MuNeNICK/setup-k8s/main/)"
+        log_info "Script source: Local checkout (transferred to VM, online fetch mode)"
     else
         log_info "Script source: Bundled (all modules included)"
     fi
@@ -783,34 +552,21 @@ run_single_test() {
     fi
     log_info "Working directory: $SCRIPT_DIR"
 
-    # Resolve K8S_VERSION on host if not provided
-    local k8s_version_arg=""
+    local k8s_version_flag="" k8s_version_val=""
     local setup_extra_args_str=""
-    if [ -z "$K8S_VERSION" ]; then
-        log_info "Resolving latest stable Kubernetes minor on host..."
-        local stable_txt
-        stable_txt=$(curl -fsSL --retry 3 --retry-delay 2 https://dl.k8s.io/release/stable.txt 2>/dev/null || true)
-        if echo "$stable_txt" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
-            K8S_VERSION=$(echo "$stable_txt" | sed -E 's/^v([0-9]+\.[0-9]+)\..*/\1/')
-            log_success "Detected stable minor: $K8S_VERSION"
-        else
-            K8S_VERSION="1.32"
-            log_warn "Failed to detect stable version; falling back to $K8S_VERSION"
-        fi
-    fi
     if [ -n "$K8S_VERSION" ]; then
-        k8s_version_arg="--kubernetes-version $K8S_VERSION"
-        log_info "Using Kubernetes version: $K8S_VERSION"
+        k8s_version_flag="--kubernetes-version"
+        k8s_version_val="$K8S_VERSION"
     fi
     if [ ${#SETUP_EXTRA_ARGS[@]} -gt 0 ]; then
-        setup_extra_args_str="${SETUP_EXTRA_ARGS[*]}"
+        setup_extra_args_str=$(printf '%q ' "${SETUP_EXTRA_ARGS[@]}")
         log_info "Passing extra setup args: $setup_extra_args_str"
     fi
 
     # Execute each step
     load_config "$distro" || return 1
-    prepare_vm_runner_environment || return 1
-    run_vm_container "$distro" "$k8s_version_arg" "$setup_extra_args_str" || return 1
+    prepare_runner_directories || return 1
+    run_vm_container "$distro" "$k8s_version_flag" "$k8s_version_val" "$setup_extra_args_str" || return 1
 
     # Display results and return status
     if show_test_results "$distro"; then
@@ -837,6 +593,7 @@ main() {
                 shift
                 ;;
             --k8s-version)
+                _require_arg $# "$1"
                 K8S_VERSION="$2"
                 shift 2
                 ;;
@@ -849,20 +606,26 @@ main() {
                 shift
                 ;;
             --memory)
+                _require_arg $# "$1"
                 VM_MEMORY="$2"
                 shift 2
                 ;;
             --cpus)
+                _require_arg $# "$1"
                 VM_CPUS="$2"
                 shift 2
                 ;;
             --disk-size)
+                _require_arg $# "$1"
                 VM_DISK_SIZE="$2"
                 shift 2
                 ;;
             --setup-args)
-                # Split quoted string into array
-                IFS=' ' read -r -a SETUP_EXTRA_ARGS <<< "$2"
+                _require_arg $# "$1"
+                # Append each word as a separate array element
+                # Note: for args containing spaces, use -- syntax instead
+                read -r -a _setup_args_tmp <<< "$2"
+                SETUP_EXTRA_ARGS+=("${_setup_args_tmp[@]}")
                 shift 2
                 ;;
             --)

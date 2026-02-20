@@ -2,58 +2,37 @@
 
 # SUSE specific cleanup
 cleanup_suse() {
-    echo "Performing SUSE specific cleanup..."
-    
-    # Check for iptables
-    if ! command -v iptables &> /dev/null; then
-        echo "Warning: iptables command not found, some cleanup steps may be skipped"
-    fi
-    
+    log_info "Performing SUSE specific cleanup..."
+
+    # Remove package locks before uninstalling (set during setup)
+    log_info "Removing package locks..."
+    zypper removelock kubelet kubeadm kubectl 2>/dev/null || true
+
     # Remove packages
-    echo "Removing Kubernetes packages..."
-    zypper remove -y kubeadm kubectl kubelet kubernetes-cni || true
-    echo "Removing CRI-O package if installed..."
-    zypper remove -y cri-o || true
-    
+    log_info "Removing Kubernetes packages..."
+    zypper --non-interactive remove -y kubeadm kubectl kubelet kubernetes-cni ||
+        log_warn "Package removal had errors (some packages may not be installed)"
+    log_info "Removing CRI-O package if installed..."
+    zypper --non-interactive remove -y cri-o ||
+        log_warn "CRI-O removal had errors (may not be installed)"
+
     # Clean up dependencies
-    echo "Removing unnecessary dependencies..."
-    zypper clean
+    log_info "Removing unnecessary dependencies..."
+    zypper --non-interactive clean
     
     # Remove repository
-    echo "Removing Kubernetes repository..."
+    log_info "Removing Kubernetes repository..."
     zypper removerepo kubernetes || true
-    
-    # Remove Docker repository if it exists
-    zypper removerepo docker-ce || true
+    zypper removerepo cri-o 2>/dev/null || true
     
     # Verify cleanup
-    echo -e "\nVerifying cleanup..."
-    remaining_files=0
-    
-    # Check for remaining packages
-    if zypper search -i | grep -E "kube|kubernetes" > /dev/null; then
-        echo "Warning: Some Kubernetes packages still remain:"
-        zypper search -i | grep -E "kube|kubernetes"
-        remaining_files=1
+    local remaining=0
+    local remaining_pkgs
+    remaining_pkgs=$(zypper search -i 2>/dev/null | grep -E "\|[[:space:]]*(kubeadm|kubelet|kubectl|kubernetes-cni)[[:space:]]" || true)
+    if [ -n "$remaining_pkgs" ]; then
+        log_warn "Some Kubernetes packages still remain:"
+        echo "$remaining_pkgs"
+        remaining=1
     fi
-    
-    # Check for remaining files
-    if [ -f "/etc/default/kubelet" ]; then
-        echo "Warning: File still exists: /etc/default/kubelet"
-        remaining_files=1
-    fi
-    
-    if [ $remaining_files -eq 1 ]; then
-        echo -e "\nSome files or packages could not be removed. You may want to remove them manually."
-    else
-        echo -e "\nAll specified components have been successfully removed."
-    fi
-}
-
-# Pre-cleanup steps specific to SUSE
-cleanup_pre_suse() {
-    echo "Resetting cluster state..."
-    kubeadm reset -f || true
-    rm -rf /etc/cni/net.d/* || true
-    rm -rf /var/lib/cni/ || true
+    _verify_cleanup $remaining "/etc/default/kubelet"
 }

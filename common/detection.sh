@@ -2,46 +2,19 @@
 
 # Detect Linux distribution
 detect_distribution() {
-    echo "Detecting Linux distribution..."
-    
-    # Check if /etc/os-release exists (most modern distributions)
+    log_info "Detecting Linux distribution..."
+
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         DISTRO_NAME=$ID
         DISTRO_VERSION=${VERSION_ID:-rolling}
-    # Fallback methods
-    elif [ -f /etc/debian_version ]; then
-        DISTRO_NAME="debian"
-        DISTRO_VERSION=$(cat /etc/debian_version)
-    elif [ -f /etc/redhat-release ]; then
-        if grep -q "CentOS" /etc/redhat-release; then
-            DISTRO_NAME="centos"
-        elif grep -q "Red Hat" /etc/redhat-release; then
-            DISTRO_NAME="rhel"
-        elif grep -q "Fedora" /etc/redhat-release; then
-            DISTRO_NAME="fedora"
-        else
-            DISTRO_NAME="rhel"  # Default to RHEL for other Red Hat-based distros
-        fi
-        DISTRO_VERSION=$(grep -oE '[0-9]+(\.[0-9]+)?' /etc/redhat-release | head -1)
-    elif [ -f /etc/SuSE-release ] || [ -f /etc/SUSE-brand ]; then
-        DISTRO_NAME="suse"
-        if [ -f /etc/os-release ]; then
-            . /etc/os-release
-            DISTRO_VERSION=$VERSION_ID
-        else
-            DISTRO_VERSION="unknown"
-        fi
-    elif [ -f /etc/arch-release ]; then
-        DISTRO_NAME="arch"
-        DISTRO_VERSION="rolling"
     else
         DISTRO_NAME="unknown"
         DISTRO_VERSION="unknown"
     fi
-    
-    echo "Detected distribution: $DISTRO_NAME $DISTRO_VERSION"
-    
+
+    log_info "Detected distribution: $DISTRO_NAME $DISTRO_VERSION"
+
     # Set distribution family for easier handling
     case "$DISTRO_NAME" in
         ubuntu|debian)
@@ -50,7 +23,7 @@ detect_distribution() {
         centos|rhel|fedora|rocky|almalinux)
             DISTRO_FAMILY="rhel"
             ;;
-        suse|opensuse*)
+        suse|sles|opensuse*)
             DISTRO_FAMILY="suse"
             ;;
         arch|manjaro)
@@ -60,32 +33,65 @@ detect_distribution() {
             DISTRO_FAMILY="unknown"
             ;;
     esac
-    
+
     # Check if distribution is supported
     case "$DISTRO_FAMILY" in
         debian|rhel|suse|arch)
-            echo "Distribution $DISTRO_NAME (family: $DISTRO_FAMILY) is supported."
+            log_info "Distribution $DISTRO_NAME (family: $DISTRO_FAMILY) is supported."
             ;;
         *)
-            echo "Warning: Unsupported distribution $DISTRO_NAME. The script may not work correctly."
-            echo "Attempting to continue with generic methods, but you may need to manually install some components."
+            log_warn "Unsupported distribution $DISTRO_NAME. The script may not work correctly."
+            log_warn "Attempting to continue with generic methods, but you may need to manually install some components."
             DISTRO_FAMILY="generic"
             ;;
     esac
 }
 
+# Check if the system uses cgroups v2
+_has_cgroupv2() {
+    [ -f /sys/fs/cgroup/cgroup.controllers ] && return 0
+    return 1
+}
+
+# Kubernetes 1.34+ requires cgroups v2 (cgroupv1 support was removed)
+_K8S_MIN_CGROUPV2="1.34"
+
 # Determine the latest stable Kubernetes version
 determine_k8s_version() {
     if [ -z "$K8S_VERSION" ]; then
-        echo "Determining latest stable Kubernetes minor version..."
-        STABLE_VER=$(curl -fsSL --retry 3 --retry-delay 2 https://dl.k8s.io/release/stable.txt 2>/dev/null || true)
+        if [ "${OFFLINE_MODE:-false}" = "true" ]; then
+            log_error "Offline mode requires --kubernetes-version (e.g. --kubernetes-version 1.32)"
+            return 1
+        fi
+        log_info "Determining latest stable Kubernetes minor version..."
+        local STABLE_VER
+        if ! STABLE_VER=$(curl -fsSL --retry 3 --retry-delay 2 https://dl.k8s.io/release/stable.txt); then
+            log_error "Failed to fetch stable Kubernetes version from dl.k8s.io"
+            log_error "  Specify explicitly with --kubernetes-version (e.g. --kubernetes-version 1.32)"
+            return 1
+        fi
         if echo "$STABLE_VER" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
             K8S_VERSION=$(echo "$STABLE_VER" | sed -E 's/^v([0-9]+\.[0-9]+)\..*/\1/')
-            echo "Using detected stable Kubernetes minor: ${K8S_VERSION}"
+            log_info "Using detected stable Kubernetes minor: ${K8S_VERSION}"
         else
-            K8S_VERSION="${K8S_VERSION_FALLBACK:-1.32}"
-            echo "Warning: Could not detect stable version; falling back to ${K8S_VERSION}"
-            echo "Hint: Set K8S_VERSION_FALLBACK or use --kubernetes-version to override."
+            log_error "Unexpected response from dl.k8s.io: $STABLE_VER"
+            log_error "  Specify explicitly with --kubernetes-version (e.g. --kubernetes-version 1.32)"
+            return 1
+        fi
+    fi
+
+    # Compatibility gate: K8s >= _K8S_MIN_CGROUPV2 requires cgroups v2
+    if ! _has_cgroupv2; then
+        local k8s_minor; k8s_minor=$(echo "$K8S_VERSION" | cut -d. -f2)
+        local min_minor; min_minor=$(echo "$_K8S_MIN_CGROUPV2" | cut -d. -f2)
+        if [ "$k8s_minor" -ge "$min_minor" ] 2>/dev/null; then
+            local max_supported="1.$(( min_minor - 1 ))"
+            log_error "Kubernetes ${K8S_VERSION} requires cgroups v2, but this system uses cgroups v1."
+            log_error "  Distro: ${DISTRO_NAME:-unknown} ${DISTRO_VERSION:-unknown}"
+            log_error "  Options:"
+            log_error "    1. Migrate to cgroups v2 (recommended)"
+            log_error "    2. Use --kubernetes-version ${max_supported} (last version supporting cgroups v1)"
+            return 1
         fi
     fi
 }

@@ -1,63 +1,78 @@
 #!/bin/bash
 
+# Helper: Get the home directory for a given user (portable, no hardcoded /home)
+get_user_home() {
+    local user="$1"
+    if ! [[ "$user" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+        log_error "Invalid username: $user"
+        return 1
+    fi
+    local home
+    home=$(getent passwd "$user" 2>/dev/null | cut -d: -f6) || true
+    if [ -z "$home" ]; then
+        if [ "$user" = "root" ]; then home="/root"
+        else home="/home/$user"
+        fi
+    fi
+    echo "$home"
+}
+
 # Helper: Get Debian/Ubuntu codename without lsb_release
 get_debian_codename() {
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        if [ -n "$VERSION_CODENAME" ]; then
-            echo "$VERSION_CODENAME"
-            return 0
-        fi
-        if [ -n "$UBUNTU_CODENAME" ]; then
-            echo "$UBUNTU_CODENAME"
-            return 0
-        fi
-        # Fallback mapping for some well-known VERSION_ID values
-        case "$ID:${VERSION_ID:-}" in
-            ubuntu:24.04) echo "noble" ; return 0 ;;
-            ubuntu:22.04) echo "jammy" ; return 0 ;;
-            ubuntu:20.04) echo "focal" ; return 0 ;;
-            debian:12) echo "bookworm" ; return 0 ;;
-            debian:11) echo "bullseye" ; return 0 ;;
-        esac
+    . /etc/os-release
+    if [ -n "${VERSION_CODENAME:-}" ]; then
+        echo "$VERSION_CODENAME"
+        return 0
     fi
-    # Last resort
-    echo "stable"
+    if [ -n "${UBUNTU_CODENAME:-}" ]; then
+        echo "$UBUNTU_CODENAME"
+        return 0
+    fi
+    log_error "Could not determine Debian/Ubuntu codename from /etc/os-release"
+    return 1
 }
 
 # Helper: configure containerd TOML with v2 layout, SystemdCgroup=true, sandbox_image
 configure_containerd_toml() {
-    echo "Generating and tuning containerd config..."
+    log_info "Generating and tuning containerd config..."
     mkdir -p /etc/containerd
     containerd config default > /etc/containerd/config.toml
 
     # Ensure SystemdCgroup=true for runc
-    sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml || true
+    sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
 
     # Only inject a version header when the generated config lacks one
     if ! grep -q '^version *= *[0-9]' /etc/containerd/config.toml 2>/dev/null; then
-        sed -i '1s/^/version = 2\n/' /etc/containerd/config.toml || true
+        sed -i '1s/^/version = 2\n/' /etc/containerd/config.toml
     fi
 
-    # Set sandbox_image to registry.k8s.io/pause:3.10
+    # Set sandbox_image to registry.k8s.io/pause:<version>
+    local _pause_image="registry.k8s.io/pause:${PAUSE_IMAGE_VERSION}"
     if grep -q '^\s*sandbox_image\s*=\s*"' /etc/containerd/config.toml; then
-        sed -i 's#^\s*sandbox_image\s*=\s*".*"#  sandbox_image = "registry.k8s.io/pause:3.10"#' /etc/containerd/config.toml || true
+        sed -i "s#^\s*sandbox_image\s*=\s*\".*\"#  sandbox_image = \"${_pause_image}\"#" /etc/containerd/config.toml
     else
         # Insert under the CRI plugin section
-        if awk '
+        if awk -v pause_img="${_pause_image}" '
             BEGIN{inserted=0}
             {print}
-            $0 ~ /^\[plugins\."io\.containerd\.grpc\.v1\.cri"\]/ && inserted==0 {print "  sandbox_image = \"registry.k8s.io/pause:3.10\""; inserted=1}
-        ' /etc/containerd/config.toml > /etc/containerd/config.toml.tmp 2>/dev/null; then
+            $0 ~ /^\[plugins\."io\.containerd\.grpc\.v1\.cri"\]/ && inserted==0 {print "  sandbox_image = \"" pause_img "\""; inserted=1}
+        ' /etc/containerd/config.toml > /etc/containerd/config.toml.tmp; then
             mv /etc/containerd/config.toml.tmp /etc/containerd/config.toml
         else
+            log_error "Failed to inject sandbox_image into containerd config"
             rm -f /etc/containerd/config.toml.tmp
+            return 1
         fi
     fi
 
-    systemctl daemon-reload || true
-    systemctl enable containerd || true
+    systemctl daemon-reload
+    systemctl enable containerd
     systemctl restart containerd
+    if ! systemctl is-active --quiet containerd; then
+        log_error "containerd failed to start after configuration"
+        systemctl status containerd --no-pager || true
+        return 1
+    fi
 }
 
 # Helper: Get CRI socket path based on runtime
@@ -69,13 +84,6 @@ get_cri_socket() {
         crio)
             echo "unix:///var/run/crio/crio.sock"
             ;;
-        docker)
-            echo "unix:///var/run/dockershim.sock"
-            ;;
-        *)
-            # Default to containerd if unknown
-            echo "unix:///run/containerd/containerd.sock"
-            ;;
     esac
 }
 
@@ -83,7 +91,7 @@ get_cri_socket() {
 configure_crictl() {
     local endpoint
     endpoint=$(get_cri_socket)
-    echo "Configuring crictl at /etc/crictl.yaml (endpoint: $endpoint)"
+    log_info "Configuring crictl at /etc/crictl.yaml (endpoint: $endpoint)"
     cat > /etc/crictl.yaml <<EOF
 runtime-endpoint: $endpoint
 image-endpoint: $endpoint
@@ -93,28 +101,58 @@ pull-image-on-create: false
 EOF
 }
 
+# Helper: Auto-detect kubeadm and KubeProxy API versions from kubeadm defaults
+# Caches output to avoid duplicate subprocess calls.
+_KUBEADM_DEFAULTS_CACHE=""
+_kubeadm_defaults() {
+    if [ -z "$_KUBEADM_DEFAULTS_CACHE" ]; then
+        _KUBEADM_DEFAULTS_CACHE=$(kubeadm config print init-defaults 2>/dev/null) || true
+    fi
+    echo "$_KUBEADM_DEFAULTS_CACHE"
+}
+
+_kubeadm_api_version() {
+    local api_ver
+    api_ver=$(_kubeadm_defaults | awk '/^apiVersion: kubeadm\.k8s\.io\// {print $2; exit}')
+    if [ -z "$api_ver" ]; then
+        log_warn "Could not detect kubeadm API version, using default: kubeadm.k8s.io/v1beta3"
+        api_ver="kubeadm.k8s.io/v1beta3"
+    fi
+    echo "$api_ver"
+}
+
+_kubeproxy_api_version() {
+    local api_ver
+    api_ver=$(_kubeadm_defaults | awk '/^apiVersion: kubeproxy\.config\.k8s\.io\// {print $2; exit}')
+    if [ -z "$api_ver" ]; then
+        log_warn "Could not detect KubeProxy API version, using default: kubeproxy.config.k8s.io/v1alpha1"
+        api_ver="kubeproxy.config.k8s.io/v1alpha1"
+    fi
+    echo "$api_ver"
+}
+
 # Helper: Generate kubeadm configuration
 generate_kubeadm_config() {
-    local config_file="/tmp/kubeadm-config.yaml"
+    local config_file
+    config_file=$(mktemp -t kubeadm-config-XXXXXX.yaml)
+    chmod 600 "$config_file"
 
-    echo "Generating kubeadm configuration..." >&2
+    log_info "Generating kubeadm configuration..."
 
-    # Parse KUBEADM_ARGS array first
-    local POD_CIDR="" SERVICE_CIDR="" API_ADDR="" CP_ENDPOINT=""
-    local i=0
-    while [ $i -lt ${#KUBEADM_ARGS[@]} ]; do
-        case "${KUBEADM_ARGS[$i]}" in
-            --pod-network-cidr)   POD_CIDR="${KUBEADM_ARGS[$((i+1))]:-}";   ((i+=2)) ;;
-            --service-cidr)       SERVICE_CIDR="${KUBEADM_ARGS[$((i+1))]:-}"; ((i+=2)) ;;
-            --apiserver-advertise-address) API_ADDR="${KUBEADM_ARGS[$((i+1))]:-}"; ((i+=2)) ;;
-            --control-plane-endpoint)      CP_ENDPOINT="${KUBEADM_ARGS[$((i+1))]:-}"; ((i+=2)) ;;
-            *) ((i+=1)) ;;
-        esac
-    done
+    # Use pre-parsed kubeadm variables (set by parse_setup_args / validate_ha_args)
+    local POD_CIDR="$KUBEADM_POD_CIDR"
+    local SERVICE_CIDR="$KUBEADM_SERVICE_CIDR"
+    local API_ADDR="$KUBEADM_API_ADDR"
+    local CP_ENDPOINT="$KUBEADM_CP_ENDPOINT"
+
+    # Auto-detect API versions
+    local kubeadm_api kubeproxy_api
+    kubeadm_api=$(_kubeadm_api_version)
+    kubeproxy_api=$(_kubeproxy_api_version)
 
     # InitConfiguration
     cat > "$config_file" <<EOF
-apiVersion: kubeadm.k8s.io/v1beta3
+apiVersion: $kubeadm_api
 kind: InitConfiguration
 EOF
 
@@ -139,7 +177,7 @@ EOF
     # ClusterConfiguration
     cat >> "$config_file" <<EOF
 ---
-apiVersion: kubeadm.k8s.io/v1beta3
+apiVersion: $kubeadm_api
 kind: ClusterConfiguration
 EOF
 
@@ -157,7 +195,7 @@ EOF
     if [ "$PROXY_MODE" = "ipvs" ]; then
         cat >> "$config_file" <<EOF
 ---
-apiVersion: kubeproxy.config.k8s.io/v1alpha1
+apiVersion: $kubeproxy_api
 kind: KubeProxyConfiguration
 mode: ipvs
 ipvs:
@@ -167,7 +205,7 @@ EOF
     elif [ "$PROXY_MODE" = "nftables" ]; then
         cat >> "$config_file" <<EOF
 ---
-apiVersion: kubeproxy.config.k8s.io/v1alpha1
+apiVersion: $kubeproxy_api
 kind: KubeProxyConfiguration
 mode: nftables
 EOF
@@ -178,17 +216,18 @@ EOF
 
 # Helper: Configure kubectl for a user after kubeadm init/join
 _configure_kubectl() {
-    echo "Configuring kubectl..."
+    log_info "Configuring kubectl..."
     if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-        USER_HOME="/home/$SUDO_USER"
+        local USER_HOME
+        USER_HOME=$(get_user_home "$SUDO_USER")
         mkdir -p "$USER_HOME/.kube"
         cp -f /etc/kubernetes/admin.conf "$USER_HOME/.kube/config"
         chown -R "$SUDO_USER:$(id -gn "$SUDO_USER")" "$USER_HOME/.kube"
-        echo "Created kubectl configuration for user $SUDO_USER"
+        log_info "Created kubectl configuration for user $SUDO_USER"
     else
         mkdir -p /root/.kube
         cp -f /etc/kubernetes/admin.conf /root/.kube/config
-        echo "Created kubectl configuration for root user at /root/.kube/config"
+        log_info "Created kubectl configuration for root user at /root/.kube/config"
     fi
 }
 
@@ -275,7 +314,7 @@ _rollback_vip() {
     local vip="$HA_VIP_ADDRESS"
     local iface="$HA_VIP_INTERFACE"
     if ip addr show dev "$iface" 2>/dev/null | grep -q "inet ${vip}/"; then
-        echo "Rolling back pre-added VIP $vip from $iface..."
+        log_info "Rolling back pre-added VIP $vip from $iface..."
         ip addr del "${vip}/32" dev "$iface" 2>/dev/null || true
     fi
 }
@@ -286,33 +325,41 @@ _verify_kube_vip_kubeconfig() {
     local expected_path
     expected_path=$(_kube_vip_kubeconfig_path)
     if [ ! -f "$expected_path" ]; then
-        echo "Warning: Expected kubeconfig $expected_path not found"
+        log_warn "Expected kubeconfig $expected_path not found"
         if [ "$expected_path" != "/etc/kubernetes/admin.conf" ] && [ -f "/etc/kubernetes/admin.conf" ]; then
-            echo "Patching kube-vip manifest to use /etc/kubernetes/admin.conf instead..."
-            sed -i "s|path: ${expected_path}|path: /etc/kubernetes/admin.conf|" \
-                /etc/kubernetes/manifests/kube-vip.yaml 2>/dev/null || true
+            log_info "Patching kube-vip manifest to use /etc/kubernetes/admin.conf instead..."
+            if ! sed -i "s|path: ${expected_path}|path: /etc/kubernetes/admin.conf|" \
+                /etc/kubernetes/manifests/kube-vip.yaml; then
+                log_warn "Failed to patch kube-vip manifest; kube-vip may use incorrect kubeconfig path"
+            fi
         fi
     fi
 }
 
 deploy_kube_vip() {
+    local skip_vip_preadd=false
+    if [ "${1:-}" = "--skip-vip-preadd" ]; then
+        skip_vip_preadd=true
+        shift
+    fi
+
     local vip="$HA_VIP_ADDRESS"
     local iface="$HA_VIP_INTERFACE"
-    local kube_vip_image="ghcr.io/kube-vip/kube-vip:v0.8.9"
+    local kube_vip_image="ghcr.io/kube-vip/kube-vip:${KUBE_VIP_VERSION}"
     local manifest_dir="/etc/kubernetes/manifests"
     local kubeconfig_path
     kubeconfig_path=$(_kube_vip_kubeconfig_path)
 
-    echo "Deploying kube-vip for HA (VIP=$vip, interface=$iface)..."
-    echo "  kubeconfig: $kubeconfig_path"
+    log_info "Deploying kube-vip for HA (VIP=$vip, interface=$iface)..."
+    log_info "  kubeconfig: $kubeconfig_path"
     mkdir -p "$manifest_dir"
 
     # Pull image based on CRI
     if [ "$CRI" = "crio" ]; then
-        echo "Pulling kube-vip image via crictl..."
+        log_info "Pulling kube-vip image via crictl..."
         crictl pull "$kube_vip_image"
     else
-        echo "Pulling kube-vip image via ctr..."
+        log_info "Pulling kube-vip image via ctr..."
         ctr image pull "$kube_vip_image"
     fi
 
@@ -320,20 +367,24 @@ deploy_kube_vip() {
     _generate_kube_vip_manifest "$vip" "$iface" "$kube_vip_image" "$kubeconfig_path" \
         > "${manifest_dir}/kube-vip.yaml"
 
-    echo "kube-vip manifest written to ${manifest_dir}/kube-vip.yaml"
+    log_info "kube-vip manifest written to ${manifest_dir}/kube-vip.yaml"
 
     # Pre-add VIP to the interface so it is reachable during kubeadm init
     # before kube-vip can perform leader election.
-    # kube-vip will take over management of this address once it starts.
-    if ! ip addr show dev "$iface" | grep -q "inet ${vip}/"; then
-        echo "Pre-adding VIP $vip to $iface for bootstrap..."
-        ip addr add "${vip}/32" dev "$iface"
+    # On join nodes, skip pre-add to avoid VIP conflicts with the existing leader.
+    if [ "$skip_vip_preadd" = false ]; then
+        if ! ip addr show dev "$iface" | grep -q "inet ${vip}/"; then
+            log_info "Pre-adding VIP $vip to $iface for bootstrap..."
+            ip addr add "${vip}/32" dev "$iface"
+        fi
+    else
+        log_info "Skipping VIP pre-add (join mode, VIP managed by existing leader)"
     fi
 }
 
 # Helper: Initialize Kubernetes cluster
 initialize_cluster() {
-    echo "Initializing cluster..."
+    log_info "Initializing cluster..."
 
     # Deploy kube-vip before kubeadm init if HA is enabled
     if [ "$HA_ENABLED" = true ]; then
@@ -342,10 +393,10 @@ initialize_cluster() {
 
     # Run kubeadm init, capturing exit code for rollback
     local init_exit=0
-    if [ "$PROXY_MODE" != "iptables" ] || [ "${#KUBEADM_ARGS[@]}" -gt 0 ]; then
+    if [ "$PROXY_MODE" != "iptables" ] || [ -n "$KUBEADM_POD_CIDR" ] || [ -n "$KUBEADM_SERVICE_CIDR" ] || [ -n "$KUBEADM_API_ADDR" ] || [ -n "$KUBEADM_CP_ENDPOINT" ]; then
         local CONFIG_FILE
         CONFIG_FILE=$(generate_kubeadm_config)
-        echo "Using kubeadm configuration file: $CONFIG_FILE"
+        log_info "Using kubeadm configuration file: $CONFIG_FILE"
         kubeadm init --config "$CONFIG_FILE" || init_exit=$?
         rm -f "$CONFIG_FILE"
     else
@@ -359,7 +410,7 @@ initialize_cluster() {
     fi
 
     if [ "$init_exit" -ne 0 ]; then
-        echo "Error: kubeadm init failed (exit code: $init_exit)"
+        log_error "kubeadm init failed (exit code: $init_exit)"
         if [ "$HA_ENABLED" = true ]; then
             _rollback_vip
         fi
@@ -374,43 +425,48 @@ initialize_cluster() {
     _configure_kubectl
 
     # Display join command for worker nodes
-    echo "Displaying join command for worker nodes..."
+    log_info "Displaying join command for worker nodes..."
     kubeadm token create --print-join-command
 
     # For HA clusters, upload certs and display control-plane join command
     if [ "$HA_ENABLED" = true ]; then
-        echo ""
-        echo "=== HA Cluster: Control-Plane Join Information ==="
-        local cert_key
-        cert_key=$(kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1)
-        if [ -z "$cert_key" ]; then
-            echo "Error: Failed to retrieve certificate key from upload-certs"
-            echo "You can manually run: kubeadm init phase upload-certs --upload-certs"
+        log_info ""
+        log_info "=== HA Cluster: Control-Plane Join Information ==="
+        local cert_output cert_key
+        if ! cert_output=$(kubeadm init phase upload-certs --upload-certs); then
+            log_error "kubeadm upload-certs failed"
+            log_error "You can manually run: kubeadm init phase upload-certs --upload-certs"
             return 1
         fi
-        echo "Certificate key: $cert_key"
-        echo ""
-        echo "To join additional control-plane nodes, run:"
-        echo "  setup-k8s.sh join --control-plane --certificate-key $cert_key \\"
-        echo "    --ha-vip ${HA_VIP_ADDRESS} \\"
-        echo "    --join-token <token> --join-address <address> --discovery-token-hash <hash>"
-        echo "================================================="
+        cert_key=$(echo "$cert_output" | tail -1)
+        if ! [[ "$cert_key" =~ ^[a-f0-9]{64}$ ]]; then
+            log_error "Invalid certificate key format (expected 64 hex chars, got: '$cert_key')"
+            return 1
+        fi
+        log_info "Certificate key: $cert_key"
+        log_info ""
+        log_info "To join additional control-plane nodes, run:"
+        log_info "  setup-k8s.sh join --control-plane --certificate-key $cert_key \\"
+        log_info "    --ha-vip ${HA_VIP_ADDRESS} \\"
+        log_info "    --join-token <token> --join-address <address> --discovery-token-hash <hash>"
+        log_info "================================================="
     fi
 
-    echo "Cluster initialization complete!"
-    echo "Next steps:"
-    echo "1. Install a CNI plugin"
-    echo "2. For single-node clusters, remove the taint with:"
-    echo "   kubectl taint nodes --all node-role.kubernetes.io/control-plane-"
+    log_info "Cluster initialization complete!"
+    log_info "Next steps:"
+    log_info "1. Install a CNI plugin"
+    log_info "2. For single-node clusters, remove the taint with:"
+    log_info "   kubectl taint nodes --all node-role.kubernetes.io/control-plane-"
 }
 
 # Helper: Join node to cluster
 join_cluster() {
-    echo "Joining node to cluster..."
+    log_info "Joining node to cluster..."
 
     # Deploy kube-vip on additional control-plane nodes
+    # Skip VIP pre-add to avoid conflicts with the existing VIP leader
     if [ "${JOIN_AS_CONTROL_PLANE:-false}" = true ] && [ -n "$HA_VIP_ADDRESS" ]; then
-        deploy_kube_vip
+        deploy_kube_vip --skip-vip-preadd
     fi
 
     local -a join_args=("${JOIN_ADDRESS}" --token "${JOIN_TOKEN}" --discovery-token-ca-cert-hash "${DISCOVERY_TOKEN_HASH}")
@@ -429,10 +485,7 @@ join_cluster() {
     kubeadm join "${join_args[@]}" || join_exit=$?
 
     if [ "$join_exit" -ne 0 ]; then
-        echo "Error: kubeadm join failed (exit code: $join_exit)"
-        if [ "${JOIN_AS_CONTROL_PLANE:-false}" = true ] && [ -n "$HA_VIP_ADDRESS" ]; then
-            _rollback_vip
-        fi
+        log_error "kubeadm join failed (exit code: $join_exit)"
         return "$join_exit"
     fi
 
@@ -444,9 +497,9 @@ join_cluster() {
     # Configure kubectl for control-plane join
     if [ "${JOIN_AS_CONTROL_PLANE:-false}" = true ]; then
         _configure_kubectl
-        echo "Control-plane node has joined the cluster!"
+        log_info "Control-plane node has joined the cluster!"
     else
-        echo "Worker node has joined the cluster!"
+        log_info "Worker node has joined the cluster!"
     fi
 }
 
@@ -454,21 +507,25 @@ join_cluster() {
 cleanup_kube_configs() {
     # Clean up .kube directory
     if [ -n "${SUDO_USER:-}" ]; then
-        USER_HOME="/home/$SUDO_USER"
-        echo "Cleanup: Removing .kube directory and config for user $SUDO_USER"
-        rm -rf "$USER_HOME/.kube" || true
+        local USER_HOME
+        USER_HOME=$(get_user_home "$SUDO_USER")
+        log_info "Cleanup: Removing .kube directory and config for user $SUDO_USER"
+        rm -f "$USER_HOME/.kube/config"
+        rmdir "$USER_HOME/.kube" 2>/dev/null || true
     fi
 
     # Clean up root's .kube directory
-    ROOT_HOME=$(eval echo ~root)
-    echo "Cleanup: Removing .kube directory and config for root user at $ROOT_HOME"
-    rm -rf "$ROOT_HOME/.kube" || true
+    local ROOT_HOME
+    ROOT_HOME=$(get_user_home root)
+    log_info "Cleanup: Removing .kube directory and config for root user at $ROOT_HOME"
+    rm -f "$ROOT_HOME/.kube/config"
+    rmdir "$ROOT_HOME/.kube" 2>/dev/null || true
 }
 
 # Helper: Reset containerd configuration
 reset_containerd_config() {
     if [ -f /etc/containerd/config.toml ]; then
-        echo "Resetting containerd configuration to default..."
+        log_info "Resetting containerd configuration to default..."
         if command -v containerd &> /dev/null; then
             # Backup current config
             cp /etc/containerd/config.toml "/etc/containerd/config.toml.bak.$(date +%Y%m%d%H%M%S)"
@@ -476,7 +533,7 @@ reset_containerd_config() {
             containerd config default > /etc/containerd/config.toml
             # Restart containerd if it's running
             if systemctl is-active containerd &>/dev/null; then
-                echo "Restarting containerd with default configuration..."
+                log_info "Restarting containerd with default configuration..."
                 systemctl restart containerd
             fi
         fi
@@ -485,29 +542,56 @@ reset_containerd_config() {
 
 # Show installed versions
 show_versions() {
-    echo "Installed versions:"
-    kubectl version --client || true
-    kubeadm version || true
+    log_info "Installed versions:"
+    kubectl version --client
+    kubeadm version
+}
+
+# Unified cleanup verification: check remaining files and report.
+# Usage: _verify_cleanup <remaining_from_pkg_check> <file1> [file2] ...
+_verify_cleanup() {
+    local remaining="$1"; shift
+    log_info "Verifying cleanup..."
+    for file in "$@"; do
+        if [ -f "$file" ]; then
+            log_warn "File still exists: $file"
+            remaining=1
+        fi
+    done
+    if [ "$remaining" -ne 0 ]; then
+        log_warn "Some files or packages could not be removed. You may want to remove them manually."
+        return 1
+    fi
+    log_info "All specified components have been successfully removed."
 }
 
 # === Cleanup helper functions ===
 
 # Stop Kubernetes services
 stop_kubernetes_services() {
-    echo "Stopping Kubernetes services..."
+    log_info "Stopping Kubernetes services..."
     systemctl stop kubelet || true
     systemctl disable kubelet || true
+    # Verify kubelet is actually stopped
+    if systemctl is-active --quiet kubelet 2>/dev/null; then
+        log_error "kubelet is still active after stop attempt"
+        return 1
+    fi
 }
 
 # Stop CRI services
 stop_cri_services() {
-    echo "Checking and stopping CRI services..."
+    log_info "Checking and stopping CRI services..."
     
     # Stop CRI-O if present
     if systemctl list-unit-files | grep -q '^crio\.service'; then
-        echo "Stopping and disabling CRI-O service..."
+        log_info "Stopping and disabling CRI-O service..."
         systemctl stop crio || true
         systemctl disable crio || true
+        if systemctl is-active --quiet crio 2>/dev/null; then
+            log_warn "CRI-O is still active after stop attempt"
+            return 1
+        fi
     fi
     
     # Note: containerd is not stopped to avoid impacting Docker
@@ -516,7 +600,7 @@ stop_cri_services() {
 
 # Remove Kubernetes configuration files
 remove_kubernetes_configs() {
-    echo "Removing Kubernetes configuration files..."
+    log_info "Removing Kubernetes configuration files..."
     rm -f /etc/default/kubelet
     rm -rf /etc/kubernetes
     rm -rf /etc/systemd/system/kubelet.service.d
@@ -525,9 +609,19 @@ remove_kubernetes_configs() {
 # Reset Kubernetes cluster state
 reset_kubernetes_cluster() {
     if command -v kubeadm &> /dev/null; then
-        echo "Resetting kubeadm cluster state..."
-        kubeadm reset -f || true
+        log_info "Resetting kubeadm cluster state..."
+        if ! kubeadm reset -f; then
+            log_error "kubeadm reset failed"
+            return 1
+        fi
     fi
+}
+
+# Common pre-cleanup steps shared by all distributions
+cleanup_pre_common() {
+    log_info "Resetting cluster state..."
+    kubeadm reset -f || true
+    cleanup_cni
 }
 
 # Conditionally cleanup CNI
@@ -535,6 +629,6 @@ cleanup_cni_conditionally() {
     if [ "$PRESERVE_CNI" = false ]; then
         cleanup_cni
     else
-        echo "Preserving CNI configurations as requested."
+        log_info "Preserving CNI configurations as requested."
     fi
 }

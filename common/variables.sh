@@ -1,43 +1,62 @@
 #!/bin/bash
+# shellcheck disable=SC2034 # variables are used by sourcing scripts
 
 # Log level: 0=quiet, 1=normal (default), 2=verbose
-export LOG_LEVEL="${LOG_LEVEL:-1}"
+LOG_LEVEL="${LOG_LEVEL:-1}"
 
 # Dry-run mode
-export DRY_RUN="${DRY_RUN:-false}"
+DRY_RUN="${DRY_RUN:-false}"
 
 # Default values for global variables
-export K8S_VERSION=""
-export K8S_VERSION_FALLBACK="${K8S_VERSION_FALLBACK:-1.32}"
-export ACTION=""  # init or join (set by subcommand)
-export JOIN_TOKEN=""
-export JOIN_ADDRESS=""
-export DISCOVERY_TOKEN_HASH=""
-export DISTRO_NAME=""
-export DISTRO_VERSION=""
-export DISTRO_FAMILY=""
-export CRI="containerd"  # Container runtime interface (containerd, crio, etc.)
-export PROXY_MODE="iptables"  # iptables, ipvs, or nftables (nftables requires K8s 1.29+)
+K8S_VERSION=""
+ACTION="${ACTION:-}"  # init or join (set by subcommand)
+JOIN_TOKEN=""
+JOIN_ADDRESS=""
+DISCOVERY_TOKEN_HASH=""
+DISTRO_NAME=""
+DISTRO_VERSION=""
+DISTRO_FAMILY=""
+CRI="containerd"  # Container runtime interface (containerd, crio, etc.)
+PROXY_MODE="iptables"  # iptables, ipvs, or nftables (nftables requires K8s 1.29+)
 
 # HA cluster support
-export JOIN_AS_CONTROL_PLANE=false
-export CERTIFICATE_KEY=""
-export HA_ENABLED=false
-export HA_VIP_ADDRESS=""
-export HA_VIP_INTERFACE=""
+JOIN_AS_CONTROL_PLANE=false
+CERTIFICATE_KEY=""
+HA_ENABLED=false
+HA_VIP_ADDRESS=""
+HA_VIP_INTERFACE=""
 
 # Additional variables for cleanup
-export FORCE=false
-export PRESERVE_CNI=false
+FORCE=false
+PRESERVE_CNI=false
 
-# Arguments that will be passed to kubeadm (as array)
-KUBEADM_ARGS=()
-export KUBEADM_ARGS
+# Kubeadm configuration (parsed from CLI args)
+KUBEADM_POD_CIDR=""
+KUBEADM_SERVICE_CIDR=""
+KUBEADM_API_ADDR=""
+KUBEADM_CP_ENDPOINT=""
 
 # Shell completion variables
-export ENABLE_COMPLETION=true  # Enable shell completion setup for kubectl, kubeadm, etc.
-export INSTALL_HELM=false  # Install Helm package manager
-export COMPLETION_SHELLS="auto"  # auto, bash, zsh, fish, or comma-separated list
+ENABLE_COMPLETION=true  # Enable shell completion setup for kubectl, kubeadm, etc.
+INSTALL_HELM=false  # Install Helm package manager
+COMPLETION_SHELLS="auto"  # auto, bash, zsh, fish, or comma-separated list
+
+# Deploy subcommand
+DEPLOY_CONTROL_PLANES=""
+DEPLOY_WORKERS=""
+DEPLOY_SSH_USER="root"
+DEPLOY_SSH_PORT="22"
+DEPLOY_SSH_KEY=""
+DEPLOY_SSH_PASSWORD="${DEPLOY_SSH_PASSWORD:-}"
+DEPLOY_SSH_KNOWN_HOSTS_FILE=""
+DEPLOY_SSH_HOST_KEY_CHECK="${DEPLOY_SSH_HOST_KEY_CHECK:-yes}"
+DEPLOY_PASSTHROUGH_ARGS=()
+
+# Version constants (overridable via environment)
+KUBE_VIP_VERSION="${KUBE_VIP_VERSION:-v0.8.9}"
+PAUSE_IMAGE_VERSION="${PAUSE_IMAGE_VERSION:-3.10}"
+# Bundle module list: bootstrap + _COMMON_MODULES (defined in bootstrap.sh)
+BUNDLE_COMMON_MODULES="bootstrap ${_COMMON_MODULES[*]}"
 
 # Cleanup options
-export REMOVE_HELM=false  # Remove Helm during cleanup (opt-in via --remove-helm)
+REMOVE_HELM=false  # Remove Helm during cleanup (opt-in via --remove-helm)

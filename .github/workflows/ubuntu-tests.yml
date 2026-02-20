@@ -2,11 +2,50 @@ name: Ubuntu Option Tests
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
   schedule:
     - cron: '30 3 * * *'
 
+permissions:
+  contents: read
+
 jobs:
+  # PR smoke test: single Ubuntu 24.04 offline test for fast merge-time feedback
+  # Only run on PRs from the same repo (not forks) to prevent RCE on self-hosted runners
+  pr-smoke-test:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, kvm]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Run PR smoke test (Ubuntu 24.04 offline)
+        working-directory: test
+        run: |
+          set -euo pipefail
+          ./run-e2e-tests.sh --offline ubuntu-2404
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: logs-pr-smoke-test
+          path: |
+            test/results/logs
+            test/results/test-result.json
+          if-no-files-found: ignore
+
+      - name: Cleanup workspace artifacts
+        if: always()
+        run: |
+          sudo rm -rf test/data
+          sudo rm -rf test/results
+
+  # Full option matrix: runs on schedule and manual dispatch only
   ubuntu-option-tests:
+    if: github.event_name != 'pull_request'
     runs-on: [self-hosted, linux, kvm]
     timeout-minutes: 240
     strategy:
@@ -17,7 +56,8 @@ jobs:
             distro: ubuntu-2404
             k8s_version: ""
             setup_args: ""
-          - name: ubuntu2404-offline-default
+            test_mode: "online"
+          - name: ubuntu2404-default
             distro: ubuntu-2404
             k8s_version: ""
             setup_args: ""
@@ -47,7 +87,7 @@ jobs:
             setup_args: ""
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Run setup-k8s option test
         working-directory: test
@@ -55,9 +95,11 @@ jobs:
           SETUP_ARGS: ${{ matrix.setup_args }}
           K8S_VERSION: ${{ matrix.k8s_version }}
           DISTRO: ${{ matrix.distro }}
+          TEST_MODE: ${{ matrix.test_mode || 'offline' }}
         run: |
           set -euo pipefail
-          mode_flag="--online"
+          # Use test_mode from matrix (defaults to offline)
+          mode_flag="--${TEST_MODE}"
 
           k8s_flag=""
           if [ -n "$K8S_VERSION" ]; then
@@ -73,7 +115,7 @@ jobs:
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: logs-${{ matrix.name }}
           path: |
@@ -84,5 +126,5 @@ jobs:
       - name: Cleanup workspace artifacts
         if: always()
         run: |
-          sudo rm -rf test/data || true
-          sudo rm -rf test/results || true
+          sudo rm -rf test/data
+          sudo rm -rf test/results

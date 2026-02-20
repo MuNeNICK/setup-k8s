@@ -4,89 +4,43 @@
 
 # Install Helm
 install_helm() {
-    echo "Installing Helm package manager..."
+    log_info "Installing Helm package manager..."
 
     # Download the official installer to a temporary file for inspection
     local installer
     installer=$(mktemp -t get-helm-3-XXXXXX.sh)
     if ! curl -fsSL --retry 3 --retry-delay 2 https://raw.githubusercontent.com/helm/helm/v3.17.1/scripts/get-helm-3 -o "$installer"; then
-        echo "Error: Failed to download Helm installer" >&2
+        log_error "Failed to download Helm installer"
         rm -f "$installer"
         return 1
     fi
 
-    # Basic validation: ensure it looks like a shell script
-    if ! head -1 "$installer" | grep -q '^#!/'; then
-        echo "Error: Downloaded Helm installer does not appear to be a valid shell script" >&2
-        rm -f "$installer"
-        return 1
-    fi
-
-    # Syntax check: reject corrupted or malicious downloads
-    if ! bash -n "$installer" 2>/dev/null; then
-        echo "Error: Downloaded Helm installer contains syntax errors" >&2
-        rm -f "$installer"
-        return 1
-    fi
-
-    # Execute the verified installer
+    # Execute the installer
     bash "$installer"
     local rc=$?
     rm -f "$installer"
     return $rc
 }
 
-# Setup Helm for a specific user
-setup_helm_for_user() {
-    local user="$1"
-    local user_home="$2"
-    
-    if [ -z "$user" ] || [ -z "$user_home" ]; then
-        return 1
-    fi
-    
-    # Create .helm directory for the user
-    local helm_dir="$user_home/.config/helm"
-    if [ ! -d "$helm_dir" ]; then
-        mkdir -p "$helm_dir"
-        chown -R "$user:$(id -gn "$user")" "$user_home/.config"
-    fi
-    
-    # Initialize helm for the user (if needed)
-    # Modern Helm 3 doesn't require init, but we can set up config
-    
-    echo "Helm setup completed for user $user"
-    return 0
-}
-
 # Main function to setup Helm
 setup_helm() {
     if [ "$INSTALL_HELM" != true ]; then
-        echo "Helm installation skipped (disabled by configuration)"
+        log_info "Helm installation skipped (disabled by configuration)"
         return 0
     fi
-    
+
     # Check if helm is already installed
     if command -v helm &> /dev/null; then
-        echo "Helm is already installed: $(helm version --short)"
-        echo "Skipping Helm installation"
+        log_info "Helm is already installed: $(helm version --short)"
+        log_info "Skipping Helm installation"
     else
         # Install Helm
         if ! install_helm; then
-            echo "Warning: Helm installation failed"
+            log_warn "Helm installation failed"
             return 1
         fi
     fi
-    
-    # Setup for non-root user if running with sudo
-    if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
-        local user_home="/home/$SUDO_USER"
-        setup_helm_for_user "$SUDO_USER" "$user_home"
-    fi
-    
-    # Setup for root user
-    setup_helm_for_user "root" "/root"
-    
+
     return 0
 }
 
@@ -94,59 +48,19 @@ setup_helm() {
 
 # Remove Helm binary and configuration
 cleanup_helm() {
-    echo "Removing Helm..."
-    
-    # Check if Helm is installed
-    if ! command -v helm &> /dev/null; then
-        echo "Helm is not installed, skipping cleanup"
-        return 0
-    fi
-    
-    # Remove Helm binary
-    if [ -f /usr/local/bin/helm ]; then
-        echo "Removing Helm binary from /usr/local/bin/helm"
-        rm -f /usr/local/bin/helm
-    fi
-    
-    # Remove Helm config directories for users
+    log_info "Removing Helm..."
+    rm -f /usr/local/bin/helm
+
+    # Remove Helm config/cache directories for relevant users
+    local -a _helm_users=(root)
     if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
-        local user_home="/home/$SUDO_USER"
-        
-        # Remove Helm config directory
-        if [ -d "$user_home/.config/helm" ]; then
-            echo "Removing Helm config for user $SUDO_USER"
-            rm -rf "$user_home/.config/helm"
-        fi
-        
-        # Remove legacy .helm directory if exists
-        if [ -d "$user_home/.helm" ]; then
-            echo "Removing legacy Helm directory for user $SUDO_USER"
-            rm -rf "$user_home/.helm"
-        fi
-        
-        # Remove Helm cache
-        if [ -d "$user_home/.cache/helm" ]; then
-            echo "Removing Helm cache for user $SUDO_USER"
-            rm -rf "$user_home/.cache/helm"
-        fi
+        _helm_users+=("$SUDO_USER")
     fi
-    
-    # Remove root's Helm directories
-    if [ -d "/root/.config/helm" ]; then
-        echo "Removing Helm config for root user"
-        rm -rf /root/.config/helm
-    fi
-    
-    if [ -d "/root/.helm" ]; then
-        echo "Removing legacy Helm directory for root user"
-        rm -rf /root/.helm
-    fi
-    
-    if [ -d "/root/.cache/helm" ]; then
-        echo "Removing Helm cache for root user"
-        rm -rf /root/.cache/helm
-    fi
-    
-    echo "Helm has been removed"
-    return 0
+    for _user in "${_helm_users[@]}"; do
+        local _home
+        _home=$(get_user_home "$_user")
+        rm -rf "$_home/.config/helm" "$_home/.helm" "$_home/.cache/helm"
+    done
+
+    log_info "Helm has been removed"
 }

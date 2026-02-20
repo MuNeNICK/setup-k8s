@@ -1,24 +1,22 @@
 #!/bin/bash
 
-# Source common helpers (only when not already loaded by the entry script)
-if ! type -t configure_crictl &>/dev/null; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    source "${SCRIPT_DIR}/../../common/helpers.sh" 2>/dev/null || true
-fi
-
 # Setup CRI-O for generic distributions
 setup_crio_generic() {
-    echo "Warning: Using generic method to set up CRI-O."
-    echo "This may not work correctly on your distribution."
-    echo "Please install CRI-O manually if needed."
+    log_warn "Using generic method to set up CRI-O."
+    log_warn "This may not work correctly on your distribution."
+    log_info "Please install CRI-O manually if needed."
     
     # Try to configure CRI-O if it's installed
     if command -v crio &> /dev/null; then
-        echo "CRI-O found. Attempting basic configuration..."
-        systemctl enable --now crio || true
+        log_info "CRI-O found. Attempting basic configuration..."
+        systemctl enable --now crio || {
+            log_error "Failed to enable and start CRI-O service"
+            systemctl status crio --no-pager || true
+            return 1
+        }
         configure_crictl
     else
-        echo "CRI-O not found. Please install it manually from:"
-        echo "https://github.com/cri-o/cri-o/blob/main/install.md"
+        log_warn "CRI-O not found. Please install it manually from:"
+        log_info "https://github.com/cri-o/cri-o/blob/main/install.md"
     fi
 }

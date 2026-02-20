@@ -76,6 +76,6 @@ Status Legend:
 - 🚫 Untested: Not yet tested
 
 Notes:
-¹ Kubernetes 1.35 disabled cgroups v1 support by default. Use `--kubernetes-version 1.34` or earlier on these distributions.
+¹ Kubernetes 1.34+ requires cgroups v2 (cgroups v1 support was removed). Use `--kubernetes-version 1.33` or earlier on these distributions.
 
 Note: Test dates and results should be updated regularly. Please submit your test results via issues or pull requests.

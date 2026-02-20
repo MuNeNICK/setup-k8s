@@ -10,23 +10,32 @@ Docker + QEMU test framework that validates `setup-k8s.sh` across multiple Linux
 - **13 distributions/versions supported**: Ubuntu, Debian, CentOS, Fedora, openSUSE, Rocky, AlmaLinux, Arch Linux
 - **Reliable result verification**: Confirms setup-k8s.sh execution, kubelet startup, and API response
 
+## Test Scripts
+
+| Script | Description |
+|--------|------------|
+| `run-e2e-tests.sh` | Single-node E2E test: init + cleanup across all supported distros |
+| `run-ha-test.sh` | HA (kube-vip) test: init with `--ha --ha-vip` on a single VM |
+| `run-deploy-test.sh` | Deploy subcommand test: multi-node cluster (1 CP + 1 Worker) via SSH |
+| `run-unit-tests.sh` | Unit tests for shell modules |
+
 ## Supported Distributions
 
 | Distribution | Version | Login User |
 |-------------|---------|------------|
-| ubuntu-2404 | 24.04 LTS | ubuntu |
-| ubuntu-2204 | 22.04 LTS | ubuntu |
-| ubuntu-2004 | 20.04 LTS | ubuntu |
-| debian-12 | 12 (Bookworm) | debian |
-| debian-11 | 11 (Bullseye) | debian |
-| centos-stream-9 | Stream 9 | centos |
-| fedora-41 | 41 | fedora |
-| opensuse-leap-155 | Leap 15.5 | opensuse |
-| rocky-linux-9 | 9 | rocky |
-| rocky-linux-8 | 8 | rocky |
-| almalinux-9 | 9 | almalinux |
-| almalinux-8 | 8 | almalinux |
-| archlinux | Rolling | arch |
+| ubuntu-2404 | 24.04 LTS | user |
+| ubuntu-2204 | 22.04 LTS | user |
+| ubuntu-2004 | 20.04 LTS | user |
+| debian-12 | 12 (Bookworm) | user |
+| debian-11 | 11 (Bullseye) | user |
+| centos-stream-9 | Stream 9 | user |
+| fedora-41 | 41 | user |
+| opensuse-leap-155 | Leap 15.5 | user |
+| rocky-linux-9 | 9 | user |
+| rocky-linux-8 | 8 | user |
+| almalinux-9 | 9 | user |
+| almalinux-8 | 8 | user |
+| archlinux | Rolling | user |
 
 ## System Requirements
 
@@ -94,7 +103,6 @@ Environment overrides:
 | --- | --- |
 | `DOCKER_VM_RUNNER_IMAGE` | Container image tag to run (default `ghcr.io/munenick/docker-vm-runner:latest`). |
 | `VM_DATA_DIR` | Host directory bound to `/data`. |
-| `VM_STATE_DIR` | Host directory bound to `/var/lib/docker-vm-runner`. |
 
 ## Detailed Usage
 
@@ -141,11 +149,11 @@ docker pull ghcr.io/munenick/docker-vm-runner:latest
 
 ## Internal Workflow
 
-1. **Load configuration**: Read distro/image metadata from `distro-urls.conf`.
-2. **Prepare docker-vm-runner**: Pull (or build) the container image and create the shared `/images` cache directories.
-3. **Render cloud-init**: Bundle `setup-k8s.sh`/`cleanup-k8s.sh` into `results/cloud-init/user-data.yaml`.
-4. **Launch VM container**: Run docker-vm-runner with `/dev/kvm`, mount caches, and feed the rendered cloud-init payload.
-5. **Stream console output**: Attach via `script` so the guest serial console is visible and parsed for JSON markers.
+1. **Load configuration**: Validate the requested distribution against the built-in supported list.
+2. **Prepare docker-vm-runner**: Pull the container image and create the shared data/cache directories.
+3. **Prepare scripts**: In offline mode, bundle `setup-k8s.sh`/`cleanup-k8s.sh` with all modules into self-contained scripts. In online mode, transfer the local checkout to the VM so the checked-out revision (not remote main) is tested.
+4. **Launch VM container**: Run docker-vm-runner with `/dev/kvm`, mount caches, and inject an SSH key via cloud-init.
+5. **Execute tests via SSH**: Transfer scripts, run setup/cleanup, and poll for completion.
 6. **Collect results**: Save structured JSON output plus log files under `results/`.
 
 ## File Structure
@@ -153,6 +161,8 @@ docker pull ghcr.io/munenick/docker-vm-runner:latest
 ```
 test/
 ├── run-e2e-tests.sh         # E2E test runner (VM-based setup/cleanup)
+├── run-ha-test.sh           # HA (kube-vip) integration test
+├── run-deploy-test.sh       # Deploy subcommand E2E test (multi-VM)
 ├── run-unit-tests.sh        # Unit tests for shell modules
 ├── data/                    # Cloud image cache (base/, vms/, state/)
 └── results/                 # Test artifacts
@@ -165,13 +175,7 @@ test/
 
 ### Adding New Distributions
 
-Add to `distro-urls.conf` in the following format:
-
-```bash
-# New distribution
-newdistro-1.0=https://example.com/newdistro-1.0-cloud.qcow2
-newdistro-1.0_user=newuser
-```
+Add the distribution name to the `SUPPORTED_DISTROS` array in `run-e2e-tests.sh`. The distribution must be supported by docker-vm-runner.
 
 ### Timeout Adjustment
 
@@ -183,7 +187,7 @@ TIMEOUT_TOTAL=1800    # Extend to 30 minutes
 
 ### VM Configuration Tuning
 
-`docker-vm-runner` exposes resource settings through environment variables (e.g., `MEMORY`, `CPUS`, `DISK_SIZE`). Add extra `-e` entries to the `docker_cmd` array in `run-e2e-tests.sh` when you need to tweak these values for all tests.
+`docker-vm-runner` exposes resource settings through environment variables (e.g., `MEMORY`, `CPUS`, `DISK_SIZE`). Use the `--memory`, `--cpus`, and `--disk-size` flags of `run-e2e-tests.sh`, or modify the `docker run` command in `run_vm_container()` when you need to tweak these values for all tests.
 
 ## Common Issues
 
@@ -236,11 +240,20 @@ Test results are output in the following JSON format:
 ```json
 {
   "status": "success|failed",
-  "setup_exit_code": 0,
-  "kubelet_status": "active|inactive", 
-  "kubeconfig_exists": "true|false",
-  "api_responsive": "true|false",
-  "timestamp": "2025-01-01T12:00:00Z"
+  "setup_test": {
+    "status": "success|failed",
+    "exit_code": 0,
+    "kubelet_status": "active|inactive",
+    "api_responsive": "true|false"
+  },
+  "cleanup_test": {
+    "status": "success|failed|skipped",
+    "exit_code": 0,
+    "services_stopped": "true|false",
+    "config_cleaned": "true|false",
+    "packages_removed": "true|false"
+  },
+  "timestamp": "2025-01-01T12:00:00+00:00"
 }
 ```
 

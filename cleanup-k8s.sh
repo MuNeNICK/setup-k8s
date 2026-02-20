@@ -6,7 +6,14 @@ set -euo pipefail
 SUDO_USER="${SUDO_USER:-}"
 
 # Get the directory where the script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# When piped via stdin (curl | bash), BASH_SOURCE[0] is unset under set -u
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+
+# Detect stdin execution mode (curl | bash) — BASH_SOURCE[0] is empty or unset
+_STDIN_MODE=false
+if [ -z "${BASH_SOURCE[0]:-}" ] || [ "${BASH_SOURCE[0]:-}" = "bash" ] || [ "${BASH_SOURCE[0]:-}" = "/dev/stdin" ] || [ "${BASH_SOURCE[0]:-}" = "/proc/self/fd/0" ]; then
+    _STDIN_MODE=true
+fi
 
 # Default GitHub base URL (can be overridden)
 GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main}"
@@ -14,197 +21,82 @@ GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.githubusercontent.com/MuNeNICK/s
 # Check if running in offline mode
 OFFLINE_MODE="${OFFLINE_MODE:-false}"
 
-# EXIT trap: collect cleanup paths and run them on exit
-_EXIT_CLEANUP_DIRS=()
-_run_exit_cleanup() {
-    for dir in "${_EXIT_CLEANUP_DIRS[@]}"; do
-        rm -rf "$dir"
-    done
-}
-trap _run_exit_cleanup EXIT
-
-_append_exit_trap() {
-    _EXIT_CLEANUP_DIRS+=("$1")
-}
-
-# Validate that a downloaded module looks like a shell script
-_validate_shell_module() {
-    local file="$1"
-    if [ ! -s "$file" ]; then
-        echo "Error: Module file '$file' is empty or missing" >&2
-        return 1
-    fi
-    local first_char
-    first_char=$(head -c1 "$file")
-    if [ "$first_char" != "#" ]; then
-        echo "Error: Module file '$file' does not appear to be a valid shell script" >&2
-        return 1
-    fi
-    if ! bash -n "$file" 2>/dev/null; then
-        echo "Error: Module file '$file' contains syntax errors" >&2
-        return 1
-    fi
-    return 0
-}
-
-# Helper to call dynamically-named functions with safety check
-_dispatch() {
-    local func_name="$1"; shift
-    if type -t "$func_name" &>/dev/null; then
-        "$func_name" "$@"
-    else
-        echo "Error: Required function '$func_name' not found." >&2
-        exit 1
-    fi
-}
-
-# Parse early arguments for offline / help / verbose / quiet mode
-for arg in "$@"; do
-    case "$arg" in
-        --offline)
-            OFFLINE_MODE="true"
-            ;;
+# Single-pass argument parsing: detect global flags and build cli_args
+# before bootstrap to avoid unnecessary network fetch for --help / --offline.
+cli_args=()
+for _arg in "$@"; do
+    # shellcheck disable=SC2034 # LOG_LEVEL used by logging module
+    case "$_arg" in
+        --offline) OFFLINE_MODE="true" ;;
         --help|-h)
             cat <<'HELPEOF'
 Usage: cleanup-k8s.sh [options]
 
 Options:
-  --force         Skip confirmation prompt
-  --preserve-cni  Preserve CNI configurations
-  --remove-helm   Remove Helm binary and configuration
-  --verbose       Enable debug logging
-  --quiet         Suppress informational messages (errors only)
-  --offline       Run in offline mode (use bundled modules)
-  --help, -h      Display this help message
+  --force                 Skip confirmation prompt
+  --preserve-cni          Preserve CNI configurations
+  --remove-helm           Remove Helm binary and configuration
+  --verbose               Enable debug logging
+  --quiet                 Suppress informational messages (errors only)
+  --offline               Run in offline mode (use bundled modules)
+  --help, -h              Display this help message
 HELPEOF
             exit 0
             ;;
-        --verbose)
-            export LOG_LEVEL=2
-            ;;
-        --quiet)
-            export LOG_LEVEL=0
-            ;;
+        --verbose) LOG_LEVEL=2 ;;
+        --quiet) LOG_LEVEL=0 ;;
+        *) cli_args+=("$_arg") ;;
     esac
 done
+unset _arg
 
-# Function to load modules
-load_modules() {
-    if [ "$OFFLINE_MODE" = "true" ]; then
-        # Offline mode: assume all functions are already loaded (bundled)
-        echo "Running in offline mode (bundled)" >&2
-        return 0
-    fi
-
-    # Online mode: fetch modules from GitHub
-    echo "Loading modules from GitHub..." >&2
-
-    # Create temporary directory for modules
-    local temp_dir
-    temp_dir=$(mktemp -d -t cleanup-k8s-XXXXXX)
-    _append_exit_trap "$temp_dir"
-
-    # Download common modules
-    echo "Downloading common modules..." >&2
-    local common_modules=(variables logging detection validation helpers networking swap completion helm)
-    for module in "${common_modules[@]}"; do
-        echo "  - Downloading common/${module}.sh" >&2
-        if ! curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/${module}.sh" > "$temp_dir/${module}.sh"; then
-            echo "Error: Failed to download common/${module}.sh" >&2
-            return 1
-        fi
-    done
-
-    # Validate downloaded common modules
-    for module in "${common_modules[@]}"; do
-        _validate_shell_module "$temp_dir/${module}.sh" || return 1
-    done
-
-    # Source common modules to get distribution detection
-    for module in variables logging detection; do
-        source "$temp_dir/${module}.sh"
-    done
-
-    # Detect distribution first
-    detect_distribution
-
-    # Store DISTRO_FAMILY in a local variable to ensure it persists
-    local distro_family_local="$DISTRO_FAMILY"
-
-    # Download distribution-specific cleanup module
-    echo "Downloading cleanup module for $distro_family_local..." >&2
-    local cleanup_module_file="$temp_dir/${distro_family_local}_cleanup.sh"
-    if ! curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/distros/$distro_family_local/cleanup.sh" > "$cleanup_module_file"; then
-        echo "Error: Failed to download distros/$distro_family_local/cleanup.sh" >&2
-        return 1
-    fi
-
-    # Validate downloaded distro cleanup module
-    _validate_shell_module "$cleanup_module_file" || return 1
-
-    # Source all modules
-    echo "Loading all modules..." >&2
-    for module in "${common_modules[@]}"; do
-        source "$temp_dir/${module}.sh"
-    done
-
-    # Source distribution-specific cleanup module (using saved file path)
-    source "$cleanup_module_file"
-
-    echo "All modules loaded successfully" >&2
-    return 0
-}
-
-# Function to run offline (all modules already included)
-run_offline() {
-    # When running offline, all functions should already be defined (bundled).
-    # If key functions are missing, try sourcing from SCRIPT_DIR as a fallback.
-    if ! type -t parse_cleanup_args &>/dev/null; then
-        echo "Offline mode: functions not bundled, loading from $SCRIPT_DIR..." >&2
-        local common_modules=(variables logging detection validation helpers networking swap completion helm)
-        for module in "${common_modules[@]}"; do
-            if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
-                source "$SCRIPT_DIR/common/${module}.sh"
-            fi
-        done
-        # Detect distribution and load distro cleanup module
-        if type -t detect_distribution &>/dev/null; then
-            detect_distribution
-            local distro_family="${DISTRO_FAMILY:-}"
-            if [ -n "$distro_family" ] && [ -f "$SCRIPT_DIR/distros/$distro_family/cleanup.sh" ]; then
-                source "$SCRIPT_DIR/distros/$distro_family/cleanup.sh"
-            fi
+# Source shared bootstrap logic (exit traps, module validation, _dispatch)
+if ! type -t _validate_shell_module &>/dev/null; then
+    if [ "$_STDIN_MODE" = false ] && [ -f "$SCRIPT_DIR/common/bootstrap.sh" ]; then
+        source "$SCRIPT_DIR/common/bootstrap.sh"
+    elif [ "$OFFLINE_MODE" = "true" ]; then
+        # Bundled mode: bootstrap functions are expected to be already defined
+        :
+    else
+        # Running standalone (e.g. curl | bash): download bootstrap.sh from GitHub
+        _BOOTSTRAP_TMP=$(mktemp -t bootstrap-XXXXXX.sh)
+        if curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/bootstrap.sh" > "$_BOOTSTRAP_TMP" && [ -s "$_BOOTSTRAP_TMP" ]; then
+            # shellcheck disable=SC1090
+            source "$_BOOTSTRAP_TMP"
+            rm -f "$_BOOTSTRAP_TMP"
+        else
+            echo "Error: Failed to download bootstrap.sh from ${GITHUB_BASE_URL}" >&2
+            rm -f "$_BOOTSTRAP_TMP"
+            exit 1
         fi
     fi
-    return 0
-}
+fi
 
 # Main execution starts here
 main() {
-    # Load modules or run offline
-    if [ "$OFFLINE_MODE" = "true" ]; then
-        run_offline
-    else
-        load_modules || exit 1
+    # Check root privileges early (before loading modules)
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "Error: This script must be run as root" >&2
+        exit 1
     fi
 
-    # Parse command line arguments (strip already-handled flags)
-    local -a cli_args=()
-    for arg in "$@"; do
-        case "$arg" in
-            --offline|--verbose|--quiet) ;;
-            *) cli_args+=("$arg") ;;
-        esac
-    done
-    parse_cleanup_args "${cli_args[@]+"${cli_args[@]}"}"
+    # Load modules:
+    #   - Local checkout (common/ exists): source from SCRIPT_DIR
+    #   - Offline (bundled): use pre-defined functions
+    #   - stdin or single-file download: fetch from GitHub
+    if { [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; } || [ "$OFFLINE_MODE" = "true" ]; then
+        run_offline "parse_cleanup_args" cleanup
+    else
+        load_modules "cleanup-k8s" cleanup
+    fi
 
-    # Check root privileges
-    check_root
+    parse_cleanup_args "${cli_args[@]}"
 
     # Confirmation prompt
     confirm_cleanup
 
-    echo "Starting Kubernetes cleanup..."
+    CLEANUP_ERRORS=0
+    log_info "Starting Kubernetes cleanup..."
 
     # Detect distribution (if not already detected)
     if [ -z "${DISTRO_FAMILY:-}" ]; then
@@ -215,51 +107,57 @@ main() {
     check_docker_warning
 
     # Stop Kubernetes and CRI services
-    stop_kubernetes_services
-    stop_cri_services
+    stop_kubernetes_services || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+    stop_cri_services || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
 
     # Reset cluster state
-    reset_kubernetes_cluster
+    reset_kubernetes_cluster || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
 
     # Remove Kubernetes configurations
-    remove_kubernetes_configs
+    remove_kubernetes_configs || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
 
-    # Restore zram swap if it was disabled
-    restore_zram_swap
+    # Restore swap settings that were modified during setup
+    restore_fstab_swap || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+    restore_zram_swap || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
 
     # Clean up CNI configurations conditionally
-    cleanup_cni_conditionally
+    cleanup_cni_conditionally || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
 
     # Remove kernel modules and sysctl configurations
-    cleanup_network_configs
+    cleanup_network_configs || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
 
     # Clean up .kube directories
-    cleanup_kube_configs
+    cleanup_kube_configs || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
 
     # Remove crictl configuration
-    cleanup_crictl_config
+    cleanup_crictl_config || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
 
     # Reset iptables rules
-    reset_iptables
+    reset_iptables || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
 
     # Reset containerd configuration (but don't remove containerd)
-    reset_containerd_config
+    reset_containerd_config || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
 
     # Reload systemd
-    systemctl daemon-reload
+    systemctl daemon-reload || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
 
     # Perform distribution-specific cleanup
-    _dispatch "cleanup_${DISTRO_FAMILY}"
+    _dispatch "cleanup_${DISTRO_FAMILY}" || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
 
     # Cleanup shell completions
-    cleanup_kubernetes_completions
+    cleanup_kubernetes_completions || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
 
     # Cleanup Helm only when explicitly requested
     if [ "${REMOVE_HELM:-false}" = true ]; then
-        cleanup_helm
+        cleanup_helm || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
     fi
 
-    echo "Cleanup complete! Please reboot the system for all changes to take effect."
+    if [ "$CLEANUP_ERRORS" -gt 0 ]; then
+        log_error "Cleanup finished with $CLEANUP_ERRORS error(s). Check the output above for details."
+        exit 1
+    fi
+
+    log_info "Cleanup complete! Please reboot the system for all changes to take effect."
 }
 
 main "$@"

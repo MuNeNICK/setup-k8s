@@ -15,6 +15,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=test/lib/vm_harness.sh
+source "$SCRIPT_DIR/lib/vm_harness.sh"
+
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SETUP_K8S_SCRIPT="$PROJECT_ROOT/setup-k8s.sh"
 CLEANUP_K8S_SCRIPT="$PROJECT_ROOT/cleanup-k8s.sh"
@@ -43,18 +46,6 @@ _VM_CONTAINER_NAME=""
 _WATCHDOG_PID=""
 LOGIN_USER="user"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-log_info() { echo -e "${BLUE}[INFO]${NC} $*"; }
-log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*"; }
-
 show_help() {
     cat <<EOF
 HA (kube-vip) Integration Test
@@ -67,132 +58,17 @@ Options:
   --ha-vip <addr>         VIP address to use (default: $HA_VIP)
   --memory <MB>           VM memory (default: $VM_MEMORY)
   --cpus <count>          VM CPUs (default: $VM_CPUS)
+  --disk-size <size>      VM disk size (default: $VM_DISK_SIZE)
   --help, -h              Show this help message
 EOF
 }
 
-# --- VM infrastructure (reused from e2e) ---
+# --- VM infrastructure (from shared harness) ---
 
-_start_vm_container_watchdog() {
-    local parent_pid=$1 container_name=$2
-    if [ -n "$_WATCHDOG_PID" ]; then
-        kill "$_WATCHDOG_PID" >/dev/null 2>&1 || true
-        _WATCHDOG_PID=""
-    fi
-    setsid bash <<WATCHDOG_EOF </dev/null >/dev/null 2>&1 &
-while kill -0 "$parent_pid" >/dev/null 2>&1; do sleep 2; done
-docker stop "$container_name" >/dev/null 2>&1 || true
-WATCHDOG_EOF
-    _WATCHDOG_PID="$!"
-}
-
-_cleanup_vm_container() {
-    if [ -n "$_WATCHDOG_PID" ]; then
-        kill "$_WATCHDOG_PID" >/dev/null 2>&1 || true
-        _WATCHDOG_PID=""
-    fi
-    if [ -n "$_VM_CONTAINER_NAME" ]; then
-        log_info "Stopping container $_VM_CONTAINER_NAME..."
-        docker stop "$_VM_CONTAINER_NAME" >/dev/null 2>&1 || true
-        _VM_CONTAINER_NAME=""
-    fi
-}
-
-setup_ssh_key() {
-    SSH_KEY_DIR=$(mktemp -d)
-    ssh-keygen -t ed25519 -f "$SSH_KEY_DIR/id_test" -N "" -q
-    SSH_OPTS+=(-i "$SSH_KEY_DIR/id_test")
-}
-
-cleanup_ssh_key() {
-    if [ -n "$SSH_KEY_DIR" ] && [ -d "$SSH_KEY_DIR" ]; then
-        rm -rf "$SSH_KEY_DIR"
-        SSH_KEY_DIR=""
-    fi
-    SSH_OPTS=("${SSH_BASE_OPTS[@]}")
-}
-
-find_free_port() {
-    python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()'
-}
-
-vm_ssh() { ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" "$LOGIN_USER@localhost" "sudo $*"; }
-vm_ssh_user() { ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" "$LOGIN_USER@localhost" "$*"; }
-vm_scp() { scp "${SSH_OPTS[@]}" -P "$SSH_PORT" "$1" "${LOGIN_USER}@localhost:$2"; }
-
-# --- Bundle generation ---
-
-generate_bundled_setup() {
-    local setup_bundle="/tmp/setup-k8s-ha-bundle.sh"
-
-    log_info "Generating bundled setup script..." >&2
-    {
-        echo "#!/bin/bash"
-        echo "set -e"
-        echo "OFFLINE_MODE=true"
-        echo ""
-
-        for module in logging variables detection validation helpers networking swap completion helm; do
-            echo "# === common/${module}.sh ==="
-            cat "${PROJECT_ROOT}/common/${module}.sh"
-            echo ""
-        done
-
-        for distro_dir in "${PROJECT_ROOT}/distros/"*/; do
-            if [ -d "$distro_dir" ]; then
-                local distro_name
-                distro_name=$(basename "$distro_dir")
-                echo "# === distros/${distro_name} modules ==="
-                for module_file in "$distro_dir"*.sh; do
-                    if [ -f "$module_file" ]; then
-                        echo "# === $(basename "$module_file") ==="
-                        awk '!/^source.*SCRIPT_DIR/ && !/^SCRIPT_DIR=/' "$module_file"
-                        echo ""
-                    fi
-                done
-            fi
-        done
-
-        echo "# === Main setup-k8s.sh ==="
-        tail -n +2 "$SETUP_K8S_SCRIPT"
-    } > "$setup_bundle"
-
-    echo "$setup_bundle"
-}
-
-generate_bundled_cleanup() {
-    local cleanup_bundle="/tmp/cleanup-k8s-ha-bundle.sh"
-
-    log_info "Generating bundled cleanup script..." >&2
-    {
-        echo "#!/bin/bash"
-        echo "set -e"
-        echo "OFFLINE_MODE=true"
-        echo ""
-
-        for module in logging variables detection validation helpers networking swap completion helm; do
-            echo "# === common/${module}.sh ==="
-            cat "${PROJECT_ROOT}/common/${module}.sh"
-            echo ""
-        done
-
-        for distro_dir in "${PROJECT_ROOT}/distros/"*/; do
-            if [ -d "$distro_dir" ]; then
-                local distro_name
-                distro_name=$(basename "$distro_dir")
-                if [ -f "$distro_dir/cleanup.sh" ]; then
-                    echo "# === distros/${distro_name}/cleanup.sh ==="
-                    awk '!/^source.*SCRIPT_DIR/ && !/^SCRIPT_DIR=/' "$distro_dir/cleanup.sh"
-                    echo ""
-                fi
-            fi
-        done
-
-        echo "# === Main cleanup-k8s.sh ==="
-        tail -n +2 "$CLEANUP_K8S_SCRIPT"
-    } > "$cleanup_bundle"
-
-    echo "$cleanup_bundle"
+_ha_cleanup_vm_container() {
+    _cleanup_vm_container "$_WATCHDOG_PID" "$_VM_CONTAINER_NAME"
+    _WATCHDOG_PID=""
+    _VM_CONTAINER_NAME=""
 }
 
 # --- Main test logic ---
@@ -210,14 +86,11 @@ run_ha_test() {
     mkdir -p results/logs "$VM_DATA_DIR"
 
     # Clean up stale containers
-    _cleanup_vm_container
-    for cid in $(docker ps -q --filter "label=managed-by=k8s-ha-test" 2>/dev/null); do
-        log_warn "Stopping orphaned HA test container"
-        docker stop "$cid" >/dev/null 2>&1 || true
-    done
+    _ha_cleanup_vm_container
+    cleanup_orphaned_containers "k8s-ha-test"
 
     _VM_CONTAINER_NAME=""
-    trap '_cleanup_vm_container; cleanup_ssh_key' EXIT INT TERM HUP
+    trap '_ha_cleanup_vm_container; cleanup_ssh_key' EXIT INT TERM HUP
 
     setup_ssh_key
     SSH_PORT=$(find_free_port)
@@ -239,43 +112,12 @@ run_ha_test() {
         -e "DISK_SIZE=$VM_DISK_SIZE" \
         "$DOCKER_VM_RUNNER_IMAGE" >/dev/null
     _VM_CONTAINER_NAME="$container_name"
-    _start_vm_container_watchdog "$$" "$container_name"
+    _WATCHDOG_PID=$(_start_vm_container_watchdog "$$" "$container_name")
     log_success "Container started"
 
-    # --- Wait for cloud-init ---
-    log_info "Waiting for cloud-init (timeout: ${SSH_READY_TIMEOUT}s)..."
-    local ci_elapsed=0
-    while [ $ci_elapsed -lt $SSH_READY_TIMEOUT ]; do
-        if ! docker inspect "$container_name" >/dev/null 2>&1; then
-            log_error "Container exited before cloud-init completed"
-            return 1
-        fi
-        if docker logs "$container_name" 2>&1 | grep -qE "Cloud-init (complete|finished|disabled|did not finish)|Could not query cloud-init"; then
-            break
-        fi
-        sleep 5
-        ci_elapsed=$((ci_elapsed + 5))
-        (( ci_elapsed % 30 == 0 )) && log_info "Still waiting... (${ci_elapsed}s)"
-    done
-    if [ $ci_elapsed -ge $SSH_READY_TIMEOUT ]; then
-        log_error "Cloud-init timeout"
-        return 1
-    fi
-    log_success "Cloud-init complete"
-
-    # --- Wait for SSH ---
-    log_info "Waiting for SSH..."
-    local ssh_elapsed=0
-    while [ $ssh_elapsed -lt 60 ]; do
-        if vm_ssh_user "echo ready" >/dev/null 2>&1; then break; fi
-        sleep 3
-        ssh_elapsed=$((ssh_elapsed + 3))
-    done
-    if [ $ssh_elapsed -ge 60 ]; then
-        log_error "SSH not available"
-        return 1
-    fi
-    log_success "SSH is ready"
+    # --- Wait for cloud-init and SSH ---
+    wait_for_cloud_init "$container_name" "$SSH_READY_TIMEOUT" "HA" || return 1
+    wait_for_ssh "$SSH_PORT" "$LOGIN_USER" 60 "HA" || return 1
 
     # --- Discover VM network ---
     local vm_ip vm_iface
@@ -285,8 +127,11 @@ run_ha_test() {
 
     # --- Deploy bundled scripts ---
     local setup_bundle cleanup_bundle
-    setup_bundle=$(generate_bundled_setup)
-    cleanup_bundle=$(generate_bundled_cleanup)
+    setup_bundle=$(mktemp /tmp/setup-k8s-ha-bundle.XXXXXX.sh)
+    cleanup_bundle=$(mktemp /tmp/cleanup-k8s-ha-bundle.XXXXXX.sh)
+    log_info "Generating bundled scripts..."
+    _generate_bundle "$SETUP_K8S_SCRIPT" "$setup_bundle" "all"
+    _generate_bundle "$CLEANUP_K8S_SCRIPT" "$cleanup_bundle" "cleanup"
 
     log_info "Transferring scripts to VM..."
     vm_scp "$setup_bundle" "/tmp/setup-k8s.sh"
@@ -296,52 +141,34 @@ run_ha_test() {
     log_success "Scripts deployed"
 
     # --- Resolve K8s version if not specified ---
-    local k8s_version_arg=""
-    if [ -z "$K8S_VERSION" ]; then
-        log_info "Resolving latest stable Kubernetes version..."
-        local stable_txt
-        stable_txt=$(curl -fsSL --retry 3 --retry-delay 2 https://dl.k8s.io/release/stable.txt 2>/dev/null || true)
-        if echo "$stable_txt" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
-            K8S_VERSION=$(echo "$stable_txt" | sed -E 's/^v([0-9]+\.[0-9]+)\..*/\1/')
-            log_success "Detected: $K8S_VERSION"
-        else
-            K8S_VERSION="1.32"
-            log_warn "Fallback: $K8S_VERSION"
-        fi
+    local k8s_version_flag="" k8s_version_val=""
+    if [ -n "$K8S_VERSION" ]; then
+        k8s_version_flag="--kubernetes-version"
+        k8s_version_val="$K8S_VERSION"
     fi
-    k8s_version_arg="--kubernetes-version $K8S_VERSION"
 
     # ===================================================================
     # Phase 1: HA Init
     # ===================================================================
     log_info "=== Phase 1: HA Init (--ha --ha-vip $HA_VIP) ==="
-    local ha_args="--ha --ha-vip $HA_VIP --ha-interface $vm_iface"
-    log_info "Running: setup-k8s.sh init $k8s_version_arg $ha_args"
+    local ha_args
+    ha_args="--ha --ha-vip $(printf '%q' "$HA_VIP") --ha-interface $(printf '%q' "$vm_iface")"
+    if [ -n "$k8s_version_flag" ]; then
+        log_info "Running: setup-k8s.sh init $k8s_version_flag $k8s_version_val $ha_args"
+    else
+        log_info "Running: setup-k8s.sh init $ha_args"
+    fi
 
-    vm_ssh "bash -c 'nohup bash /tmp/setup-k8s.sh init ${k8s_version_arg} ${ha_args} > /tmp/setup-k8s.log 2>&1; echo \$? > /tmp/setup-exit-code' &" >/dev/null 2>&1
+    local ha_init_cmd="bash /tmp/setup-k8s.sh init"
+    [ -n "$k8s_version_flag" ] && ha_init_cmd+=" $(printf '%q' "$k8s_version_flag") $(printf '%q' "$k8s_version_val")"
+    ha_init_cmd+=" $ha_args > /tmp/setup-k8s.log 2>&1; echo \$? > /tmp/setup-exit-code"
+    vm_ssh "nohup bash -c '${ha_init_cmd}' </dev/null >/dev/null 2>&1 &"
 
-    local start_time
-    start_time=$(date +%s)
-    while true; do
-        local elapsed=$(( $(date +%s) - start_time ))
-        if [ $elapsed -gt $TIMEOUT_TOTAL ]; then
-            log_error "Setup timeout after ${TIMEOUT_TOTAL}s"
-            vm_ssh "cat /tmp/setup-k8s.log" > "$log_file" 2>/dev/null || true
-            return 1
-        fi
-        if ! docker inspect "$container_name" >/dev/null 2>&1; then
-            log_error "Container exited unexpectedly"
-            return 1
-        fi
-        if vm_ssh "test -f /tmp/setup-exit-code" >/dev/null 2>&1; then break; fi
-        local progress_line
-        progress_line=$(vm_ssh "tail -1 /tmp/setup-k8s.log" 2>/dev/null || true)
-        [ -n "$progress_line" ] && log_info "[${elapsed}s] $progress_line"
-        sleep 10
-    done
-
-    local setup_exit_code
-    setup_exit_code=$(vm_ssh "cat /tmp/setup-exit-code" 2>/dev/null | tr -d '[:space:]')
+    if ! poll_vm_command vm_ssh "$container_name" /tmp/setup-exit-code /tmp/setup-k8s.log "$TIMEOUT_TOTAL"; then
+        vm_ssh "cat /tmp/setup-k8s.log" > "$log_file" 2>/dev/null || true
+        return 1
+    fi
+    local setup_exit_code="$POLL_EXIT_CODE"
     log_info "Setup exit code: $setup_exit_code"
 
     # Save logs
@@ -386,7 +213,7 @@ run_ha_test() {
     fi
 
     # Check 2: kube-vip manifest contains VIP
-    if vm_ssh "grep -q '$HA_VIP' /etc/kubernetes/manifests/kube-vip.yaml" >/dev/null 2>&1; then
+    if vm_ssh "grep -q -F $(printf '%q' "$HA_VIP") /etc/kubernetes/manifests/kube-vip.yaml" >/dev/null 2>&1; then
         log_success "CHECK: kube-vip manifest contains VIP ($HA_VIP)"
     else
         log_error "CHECK: kube-vip manifest does not contain VIP"
@@ -394,7 +221,7 @@ run_ha_test() {
     fi
 
     # Check 3: kube-vip manifest contains interface
-    if vm_ssh "grep -q '$vm_iface' /etc/kubernetes/manifests/kube-vip.yaml" >/dev/null 2>&1; then
+    if vm_ssh "grep -q -F $(printf '%q' "$vm_iface") /etc/kubernetes/manifests/kube-vip.yaml" >/dev/null 2>&1; then
         log_success "CHECK: kube-vip manifest contains interface ($vm_iface)"
     else
         log_error "CHECK: kube-vip manifest does not contain interface"
@@ -421,15 +248,14 @@ run_ha_test() {
 
     # Check 6: API server responsive
     # Try with VIP first, fall back to node IP
-    local api_ok=false
+    local api_server_args=""
     if vm_ssh "timeout 30 kubectl get nodes --kubeconfig=/etc/kubernetes/admin.conf" >/dev/null 2>&1; then
-        api_ok=true
         log_success "CHECK: API server responsive (via kubeconfig)"
     else
         # kubeconfig might point to VIP which may not be reachable in PASST mode
         # Try directly via node IP
         if vm_ssh "timeout 30 kubectl get nodes --kubeconfig=/etc/kubernetes/admin.conf --server=https://${vm_ip}:6443 --insecure-skip-tls-verify" >/dev/null 2>&1; then
-            api_ok=true
+            api_server_args="--server=https://${vm_ip}:6443 --insecure-skip-tls-verify"
             log_warn "CHECK: API server responsive (via node IP fallback, VIP may not work in PASST networking)"
         else
             log_error "CHECK: API server NOT responsive"
@@ -438,7 +264,7 @@ run_ha_test() {
     fi
 
     # Check 7: control-plane-endpoint set correctly in kubeadm-config
-    if vm_ssh "kubectl get configmap kubeadm-config -n kube-system -o yaml --kubeconfig=/etc/kubernetes/admin.conf ${api_ok:+--server=https://${vm_ip}:6443 --insecure-skip-tls-verify} 2>/dev/null | grep -q 'controlPlaneEndpoint'" >/dev/null 2>&1; then
+    if vm_ssh "kubectl get configmap kubeadm-config -n kube-system -o yaml --kubeconfig=/etc/kubernetes/admin.conf ${api_server_args} 2>/dev/null | grep -q 'controlPlaneEndpoint'" >/dev/null 2>&1; then
         log_success "CHECK: controlPlaneEndpoint set in kubeadm-config"
     else
         log_warn "CHECK: Could not verify controlPlaneEndpoint in kubeadm-config (non-fatal)"
@@ -462,31 +288,21 @@ run_ha_test() {
 
     # Show kube-vip pod status (use grep instead of field-selector which doesn't support wildcards)
     log_info "kube-vip pod status:"
-    vm_ssh "kubectl get pods -n kube-system --kubeconfig=/etc/kubernetes/admin.conf ${api_ok:+--server=https://${vm_ip}:6443 --insecure-skip-tls-verify} 2>/dev/null | grep -E 'NAME|kube-vip' || echo '(could not query pods)'" 2>/dev/null || true
+    vm_ssh "kubectl get pods -n kube-system --kubeconfig=/etc/kubernetes/admin.conf ${api_server_args} 2>/dev/null | grep -E 'NAME|kube-vip' || echo '(could not query pods)'" 2>/dev/null || true
 
     # ===================================================================
     # Phase 3: Cleanup
     # ===================================================================
     log_info "=== Phase 3: Cleanup ==="
-    vm_ssh "bash -c 'nohup bash /tmp/cleanup-k8s.sh --force > /tmp/cleanup-k8s.log 2>&1; echo \$? > /tmp/cleanup-exit-code' &" >/dev/null 2>&1
-
-    start_time=$(date +%s)
-    while true; do
-        local elapsed=$(( $(date +%s) - start_time ))
-        if [ $elapsed -gt $TIMEOUT_TOTAL ]; then
-            log_error "Cleanup timeout"
-            break
-        fi
-        if ! docker inspect "$container_name" >/dev/null 2>&1; then
-            log_error "Container exited during cleanup"
-            break
-        fi
-        if vm_ssh "test -f /tmp/cleanup-exit-code" >/dev/null 2>&1; then break; fi
-        sleep 10
-    done
+    vm_ssh "nohup bash -c 'bash /tmp/cleanup-k8s.sh --force > /tmp/cleanup-k8s.log 2>&1; echo \$? > /tmp/cleanup-exit-code' </dev/null >/dev/null 2>&1 &"
 
     local cleanup_exit_code
-    cleanup_exit_code=$(vm_ssh "cat /tmp/cleanup-exit-code" 2>/dev/null | tr -d '[:space:]') || cleanup_exit_code="1"
+    if ! poll_vm_command vm_ssh "$container_name" /tmp/cleanup-exit-code /tmp/cleanup-k8s.log "$TIMEOUT_TOTAL"; then
+        log_warn "Cleanup polling failed (timeout or container exit)"
+        cleanup_exit_code=1
+    else
+        cleanup_exit_code="$POLL_EXIT_CODE"
+    fi
     if [ "$cleanup_exit_code" -eq 0 ]; then
         log_success "Cleanup completed (exit 0)"
     else
@@ -504,13 +320,13 @@ run_ha_test() {
     log_info "Log file: $log_file"
     if [ "$all_pass" = true ]; then
         log_success "=== HA TEST PASSED ==="
-        _cleanup_vm_container
+        _ha_cleanup_vm_container
         cleanup_ssh_key
         trap - EXIT INT TERM HUP
         return 0
     else
         log_error "=== HA TEST FAILED ==="
-        _cleanup_vm_container
+        _ha_cleanup_vm_container
         cleanup_ssh_key
         trap - EXIT INT TERM HUP
         return 1
@@ -521,11 +337,12 @@ run_ha_test() {
 while [[ $# -gt 0 ]]; do
     case $1 in
         --help|-h) show_help; exit 0 ;;
-        --distro) DISTRO="$2"; shift 2 ;;
-        --k8s-version) K8S_VERSION="$2"; shift 2 ;;
-        --ha-vip) HA_VIP="$2"; shift 2 ;;
-        --memory) VM_MEMORY="$2"; shift 2 ;;
-        --cpus) VM_CPUS="$2"; shift 2 ;;
+        --distro) _require_arg $# "$1"; DISTRO="$2"; shift 2 ;;
+        --k8s-version) _require_arg $# "$1"; K8S_VERSION="$2"; shift 2 ;;
+        --ha-vip) _require_arg $# "$1"; HA_VIP="$2"; shift 2 ;;
+        --memory) _require_arg $# "$1"; VM_MEMORY="$2"; shift 2 ;;
+        --cpus) _require_arg $# "$1"; VM_CPUS="$2"; shift 2 ;;
+        --disk-size) _require_arg $# "$1"; VM_DISK_SIZE="$2"; shift 2 ;;
         *) log_error "Unknown option: $1"; show_help; exit 1 ;;
     esac
 done

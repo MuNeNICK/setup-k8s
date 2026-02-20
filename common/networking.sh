@@ -1,107 +1,122 @@
 #!/bin/bash
 
+# Install proxy-mode-specific packages (IPVS or nftables).
+# Usage: install_proxy_mode_packages <install_cmd...>
+#   install_cmd: the package install command prefix (e.g., "apt-get install -y")
+# Automatically detects PROXY_MODE and installs the right packages.
+install_proxy_mode_packages() {
+    local -a install_cmd=("$@")
+    if [ "$PROXY_MODE" = "ipvs" ]; then
+        log_info "Installing IPVS packages for IPVS proxy mode..."
+        if ! "${install_cmd[@]}" ipvsadm ipset; then
+            log_error "Failed to install IPVS packages (ipvsadm, ipset)"
+            return 1
+        fi
+    elif [ "$PROXY_MODE" = "nftables" ]; then
+        log_info "Installing nftables package for nftables proxy mode..."
+        if ! "${install_cmd[@]}" nftables; then
+            log_error "Failed to install nftables package"
+            return 1
+        fi
+    fi
+}
+
 # Enable kernel modules
 enable_kernel_modules() {
-    echo "Enabling required kernel modules..."
-    
-    # Basic modules required for all modes
-    cat > /etc/modules-load.d/k8s.conf <<EOF
-overlay
-br_netfilter
-EOF
+    log_info "Enabling required kernel modules..."
 
-    modprobe overlay
-    modprobe br_netfilter
-    
-    # Add IPVS modules if IPVS mode is selected
+    # Build the full module list, then write once
+    local modules="overlay
+br_netfilter"
+
     if [ "$PROXY_MODE" = "ipvs" ]; then
-        echo "Enabling IPVS kernel modules..."
-        cat >> /etc/modules-load.d/k8s.conf <<EOF
+        log_info "Enabling IPVS kernel modules..."
+        modules+="
 ip_vs
 ip_vs_rr
 ip_vs_wrr
 ip_vs_sh
-nf_conntrack
-EOF
-        
-        # Load IPVS modules
-        modprobe ip_vs || true
-        modprobe ip_vs_rr || true
-        modprobe ip_vs_wrr || true
-        modprobe ip_vs_sh || true
-        modprobe nf_conntrack || true
-    fi
-    
-    # Add nftables modules if nftables mode is selected
-    if [ "$PROXY_MODE" = "nftables" ]; then
-        echo "Enabling nftables kernel modules..."
-        cat >> /etc/modules-load.d/k8s.conf <<EOF
+nf_conntrack"
+    elif [ "$PROXY_MODE" = "nftables" ]; then
+        log_info "Enabling nftables kernel modules..."
+        modules+="
 nf_tables
 nf_tables_ipv4
 nf_tables_ipv6
 nft_chain_nat_ipv4
 nft_chain_nat_ipv6
 nf_nat
-nf_conntrack
-EOF
-        
-        # Load nftables modules
-        modprobe nf_tables || true
-        modprobe nf_tables_ipv4 || true
-        modprobe nf_tables_ipv6 || true
-        modprobe nft_chain_nat_ipv4 || true
-        modprobe nft_chain_nat_ipv6 || true
-        modprobe nf_nat || true
-        modprobe nf_conntrack || true
+nf_conntrack"
     fi
+
+    echo "$modules" > /etc/modules-load.d/k8s.conf
+
+    # Load required baseline modules (fail fast)
+    for mod in overlay br_netfilter; do
+        if ! modprobe "$mod"; then
+            log_error "Failed to load required kernel module: $mod"
+            return 1
+        fi
+    done
+
+    # Load optional mode-specific modules (non-fatal: may be built-in; availability checks validate later)
+    while IFS= read -r mod; do
+        case "$mod" in
+            ""|overlay|br_netfilter) continue ;;
+        esac
+        modprobe "$mod" || true
+    done <<< "$modules"
 }
 
 # Configure network settings
 configure_network_settings() {
-    echo "Adjusting network settings..."
+    log_info "Adjusting network settings..."
     cat > /etc/sysctl.d/k8s.conf <<EOF
 net.bridge.bridge-nf-call-iptables  = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 net.ipv4.ip_forward                 = 1
 EOF
 
-    sysctl --system
+    sysctl -p /etc/sysctl.d/k8s.conf
 }
 
 # Reset K8s-related iptables rules (selective cleanup to avoid flushing unrelated rules)
 reset_iptables() {
-    echo "Resetting K8s-related iptables rules..."
+    log_info "Resetting K8s-related iptables rules..."
     if command -v iptables &> /dev/null; then
         # Delete K8s-related chains selectively instead of flushing all rules
         local k8s_chain_prefixes="KUBE- FLANNEL- CNI- CILIUM_ WEAVE-"
         for table in filter nat mangle; do
+            # Cache iptables rules once per table (avoids repeated expensive calls)
+            local rules
+            rules=$(iptables -t "$table" -S 2>/dev/null) || continue
             for prefix in $k8s_chain_prefixes; do
-                iptables -t "$table" -S 2>/dev/null | grep -oP "(?<=-j )${prefix}[^ ]+" | sort -u | while read -r chain; do
+                echo "$rules" | sed -n "s/.*-j \(${prefix}[^ ]*\).*/\1/p" | sort -u | while read -r chain; do
                     iptables -t "$table" -D FORWARD -j "$chain" 2>/dev/null || true
                     iptables -t "$table" -D INPUT -j "$chain" 2>/dev/null || true
                     iptables -t "$table" -D OUTPUT -j "$chain" 2>/dev/null || true
                     iptables -t "$table" -D PREROUTING -j "$chain" 2>/dev/null || true
                     iptables -t "$table" -D POSTROUTING -j "$chain" 2>/dev/null || true
                 done
-                iptables -t "$table" -S 2>/dev/null | awk "/^-N ${prefix}/"'{print $2}' | while read -r chain; do
+                echo "$rules" | awk "/^-N ${prefix}/"'{print $2}' | while read -r chain; do
                     iptables -t "$table" -F "$chain" 2>/dev/null || true
                     iptables -t "$table" -X "$chain" 2>/dev/null || true
                 done
             done
         done
     else
-        echo "Warning: iptables command not found, skipping iptables reset"
+        log_warn "iptables command not found, skipping iptables reset"
     fi
-    
+
     # Reset IPVS rules if ipvsadm is available
     if command -v ipvsadm &> /dev/null; then
-        echo "Resetting IPVS rules..."
+        log_info "Resetting IPVS rules..."
         ipvsadm -C || true
     fi
-    
+
     # Reset K8s-related nftables tables if nft is available (avoid flushing all rules)
     if command -v nft &> /dev/null; then
-        echo "Resetting K8s-related nftables tables..."
+        log_info "Resetting K8s-related nftables tables..."
         nft list tables 2>/dev/null | awk '/kube-proxy|kubernetes/ {print $2, $3}' | while read -r family name; do
             nft delete table "$family" "$name" 2>/dev/null || true
         done
@@ -111,99 +126,97 @@ reset_iptables() {
 # Check IPVS availability
 check_ipvs_availability() {
     local ipvs_available=true
-    
-    echo "Checking IPVS availability..."
-    
+
+    log_info "Checking IPVS availability..."
+
     # Check if IPVS modules can be loaded
     if ! modprobe -n ip_vs &>/dev/null; then
-        echo "Warning: IPVS kernel module not available"
+        log_warn "IPVS kernel module not available"
         ipvs_available=false
     fi
-    
+
     # Check if ipvsadm is installed
     if ! command -v ipvsadm &> /dev/null; then
-        echo "Warning: ipvsadm command not found"
+        log_warn "ipvsadm command not found"
         ipvs_available=false
     fi
-    
+
     # Check if ipset is installed
     if ! command -v ipset &> /dev/null; then
-        echo "Warning: ipset command not found"
+        log_warn "ipset command not found"
         ipvs_available=false
     fi
-    
-    if [ "$ipvs_available" = false ] && [ "$PROXY_MODE" = "ipvs" ]; then
-        echo "Error: IPVS mode requested but IPVS prerequisites are not met"
-        echo "Please ensure ipvsadm and ipset are installed and IPVS kernel modules are available"
-        echo "Falling back to iptables mode..."
-        PROXY_MODE="iptables"
+
+    if [ "$ipvs_available" = false ]; then
+        log_error "IPVS mode requested but IPVS prerequisites are not met"
+        log_error "Please ensure ipvsadm and ipset are installed and IPVS kernel modules are available"
+        return 1
     fi
-    
+
     return 0
 }
 
 # Check nftables availability
 check_nftables_availability() {
     local nftables_available=true
-    
-    echo "Checking nftables availability..."
-    
+
+    log_info "Checking nftables availability..."
+
     # Note if iptables-nft is being used (common on Arch with CRI-O)
     if command -v iptables &> /dev/null && iptables --version 2>/dev/null | grep -q nf_tables; then
-        echo "Note: iptables-nft detected (iptables using nftables backend)"
+        log_info "iptables-nft detected (iptables using nftables backend)"
     fi
-    
+
     # Check if nftables modules can be loaded
     if ! modprobe -n nf_tables &>/dev/null; then
-        echo "Warning: nftables kernel module not available"
+        log_warn "nftables kernel module not available"
         nftables_available=false
     fi
-    
+
     # Check if nft command is installed
     if ! command -v nft &> /dev/null; then
-        echo "Warning: nft command not found"
+        log_warn "nft command not found"
         nftables_available=false
     fi
-    
+
     # Check kernel version (nftables requires >= 3.13, recommended >= 4.14)
     local kernel_major kernel_minor
     kernel_major=$(uname -r | cut -d. -f1)
     kernel_minor=$(uname -r | cut -d. -f2)
     if [ "$kernel_major" -lt 3 ] || { [ "$kernel_major" -eq 3 ] && [ "$kernel_minor" -lt 13 ]; }; then
-        echo "Warning: Kernel version too old for nftables (requires >= 3.13)"
+        log_warn "Kernel version too old for nftables (requires >= 3.13)"
         nftables_available=false
     elif [ "$kernel_major" -lt 4 ] || { [ "$kernel_major" -eq 4 ] && [ "$kernel_minor" -lt 14 ]; }; then
-        echo "Warning: Kernel version ${kernel_major}.${kernel_minor} may have limited nftables support (>= 4.14 recommended)"
+        log_warn "Kernel version ${kernel_major}.${kernel_minor} may have limited nftables support (>= 4.14 recommended)"
     fi
-    
-    if [ "$nftables_available" = false ] && [ "$PROXY_MODE" = "nftables" ]; then
-        echo "Error: nftables mode requested but prerequisites are not met"
-        echo "Please ensure nftables package is installed and kernel supports nftables"
-        echo "Falling back to iptables mode..."
-        PROXY_MODE="iptables"
+
+    if [ "$nftables_available" = false ]; then
+        log_error "nftables mode requested but prerequisites are not met"
+        log_error "Please ensure nftables package is installed and kernel supports nftables"
+        return 1
     fi
-    
+
     return 0
 }
 
 # Clean up CNI configurations
 cleanup_cni() {
-    echo "Removing CNI configurations..."
-    rm -rf /etc/cni/net.d/* || true
-    rm -rf /var/lib/cni/ || true
+    log_info "Removing CNI configurations..."
+    rm -rf /etc/cni/net.d/*
+    rm -rf /var/lib/cni/
 }
 
 # Remove kernel module and sysctl configurations
 cleanup_network_configs() {
-    echo "Removing Kubernetes kernel module and sysctl configurations..."
-    rm -f /etc/modules-load.d/k8s.conf || true
-    rm -f /etc/sysctl.d/k8s.conf || true
+    log_info "Removing Kubernetes kernel module and sysctl configurations..."
+    rm -f /etc/modules-load.d/k8s.conf
+    rm -f /etc/sysctl.d/k8s.conf
 }
 
 # Remove crictl configuration
 cleanup_crictl_config() {
     if [ -f /etc/crictl.yaml ]; then
-        echo "Removing crictl configuration..."
-        rm -f /etc/crictl.yaml || true
+        log_info "Removing crictl configuration..."
+        rm -f /etc/crictl.yaml
     fi
 }

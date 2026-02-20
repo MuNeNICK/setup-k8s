@@ -1,64 +1,56 @@
 #!/bin/bash
 
+# Detect available package manager for generic/unsupported distributions.
+# Also used by generic/cleanup.sh.
+_detect_generic_pkg_mgr() {
+    if command -v apt-get &>/dev/null; then echo "apt-get"
+    elif command -v dnf &>/dev/null; then echo "dnf"
+    elif command -v yum &>/dev/null; then echo "yum"
+    elif command -v zypper &>/dev/null; then echo "zypper"
+    elif command -v pacman &>/dev/null; then echo "pacman"
+    fi
+}
+
 # Generic functions for unsupported distributions
 install_dependencies_generic() {
-    echo "Warning: Using generic method to install dependencies."
-    echo "This may not work correctly on your distribution."
-    echo "Please install the following packages manually if needed:"
-    echo "- curl"
-    echo "- containerd"
-    echo "- kubeadm, kubelet, kubectl"
-    echo "- iptables, conntrack, socat, ethtool, iproute2, crictl/cri-tools"
-    if [ "$PROXY_MODE" = "ipvs" ]; then
-        echo "- ipvsadm, ipset (required for IPVS mode)"
-    fi
-    if [ "$PROXY_MODE" = "nftables" ]; then
-        echo "- nftables (required for nftables mode)"
-    fi
-    
-    # Try to install iptables if not present
-    if ! command -v iptables &> /dev/null; then
-        echo "Attempting to install iptables..."
-        if command -v apt-get &> /dev/null; then
-            apt-get update && apt-get install -y iptables
-        elif command -v dnf &> /dev/null; then
-            dnf install -y iptables
-        elif command -v yum &> /dev/null; then
-            yum install -y iptables
-        elif command -v zypper &> /dev/null; then
-            zypper install -y iptables
-        elif command -v pacman &> /dev/null; then
-            pacman -Sy --noconfirm iptables
-        fi
+    log_warn "Using generic method to install dependencies."
+    log_warn "This may not work correctly on your distribution."
+
+    local PKG_MGR
+    PKG_MGR=$(_detect_generic_pkg_mgr)
+
+    if [ -z "$PKG_MGR" ]; then
+        log_warn "No supported package manager found. Please install dependencies manually."
+        return 0
     fi
 
-    # Try to install other useful dependencies if package manager is available
-    if command -v apt-get &> /dev/null; then
-        apt-get install -y conntrack socat ethtool iproute2 cri-tools || true
-        if [ "$PROXY_MODE" = "ipvs" ]; then apt-get install -y ipvsadm ipset || true; fi
-        if [ "$PROXY_MODE" = "nftables" ]; then apt-get install -y nftables || true; fi
-    elif command -v dnf &> /dev/null; then
-        dnf install -y conntrack-tools socat ethtool iproute cri-tools || true
-        if [ "$PROXY_MODE" = "ipvs" ]; then dnf install -y ipvsadm ipset || true; fi
-        if [ "$PROXY_MODE" = "nftables" ]; then dnf install -y nftables || true; fi
-    elif command -v yum &> /dev/null; then
-        yum install -y conntrack-tools socat ethtool iproute cri-tools || true
-        if [ "$PROXY_MODE" = "ipvs" ]; then yum install -y ipvsadm ipset || true; fi
-        if [ "$PROXY_MODE" = "nftables" ]; then yum install -y nftables || true; fi
-    elif command -v zypper &> /dev/null; then
-        zypper install -y conntrack-tools socat ethtool iproute2 cri-tools || true
-        if [ "$PROXY_MODE" = "ipvs" ]; then zypper install -y ipvsadm ipset || true; fi
-        if [ "$PROXY_MODE" = "nftables" ]; then zypper install -y nftables || true; fi
-    elif command -v pacman &> /dev/null; then
-        pacman -Sy --noconfirm conntrack-tools socat ethtool iproute2 crictl || true
-        if [ "$PROXY_MODE" = "ipvs" ]; then pacman -Sy --noconfirm ipvsadm ipset || true; fi
-        if [ "$PROXY_MODE" = "nftables" ]; then pacman -Sy --noconfirm nftables || true; fi
-    fi
-    
-    # Print message about mode-specific packages
-    if [ "$PROXY_MODE" = "ipvs" ]; then
-        echo "Note: IPVS mode selected. Please ensure ipvsadm and ipset are installed."
-    elif [ "$PROXY_MODE" = "nftables" ]; then
-        echo "Note: nftables mode selected. Please ensure nftables is installed."
-    fi
+    log_info "Using package manager: $PKG_MGR"
+
+    # Install core dependencies (best effort for generic/unsupported distros)
+    case "$PKG_MGR" in
+        apt-get)
+            if ! { apt-get update && apt-get install -y iptables conntrack socat ethtool iproute2; }; then
+                log_warn "Some packages failed to install"
+            fi ;;
+        dnf|yum)
+            if ! $PKG_MGR install -y iptables conntrack-tools socat ethtool iproute; then
+                log_warn "Some packages failed to install"
+            fi ;;
+        zypper)
+            if ! zypper --non-interactive install -y iptables conntrack-tools socat ethtool iproute2; then
+                log_warn "Some packages failed to install"
+            fi ;;
+        pacman)
+            if ! pacman -S --noconfirm iptables conntrack-tools socat ethtool iproute2 crictl; then
+                log_warn "Some packages failed to install"
+            fi ;;
+    esac
+
+    # Install proxy-mode-specific packages (best effort for generic/unsupported distros)
+    case "$PKG_MGR" in
+        apt-get) install_proxy_mode_packages apt-get install -y || log_warn "Proxy-mode package install failed" ;;
+        dnf|yum) install_proxy_mode_packages "$PKG_MGR" install -y || log_warn "Proxy-mode package install failed" ;;
+        zypper)  install_proxy_mode_packages zypper --non-interactive install -y || log_warn "Proxy-mode package install failed" ;;
+        pacman)  install_proxy_mode_packages pacman -S --noconfirm || log_warn "Proxy-mode package install failed" ;;
+    esac
 }
