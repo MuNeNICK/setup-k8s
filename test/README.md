@@ -7,7 +7,7 @@ Docker + QEMU test framework that validates `setup-k8s.sh` across multiple Linux
 - **Simple**: Complete test execution with a single command
 - **No host pollution**: No need to install QEMU/cloud-utils on host
 - **Fully automated**: Unattended execution from VM boot to K8s setup and result collection
-- **13 distributions/versions supported**: Ubuntu, Debian, CentOS, Fedora, openSUSE, Rocky, AlmaLinux, Arch Linux
+- **18 distributions/versions supported**: Ubuntu, Debian, CentOS, Fedora, openSUSE, Rocky, AlmaLinux, Oracle Linux, Arch Linux
 - **Reliable result verification**: Confirms setup-k8s.sh execution, kubelet startup, and API response
 
 ## Test Scripts
@@ -25,16 +25,21 @@ Docker + QEMU test framework that validates `setup-k8s.sh` across multiple Linux
 |-------------|---------|------------|
 | ubuntu-2404 | 24.04 LTS | user |
 | ubuntu-2204 | 22.04 LTS | user |
-| ubuntu-2004 | 20.04 LTS | user |
+| debian-13 | 13 (Trixie) | user |
 | debian-12 | 12 (Bookworm) | user |
 | debian-11 | 11 (Bullseye) | user |
+| centos-stream-10 | Stream 10 | user |
 | centos-stream-9 | Stream 9 | user |
-| fedora-41 | 41 | user |
-| opensuse-leap-155 | Leap 15.5 | user |
+| fedora-43 | 43 | user |
+| opensuse-tumbleweed | Tumbleweed | user |
+| opensuse-leap-160 | Leap 16.0 | user |
+| rocky-linux-10 | 10 | user |
 | rocky-linux-9 | 9 | user |
 | rocky-linux-8 | 8 | user |
+| almalinux-10 | 10 | user |
 | almalinux-9 | 9 | user |
 | almalinux-8 | 8 | user |
+| oracle-linux-9 | 9 | user |
 | archlinux | Rolling | user |
 
 ## System Requirements
@@ -151,7 +156,7 @@ docker pull ghcr.io/munenick/docker-vm-runner:latest
 
 1. **Load configuration**: Validate the requested distribution against the built-in supported list.
 2. **Prepare docker-vm-runner**: Pull the container image and create the shared data/cache directories.
-3. **Prepare scripts**: In offline mode, bundle `setup-k8s.sh`/`cleanup-k8s.sh` with all modules into self-contained scripts. In online mode, transfer the local checkout to the VM so the checked-out revision (not remote main) is tested.
+3. **Prepare scripts**: In offline (bundled) mode, bundle `setup-k8s.sh`/`cleanup-k8s.sh` with all modules into self-contained scripts. In online mode, run `curl | bash` from GitHub inside the VM to test the production flow.
 4. **Launch VM container**: Run docker-vm-runner with `/dev/kvm`, mount caches, and inject an SSH key via cloud-init.
 5. **Execute tests via SSH**: Transfer scripts, run setup/cleanup, and poll for completion.
 6. **Collect results**: Save structured JSON output plus log files under `results/`.

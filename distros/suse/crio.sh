@@ -15,7 +15,7 @@ setup_crio_suse() {
     zypper addrepo --gpgcheck "https://pkgs.k8s.io/addons:/cri-o:/stable:/v${crio_series}/rpm/" cri-o
 
     zypper --non-interactive refresh
-    if ! zypper --non-interactive install -y cri-o; then
+    if ! zypper --non-interactive install -y --replacefiles --allow-vendor-change cri-o; then
         log_error "CRI-O installation failed. It may require specific repositories on your SUSE version."
         return 1
     fi

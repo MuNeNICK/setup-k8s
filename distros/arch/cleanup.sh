@@ -39,8 +39,8 @@ cleanup_arch() {
         systemctl daemon-reload || true
     fi
 
-    # Clean up orphaned dependencies
-    log_info "Removing unnecessary dependencies..."
+    # Clean package cache
+    log_info "Cleaning package cache..."
     pacman -Sc --noconfirm || true
 
     # Clear bash command cache before verification
@@ -48,7 +48,7 @@ cleanup_arch() {
 
     # Verify cleanup
     local remaining=0
-    for pkg in kubeadm-bin kubeadm kubelet-bin kubelet kubectl-bin kubectl; do
+    for pkg in kubeadm-bin kubeadm kubelet-bin kubelet kubectl-bin kubectl cri-o; do
         if pacman -Qi "$pkg" &>/dev/null; then
             log_warn "Package still installed: $pkg"
             remaining=1

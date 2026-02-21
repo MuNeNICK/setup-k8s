@@ -143,12 +143,12 @@ _deploy_exec_remote() {
     fi
 
     # Poll for completion
-    local elapsed=0
+    local elapsed=0 _last_poll_err=""
     while [ $elapsed -lt $DEPLOY_REMOTE_TIMEOUT ]; do
         sleep "$DEPLOY_POLL_INTERVAL"
         elapsed=$((elapsed + DEPLOY_POLL_INTERVAL))
 
-        if _deploy_ssh "$user" "$host" "test -f '$exit_file'" >/dev/null 2>&1; then
+        if _last_poll_err=$(_deploy_ssh "$user" "$host" "test -f '$exit_file'" 2>&1 >/dev/null); then
             break
         fi
 
@@ -162,6 +162,7 @@ _deploy_exec_remote() {
 
     if [ $elapsed -ge $DEPLOY_REMOTE_TIMEOUT ]; then
         log_error "[$host] Timeout after ${DEPLOY_REMOTE_TIMEOUT}s: $desc"
+        [ -n "$_last_poll_err" ] && log_error "[$host] Last poll error: $_last_poll_err"
         log_error "[$host] Remote log:"
         _deploy_ssh "$user" "$host" "cat '$log_file'" || true
         _deploy_ssh "$user" "$host" "rm -rf '$remote_dir'" >/dev/null 2>&1 || true
@@ -418,8 +419,10 @@ deploy_cluster() {
             log_info "  [${_NODE_HOST}] SSH OK"
             # Pre-check sudo -n for non-root users to fail fast before work starts
             if [ "$_NODE_USER" != "root" ]; then
-                if ! _deploy_ssh "$_NODE_USER" "$_NODE_HOST" "sudo -n true" 2>/dev/null; then
+                local _sudo_err
+                if ! _sudo_err=$(_deploy_ssh "$_NODE_USER" "$_NODE_HOST" "sudo -n true" 2>&1); then
                     log_error "  [${_NODE_HOST}] sudo -n failed — NOPASSWD sudo required for ${_NODE_USER}"
+                    [ -n "$_sudo_err" ] && log_error "  [${_NODE_HOST}] ${_sudo_err}"
                     ssh_failed=true
                 fi
             fi

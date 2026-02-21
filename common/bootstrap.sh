@@ -4,9 +4,11 @@
 # Provides: exit trap management, module validation, _dispatch
 
 # Canonical list of common modules (single source of truth).
-# Used by load_modules, run_offline, and bundle generation.
+# Used by load_modules, run_local, and bundle generation.
 # bootstrap is listed for bundling but excluded from runtime loading (already sourced).
 _COMMON_MODULES=(variables logging detection validation helpers networking swap completion helm)
+_DISTRO_FAMILIES=(arch debian generic rhel suse)
+_DISTRO_MODULES=(cleanup containerd crio dependencies kubernetes)
 
 # EXIT trap: collect cleanup paths and run cleanup handlers on exit
 _EXIT_CLEANUP_DIRS=()
@@ -143,11 +145,11 @@ load_modules() {
     return 0
 }
 
-# Parameterized offline runner. Verifies key function exists; if not, sources from SCRIPT_DIR.
-# Usage: run_offline <key_function> <distro_module> [<distro_module> ...]
+# Parameterized local runner. Verifies key function exists; if not, sources from SCRIPT_DIR.
+# Usage: run_local <key_function> <distro_module> [<distro_module> ...]
 #   key_function:   function name to check (e.g. "parse_setup_args" or "parse_cleanup_args")
 #   distro_modules: specific distro modules to load (e.g. "dependencies containerd crio kubernetes")
-run_offline() {
+run_local() {
     local key_function="$1"; shift
     local -a distro_modules=("$@")
 
@@ -156,10 +158,10 @@ run_offline() {
     fi
 
     if [ "$_STDIN_MODE" = true ]; then
-        echo "Error: Offline mode via stdin requires bundled modules. Cannot safely source local files." >&2
+        echo "Error: Bundled mode via stdin requires embedded modules. Cannot safely source local files." >&2
         return 1
     fi
-    echo "Offline mode: functions not bundled, loading from $SCRIPT_DIR..." >&2
+    echo "Local mode: functions not bundled, loading from $SCRIPT_DIR..." >&2
     local common_modules=("${_COMMON_MODULES[@]}")
     for module in "${common_modules[@]}"; do
         if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
@@ -170,21 +172,83 @@ run_offline() {
         fi
     done
     detect_distribution
-    local distro_family="${DISTRO_FAMILY:-}"
-    if [ -n "$distro_family" ]; then
-        for module in "${distro_modules[@]}"; do
-            if [ -f "$SCRIPT_DIR/distros/$distro_family/${module}.sh" ]; then
-                source "$SCRIPT_DIR/distros/$distro_family/${module}.sh"
-            else
-                echo "Error: Required module not found: distros/$distro_family/${module}.sh" >&2
-                return 1
-            fi
-        done
-    fi
+    for module in "${distro_modules[@]}"; do
+        if [ -f "$SCRIPT_DIR/distros/$DISTRO_FAMILY/${module}.sh" ]; then
+            source "$SCRIPT_DIR/distros/$DISTRO_FAMILY/${module}.sh"
+        else
+            echo "Error: Required module not found: distros/$DISTRO_FAMILY/${module}.sh" >&2
+            return 1
+        fi
+    done
     return 0
 }
 
-# Generate a self-contained bundle script for offline execution.
+# Download all project modules to a temporary directory (for deploy in curl|bash mode).
+# Creates the same directory structure as a local checkout so _generate_bundle_core works.
+# Sets DEPLOY_MODULES_DIR to the temp directory path.
+# Usage: load_deploy_modules
+load_deploy_modules() {
+    echo "Downloading all modules for deploy bundle..." >&2
+
+    DEPLOY_MODULES_DIR=$(mktemp -d -t setup-k8s-deploy-modules-XXXXXX)
+    _append_exit_trap "$DEPLOY_MODULES_DIR"
+
+    mkdir -p "$DEPLOY_MODULES_DIR/common"
+
+    # Download common modules (bootstrap + all runtime modules)
+    local all_common=("bootstrap" "${_COMMON_MODULES[@]}")
+    for module in "${all_common[@]}"; do
+        echo "  - common/${module}.sh" >&2
+        if ! curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/${module}.sh" > "$DEPLOY_MODULES_DIR/common/${module}.sh"; then
+            echo "Error: Failed to download common/${module}.sh" >&2
+            return 1
+        fi
+    done
+
+    # Download deploy module separately (not in _COMMON_MODULES)
+    echo "  - common/deploy.sh" >&2
+    if ! curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/deploy.sh" > "$DEPLOY_MODULES_DIR/common/deploy.sh"; then
+        echo "Error: Failed to download common/deploy.sh" >&2
+        return 1
+    fi
+
+    # Download distro modules (cleanup excluded — not needed for deploy bundle)
+    for family in "${_DISTRO_FAMILIES[@]}"; do
+        mkdir -p "$DEPLOY_MODULES_DIR/distros/$family"
+        for module in "${_DISTRO_MODULES[@]}"; do
+            [ "$module" = "cleanup" ] && continue
+            echo "  - distros/${family}/${module}.sh" >&2
+            if ! curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/distros/${family}/${module}.sh" > "$DEPLOY_MODULES_DIR/distros/${family}/${module}.sh"; then
+                echo "Error: Failed to download distros/${family}/${module}.sh" >&2
+                return 1
+            fi
+        done
+    done
+
+    # Download entry script (only setup-k8s.sh needed for deploy bundle)
+    echo "  - setup-k8s.sh" >&2
+    if ! curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/setup-k8s.sh" > "$DEPLOY_MODULES_DIR/setup-k8s.sh"; then
+        echo "Error: Failed to download setup-k8s.sh" >&2
+        return 1
+    fi
+
+    # Validate all downloaded shell modules
+    for module in "${all_common[@]}"; do
+        _validate_shell_module "$DEPLOY_MODULES_DIR/common/${module}.sh" || return 1
+    done
+    _validate_shell_module "$DEPLOY_MODULES_DIR/common/deploy.sh" || return 1
+    for family in "${_DISTRO_FAMILIES[@]}"; do
+        for module in "${_DISTRO_MODULES[@]}"; do
+            [ "$module" = "cleanup" ] && continue
+            _validate_shell_module "$DEPLOY_MODULES_DIR/distros/${family}/${module}.sh" || return 1
+        done
+    done
+    _validate_shell_module "$DEPLOY_MODULES_DIR/setup-k8s.sh" || return 1
+
+    echo "All modules downloaded and validated" >&2
+}
+
+# Generate a self-contained bundle script for standalone execution.
 # Usage: _generate_bundle_core <bundle_path> <entry_script> [include_mode] [script_dir]
 #   bundle_path:   output file path
 #   entry_script:  path to the entry script (setup-k8s.sh or cleanup-k8s.sh)
@@ -199,7 +263,7 @@ _generate_bundle_core() {
     {
         echo "#!/bin/bash"
         echo "set -euo pipefail"
-        echo "OFFLINE_MODE=true"
+        echo "BUNDLED_MODE=true"
         echo ""
 
         # Include all common modules

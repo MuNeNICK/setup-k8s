@@ -118,7 +118,7 @@ run_ha_test() {
 
     # --- Wait for cloud-init and SSH ---
     wait_for_cloud_init "$container_name" "$SSH_READY_TIMEOUT" "HA" || return 1
-    wait_for_ssh "$SSH_PORT" "$LOGIN_USER" 60 "HA" || return 1
+    wait_for_ssh "$SSH_PORT" "$LOGIN_USER" "$SSH_READY_TIMEOUT" "HA" || return 1
 
     # --- Discover VM network ---
     local vm_ip vm_iface

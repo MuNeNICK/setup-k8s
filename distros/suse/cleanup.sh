@@ -6,7 +6,8 @@ cleanup_suse() {
 
     # Remove package locks before uninstalling (set during setup)
     log_info "Removing package locks..."
-    zypper removelock kubelet kubeadm kubectl 2>/dev/null || true
+    zypper removelock kubelet kubeadm kubectl ||
+        log_warn "Failed to remove package locks (may not be set)"
 
     # Remove packages
     log_info "Removing Kubernetes packages..."
@@ -23,12 +24,12 @@ cleanup_suse() {
     # Remove repository
     log_info "Removing Kubernetes repository..."
     zypper removerepo kubernetes || true
-    zypper removerepo cri-o 2>/dev/null || true
+    zypper removerepo cri-o || true
     
     # Verify cleanup
     local remaining=0
     local remaining_pkgs
-    remaining_pkgs=$(zypper search -i 2>/dev/null | grep -E "\|[[:space:]]*(kubeadm|kubelet|kubectl|kubernetes-cni)[[:space:]]" || true)
+    remaining_pkgs=$(zypper search -i 2>&1 | grep -E "\|[[:space:]]*(kubeadm|kubelet|kubectl|kubernetes-cni|cri-o)[[:space:]]" || true)
     if [ -n "$remaining_pkgs" ]; then
         log_warn "Some Kubernetes packages still remain:"
         echo "$remaining_pkgs"

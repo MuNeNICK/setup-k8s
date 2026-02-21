@@ -14,21 +14,27 @@ source "$SCRIPT_DIR/lib/vm_harness.sh"
 SETUP_K8S_SCRIPT="$SCRIPT_DIR/../setup-k8s.sh"
 CLEANUP_K8S_SCRIPT="$SCRIPT_DIR/../cleanup-k8s.sh"
 DOCKER_VM_RUNNER_IMAGE="${DOCKER_VM_RUNNER_IMAGE:-ghcr.io/munenick/docker-vm-runner:latest}"
+GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main}"
 VM_DATA_DIR="${VM_DATA_DIR:-$SCRIPT_DIR/data}"
 
 SUPPORTED_DISTROS=(
     ubuntu-2404
     ubuntu-2204
-    ubuntu-2004
+    debian-13
     debian-12
     debian-11
+    centos-stream-10
     centos-stream-9
-    fedora-41
-    opensuse-leap-155
+    fedora-43
+    opensuse-tumbleweed
+    opensuse-leap-160
+    rocky-linux-10
     rocky-linux-9
     rocky-linux-8
+    almalinux-10
     almalinux-9
     almalinux-8
+    oracle-linux-9
     archlinux
 )
 
@@ -54,6 +60,7 @@ SSH_READY_TIMEOUT=300 # 5 minutes for SSH to become available
 SSH_KEY_DIR=""
 SSH_PORT=""
 SSH_BASE_OPTS=(-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5)
+# shellcheck disable=SC2034 # SSH_OPTS is used by vm_ssh/vm_scp in vm_harness.sh
 SSH_OPTS=("${SSH_BASE_OPTS[@]}")
 
 # Global cleanup state (must be module-level for EXIT trap)
@@ -77,8 +84,8 @@ Options:
   --all, -a                 Test all distributions sequentially
   --k8s-version <version>   Kubernetes version to test (e.g., 1.32, 1.31, 1.30)
   --setup-args ARGS         Extra args for setup-k8s.sh (use quotes)
-  --online                  Run test in online mode (transfer local checkout to VM)
-  --offline                 Run test in offline mode with bundled scripts (default)
+  --online                  Run test using curl | bash from GitHub (requires push)
+  --offline                 Run test in bundled mode with local code (default)
   --memory <MB>             VM memory in MB (default: $VM_MEMORY)
   --cpus <count>            VM CPU count (default: $VM_CPUS)
   --disk-size <size>        VM disk size (default: $VM_DISK_SIZE)
@@ -93,18 +100,18 @@ EOF
     echo
     echo "Examples:"
     echo "  $0 ubuntu-2404                        # Test single distribution offline (bundled)"
-    echo "  $0 --online ubuntu-2404               # Test single distribution online (local checkout)"
+    echo "  $0 --online ubuntu-2404               # Test single distribution via curl | bash from GitHub"
     echo "  $0 --k8s-version 1.31 ubuntu-2404     # Test with specific k8s version"
     echo "  $0 --all                              # Test all distributions offline"
-    echo "  $0 --all --online                     # Test all distributions online"
+    echo "  $0 --all --online                     # Test all distributions via curl | bash"
     echo "  $0 --all --k8s-version 1.30           # Test all distributions with k8s v1.30"
     echo "  $0 --memory 16384 --cpus 8 ubuntu-2404  # Test with custom VM resources"
     echo "  $0 archlinux"
     echo "  $0 --k8s-version 1.32 rocky-linux-8"
     echo
     echo "Test Modes:"
-    echo "  Online:  Transfers local checkout to VM and sources modules from SCRIPT_DIR"
-    echo "  Offline: Uses pre-bundled script with all modules included"
+    echo "  Online:  Runs curl | bash from GitHub inside VM (tests production flow; requires push)"
+    echo "  Offline: Uses pre-bundled script with local code (default; no push required)"
 }
 
 # Prepare data directory for docker-vm-runner (mounted as /data in container)
@@ -202,25 +209,16 @@ run_vm_container() {
         cleanup_ssh_key
         return 1
     }
-    wait_for_ssh "$SSH_PORT" "$LOGIN_USER" 60 "$distro" || {
+    wait_for_ssh "$SSH_PORT" "$LOGIN_USER" "$SSH_READY_TIMEOUT" "$distro" || {
         _e2e_cleanup_vm_container
         cleanup_ssh_key
         return 1
     }
 
     # --- Deploy scripts ---
-    # vm_script_dir: base path on VM where setup-k8s.sh and cleanup-k8s.sh reside
-    local vm_script_dir="/tmp"
     if [ "$TEST_MODE" = "online" ]; then
-        # Online mode: transfer the full local checkout to the VM so SCRIPT_DIR resolves
-        # correctly and local modules (common/, distros/) are found from SCRIPT_DIR.
-        # This ensures CI tests the checked-out revision, not the remote main branch.
-        vm_script_dir="/tmp/setup-k8s-src"
-        log_info "Transferring local project to VM for online mode..."
-        tar -cf - -C "${SCRIPT_DIR}/.." setup-k8s.sh cleanup-k8s.sh common/ distros/ \
-            | ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" "$LOGIN_USER@localhost" \
-                "sudo mkdir -p ${vm_script_dir} && sudo tar -xf - -C ${vm_script_dir} && sudo chmod +x ${vm_script_dir}/setup-k8s.sh ${vm_script_dir}/cleanup-k8s.sh"
-        log_success "Local project transferred to VM"
+        # Online mode: test the production curl | bash flow from GitHub
+        log_info "Online mode: testing curl | bash from ${GITHUB_BASE_URL}"
     else
         generate_bundled_scripts
         log_info "Transferring bundled scripts to VM..."
@@ -233,11 +231,15 @@ run_vm_container() {
 
     # --- Phase 1: Run setup-k8s.sh ---
     log_info "Starting Kubernetes setup (init)..."
-    local setup_cmd="bash ${vm_script_dir}/setup-k8s.sh init"
-    [ -n "$k8s_version_flag" ] && setup_cmd+=" $(printf '%q' "$k8s_version_flag") $(printf '%q' "$k8s_version_val")"
-    if [ -n "$setup_extra_args_str" ]; then
-        # setup_extra_args_str is already shell-escaped via printf '%q', append as-is
-        setup_cmd+=" $setup_extra_args_str"
+    local setup_args="init"
+    [ -n "$k8s_version_flag" ] && setup_args+=" $(printf '%q' "$k8s_version_flag") $(printf '%q' "$k8s_version_val")"
+    [ -n "$setup_extra_args_str" ] && setup_args+=" $setup_extra_args_str"
+
+    local setup_cmd
+    if [ "$TEST_MODE" = "online" ]; then
+        setup_cmd="curl -fsSL ${GITHUB_BASE_URL}/setup-k8s.sh | bash -s -- ${setup_args}"
+    else
+        setup_cmd="bash /tmp/setup-k8s.sh ${setup_args}"
     fi
     setup_cmd+=" > /tmp/setup-k8s.log 2>&1; echo \$? > /tmp/setup-exit-code"
     vm_ssh "nohup bash -c '${setup_cmd}' </dev/null >/dev/null 2>&1 &"
@@ -292,7 +294,13 @@ run_vm_container() {
 
     if [ "$setup_test_status" = "success" ]; then
         log_info "Starting Kubernetes cleanup..."
-        vm_ssh "nohup bash -c 'bash ${vm_script_dir}/cleanup-k8s.sh --force > /tmp/cleanup-k8s.log 2>&1; echo \$? > /tmp/cleanup-exit-code' </dev/null >/dev/null 2>&1 &"
+        local cleanup_cmd
+        if [ "$TEST_MODE" = "online" ]; then
+            cleanup_cmd="curl -fsSL ${GITHUB_BASE_URL}/cleanup-k8s.sh | bash -s -- --force"
+        else
+            cleanup_cmd="bash /tmp/cleanup-k8s.sh --force"
+        fi
+        vm_ssh "nohup bash -c '${cleanup_cmd} > /tmp/cleanup-k8s.log 2>&1; echo \$? > /tmp/cleanup-exit-code' </dev/null >/dev/null 2>&1 &"
 
         if ! poll_vm_command vm_ssh "$container_name" /tmp/cleanup-exit-code /tmp/cleanup-k8s.log "$TIMEOUT_TOTAL"; then
             log_warn "Cleanup polling failed (timeout or container exit)"
@@ -453,7 +461,7 @@ test_all() {
     log_info "Starting test for all distributions"
     log_info "Test mode: $TEST_MODE"
     if [ "$TEST_MODE" = "online" ]; then
-        log_info "Script source: Local checkout (transferred to VM, online fetch mode)"
+        log_info "Script source: curl | bash from GitHub"
     else
         log_info "Script source: Bundled (all modules included)"
     fi
@@ -541,7 +549,7 @@ run_single_test() {
     log_info "Starting K8s test for: $distro"
     log_info "Test mode: $TEST_MODE"
     if [ "$TEST_MODE" = "online" ]; then
-        log_info "Script source: Local checkout (transferred to VM, online fetch mode)"
+        log_info "Script source: curl | bash from GitHub"
     else
         log_info "Script source: Bundled (all modules included)"
     fi

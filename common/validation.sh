@@ -1,13 +1,5 @@
 #!/bin/bash
 
-# Validate action (init or join)
-validate_action() {
-    if [[ "$ACTION" != "init" && "$ACTION" != "join" ]]; then
-        log_error "First argument must be 'init' or 'join' subcommand"
-        exit 1
-    fi
-}
-
 # Check required arguments for join
 validate_join_args() {
     if [[ "$ACTION" == "join" ]]; then
@@ -28,6 +20,11 @@ validate_join_args() {
         # Validate join address format: host:port (host part must be non-empty)
         if ! [[ "$JOIN_ADDRESS" =~ ^.+:[0-9]+$ ]]; then
             log_error "--join-address should include a port (e.g., 192.168.1.10:6443, got: $JOIN_ADDRESS)"
+            exit 1
+        fi
+        local _join_port="${JOIN_ADDRESS##*:}"
+        if [ "$_join_port" -lt 1 ] || [ "$_join_port" -gt 65535 ]; then
+            log_error "--join-address port out of range (1-65535, got: $_join_port)"
             exit 1
         fi
         # Validate HA control-plane join args
@@ -114,7 +111,7 @@ _validate_cidr() {
     # Validate octet ranges (0-255) and prefix length (0-32)
     local o1 o2 o3 o4 prefix
     IFS='./' read -r o1 o2 o3 o4 prefix <<< "$cidr"
-    if (( o1>255 || o2>255 || o3>255 || o4>255 || prefix>32 )); then
+    if (( 10#$o1>255 || 10#$o2>255 || 10#$o3>255 || 10#$o4>255 || 10#$prefix>32 )); then
         log_error "CIDR values out of range for $label: $cidr"
         exit 1
     fi
@@ -146,6 +143,12 @@ validate_ha_args() {
             log_error "--ha-vip must be a valid IPv4 address (got: $HA_VIP_ADDRESS)"
             exit 1
         fi
+        local _vo1 _vo2 _vo3 _vo4
+        IFS='.' read -r _vo1 _vo2 _vo3 _vo4 <<< "$HA_VIP_ADDRESS"
+        if (( 10#$_vo1>255 || 10#$_vo2>255 || 10#$_vo3>255 || 10#$_vo4>255 )); then
+            log_error "--ha-vip octets out of range (got: $HA_VIP_ADDRESS)"
+            exit 1
+        fi
         # On join, --ha-vip requires --control-plane
         if [ "$ACTION" = "join" ] && [ "$JOIN_AS_CONTROL_PLANE" != true ]; then
             log_error "--ha-vip on join requires --control-plane"
@@ -153,7 +156,13 @@ validate_ha_args() {
         fi
         # Auto-detect interface if not specified
         if [ -z "$HA_VIP_INTERFACE" ]; then
-            HA_VIP_INTERFACE=$(ip route get 1 2>/dev/null | awk '{print $5; exit}') || true
+            local _iproute_out
+            if ! _iproute_out=$(ip route get 1 2>&1); then
+                log_error "Could not auto-detect network interface. Please specify --ha-interface"
+                [ -n "$_iproute_out" ] && log_error "  ip route error: $_iproute_out"
+                exit 1
+            fi
+            HA_VIP_INTERFACE=$(echo "$_iproute_out" | awk '{print $5; exit}')
             if [ -z "$HA_VIP_INTERFACE" ]; then
                 log_error "Could not auto-detect network interface. Please specify --ha-interface"
                 exit 1
@@ -365,7 +374,10 @@ parse_deploy_args() {
                 shift 2
                 ;;
             --ssh-password)
-                _require_value $# "$1" "${2:-}"
+                if [[ $# -lt 2 ]]; then
+                    log_error "$1 requires a value"
+                    exit 1
+                fi
                 log_warn "--ssh-password exposes the password in the process list. Prefer DEPLOY_SSH_PASSWORD env var."
                 DEPLOY_SSH_PASSWORD="$2"
                 shift 2
@@ -421,6 +433,34 @@ validate_deploy_args() {
     # --control-planes is required
     if [ -z "$DEPLOY_CONTROL_PLANES" ]; then
         log_error "--control-planes is required for deploy"
+        exit 1
+    fi
+
+    # Normalize node lists early: trim whitespace and remove empty tokens.
+    # Write back to source variables so all subsequent logic sees clean values.
+    _normalize_node_list() {
+        local raw="$1" result=() cleaned=() token
+        IFS=',' read -ra result <<< "$raw"
+        for token in "${result[@]}"; do
+            token="${token#"${token%%[![:space:]]*}"}"  # trim leading whitespace
+            token="${token%"${token##*[![:space:]]}"}"  # trim trailing whitespace
+            [ -n "$token" ] && cleaned+=("$token")
+        done
+        local IFS=','
+        echo "${cleaned[*]}"
+    }
+    DEPLOY_CONTROL_PLANES=$(_normalize_node_list "$DEPLOY_CONTROL_PLANES")
+    [ -n "$DEPLOY_WORKERS" ] && DEPLOY_WORKERS=$(_normalize_node_list "$DEPLOY_WORKERS")
+
+    # Re-check after normalization (e.g., ",,," normalizes to empty)
+    if [ -z "$DEPLOY_CONTROL_PLANES" ]; then
+        log_error "--control-planes contains no valid node addresses"
+        exit 1
+    fi
+
+    # Validate SSH user if specified
+    if [ -n "$DEPLOY_SSH_USER" ] && ! [[ "$DEPLOY_SSH_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_.-]*$ ]]; then
+        log_error "Invalid SSH user: $DEPLOY_SSH_USER"
         exit 1
     fi
 
@@ -568,8 +608,11 @@ confirm_cleanup() {
         echo "Are you sure you want to continue? (y/N)"
         if [ -t 0 ]; then
             read -r response
-        elif [ -e /dev/tty ]; then
-            read -r response < /dev/tty
+        elif [ -r /dev/tty ]; then
+            read -r response < /dev/tty || {
+                log_error "Non-interactive environment detected. Use --force to skip confirmation."
+                exit 1
+            }
         else
             log_error "Non-interactive environment detected. Use --force to skip confirmation."
             exit 1

@@ -7,14 +7,15 @@ cleanup_debian() {
     # Remove package holds
     log_info "Removing package holds..."
     for pkg in kubeadm kubectl kubelet kubernetes-cni; do
-        apt-mark unhold "$pkg" 2>/dev/null || true
+        apt-mark unhold "$pkg" 2>&1 || true
     done
 
     # Purge packages and clean up dependencies
     log_info "Purging Kubernetes and CRI packages..."
     apt-get purge -y kubeadm kubectl kubelet kubernetes-cni ||
         log_warn "Package purge had errors (some packages may not be installed)"
-    apt-get purge -y cri-o cri-o-runc 2>/dev/null || true
+    apt-get purge -y cri-o cri-o-runc ||
+        log_warn "CRI-O removal had errors (may not be installed)"
     apt-get autoremove -y || true
 
     # Remove repository files
@@ -29,7 +30,7 @@ cleanup_debian() {
     # Verify cleanup
     local remaining=0
     local remaining_pkgs
-    remaining_pkgs=$(dpkg -l | grep -E "[[:space:]](kubeadm|kubelet|kubectl|kubernetes-cni)[[:space:]]" || true)
+    remaining_pkgs=$(dpkg -l | grep -E "[[:space:]](kubeadm|kubelet|kubectl|kubernetes-cni|cri-o)[[:space:]]" || true)
     if [ -n "$remaining_pkgs" ]; then
         log_warn "Some Kubernetes packages still remain:"
         echo "$remaining_pkgs"

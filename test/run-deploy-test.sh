@@ -143,7 +143,7 @@ start_vm() {
 wait_for_vm_ready() {
     local container_name=$1 host_ssh_port=$2 label=$3
     wait_for_cloud_init "$container_name" "$SSH_READY_TIMEOUT" "$label" || return 1
-    wait_for_ssh "$host_ssh_port" "$LOGIN_USER" 60 "$label" || return 1
+    wait_for_ssh "$host_ssh_port" "$LOGIN_USER" "$SSH_READY_TIMEOUT" "$label" || return 1
 }
 
 # Setup root SSH access on a VM (copy user's authorized_keys to root)

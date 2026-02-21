@@ -17,7 +17,8 @@ cleanup_rhel() {
     log_info "Removing Kubernetes and CRI packages..."
     $PKG_MGR remove -y kubeadm kubectl kubelet kubernetes-cni ||
         log_warn "Package removal had errors (some packages may not be installed)"
-    $PKG_MGR remove -y cri-o 2>/dev/null || true
+    $PKG_MGR remove -y cri-o ||
+        log_warn "CRI-O removal had errors (may not be installed)"
     $PKG_MGR autoremove -y || true
 
     # Remove repository files
@@ -31,7 +32,7 @@ cleanup_rhel() {
     # Verify cleanup
     local remaining=0
     local remaining_pkgs
-    remaining_pkgs=$($PKG_MGR list installed 2>/dev/null | grep -E "^(kubeadm|kubelet|kubectl|kubernetes-cni)\." || true)
+    remaining_pkgs=$($PKG_MGR list installed 2>&1 | grep -E "^(kubeadm|kubelet|kubectl|kubernetes-cni|cri-o)\." || true)
     if [ -n "$remaining_pkgs" ]; then
         log_warn "Some Kubernetes packages still remain:"
         echo "$remaining_pkgs"

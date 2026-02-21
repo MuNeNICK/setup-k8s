@@ -27,24 +27,28 @@ cleanup_generic() {
         apt-get)
             apt-get purge -y kubeadm kubectl kubelet kubernetes-cni ||
                 log_warn "Package purge had errors"
-            apt-get purge -y cri-o cri-o-runc 2>/dev/null || true
+            apt-get purge -y cri-o cri-o-runc ||
+                log_warn "CRI-O removal had errors (may not be installed)"
             apt-get autoremove -y || true
             ;;
         dnf|yum)
             $pkg_mgr remove -y kubeadm kubectl kubelet kubernetes-cni ||
                 log_warn "Package removal had errors"
-            $pkg_mgr remove -y cri-o 2>/dev/null || true
+            $pkg_mgr remove -y cri-o ||
+                log_warn "CRI-O removal had errors (may not be installed)"
             $pkg_mgr autoremove -y || true
             ;;
         zypper)
             zypper --non-interactive remove -y kubeadm kubectl kubelet kubernetes-cni ||
                 log_warn "Package removal had errors"
-            zypper --non-interactive remove -y cri-o 2>/dev/null || true
+            zypper --non-interactive remove -y cri-o ||
+                log_warn "CRI-O removal had errors (may not be installed)"
             ;;
         pacman)
             pacman -Rns --noconfirm kubeadm kubectl kubelet ||
                 log_warn "Package removal had errors"
-            pacman -Rns --noconfirm cri-o 2>/dev/null || true
+            pacman -Rns --noconfirm cri-o ||
+                log_warn "CRI-O removal had errors (may not be installed)"
             ;;
     esac
 }

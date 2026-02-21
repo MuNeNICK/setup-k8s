@@ -89,7 +89,10 @@ reset_iptables() {
         for table in filter nat mangle; do
             # Cache iptables rules once per table (avoids repeated expensive calls)
             local rules
-            rules=$(iptables -t "$table" -S 2>/dev/null) || continue
+            if ! rules=$(iptables -t "$table" -S 2>&1); then
+                log_warn "Could not read iptables table '$table': $rules"
+                continue
+            fi
             for prefix in $k8s_chain_prefixes; do
                 echo "$rules" | sed -n "s/.*-j \(${prefix}[^ ]*\).*/\1/p" | sort -u | while read -r chain; do
                     iptables -t "$table" -D FORWARD -j "$chain" 2>/dev/null || true
@@ -117,9 +120,16 @@ reset_iptables() {
     # Reset K8s-related nftables tables if nft is available (avoid flushing all rules)
     if command -v nft &> /dev/null; then
         log_info "Resetting K8s-related nftables tables..."
-        nft list tables 2>/dev/null | awk '/kube-proxy|kubernetes/ {print $2, $3}' | while read -r family name; do
-            nft delete table "$family" "$name" 2>/dev/null || true
-        done
+        local _nft_tables _nft_err
+        if _nft_tables=$(nft list tables 2>&1); then
+            echo "$_nft_tables" | awk '/kube-proxy|kubernetes/ {print $2, $3}' | while read -r family name; do
+                if ! _nft_err=$(nft delete table "$family" "$name" 2>&1); then
+                    log_warn "Failed to delete nft table $family $name: $_nft_err"
+                fi
+            done
+        else
+            log_warn "Could not list nft tables: $_nft_tables"
+        fi
     fi
 }
 

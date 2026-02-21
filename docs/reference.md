@@ -36,7 +36,6 @@ Usage: setup-k8s.sh <init|join|deploy> [options]
 | `--enable-completion BOOL` | Enable shell completion setup | `true` | `--enable-completion false` |
 | `--completion-shells LIST` | Shells to configure (auto, bash, zsh, fish, or comma-separated) | `auto` | `--completion-shells bash,zsh` |
 | `--install-helm BOOL` | Install Helm package manager | `false` | `--install-helm true` |
-| `--offline` | Run in offline mode (use bundled modules) | — | `--offline` |
 | `--dry-run` | Show configuration summary and exit without making changes | — | `--dry-run` |
 | `--verbose` | Enable debug logging | — | `--verbose` |
 | `--quiet` | Suppress informational messages (errors only) | — | `--quiet` |
@@ -73,5 +72,4 @@ Usage: cleanup-k8s.sh [options]
 | `--remove-helm` | Remove Helm binary and configuration | — | `--remove-helm` |
 | `--verbose` | Enable debug logging | — | `--verbose` |
 | `--quiet` | Suppress informational messages (errors only) | — | `--quiet` |
-| `--offline` | Run in offline mode (use bundled modules) | — | `--offline` |
 | `--help`, `-h` | Display help message | — | `--help` |

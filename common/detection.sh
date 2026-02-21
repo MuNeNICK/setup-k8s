@@ -20,7 +20,7 @@ detect_distribution() {
         ubuntu|debian)
             DISTRO_FAMILY="debian"
             ;;
-        centos|rhel|fedora|rocky|almalinux)
+        centos|rhel|fedora|rocky|almalinux|ol)
             DISTRO_FAMILY="rhel"
             ;;
         suse|sles|opensuse*)
@@ -59,10 +59,6 @@ _K8S_MIN_CGROUPV2="1.34"
 # Determine the latest stable Kubernetes version
 determine_k8s_version() {
     if [ -z "$K8S_VERSION" ]; then
-        if [ "${OFFLINE_MODE:-false}" = "true" ]; then
-            log_error "Offline mode requires --kubernetes-version (e.g. --kubernetes-version 1.32)"
-            return 1
-        fi
         log_info "Determining latest stable Kubernetes minor version..."
         local STABLE_VER
         if ! STABLE_VER=$(curl -fsSL --retry 3 --retry-delay 2 https://dl.k8s.io/release/stable.txt); then
@@ -80,11 +76,17 @@ determine_k8s_version() {
         fi
     fi
 
+    # Validate version format (must be X.Y)
+    if ! [[ "$K8S_VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then
+        log_error "Invalid Kubernetes version format: $K8S_VERSION (expected X.Y, e.g. 1.32)"
+        return 1
+    fi
+
     # Compatibility gate: K8s >= _K8S_MIN_CGROUPV2 requires cgroups v2
     if ! _has_cgroupv2; then
         local k8s_minor; k8s_minor=$(echo "$K8S_VERSION" | cut -d. -f2)
         local min_minor; min_minor=$(echo "$_K8S_MIN_CGROUPV2" | cut -d. -f2)
-        if [ "$k8s_minor" -ge "$min_minor" ] 2>/dev/null; then
+        if [ "$k8s_minor" -ge "$min_minor" ]; then
             local max_supported="1.$(( min_minor - 1 ))"
             log_error "Kubernetes ${K8S_VERSION} requires cgroups v2, but this system uses cgroups v1."
             log_error "  Distro: ${DISTRO_NAME:-unknown} ${DISTRO_VERSION:-unknown}"

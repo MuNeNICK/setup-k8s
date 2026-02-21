@@ -15,7 +15,22 @@ setup_kubernetes_suse() {
     
     # Install Kubernetes components (non-interactive mode)
     zypper --non-interactive refresh
-    zypper --non-interactive install --allow-vendor-change -y kubelet kubeadm kubectl cri-tools
+
+    # Remove SUSE-distro kubernetes packages that may have been pulled in as CRI-O
+    # dependencies (e.g., kubernetes1.24-*) to avoid file conflicts with pkgs.k8s.io packages
+    local suse_k8s_pkgs
+    suse_k8s_pkgs=$(rpm -qa 'kubernetes1*' | tr '\n' ' ')
+    if [ -n "$suse_k8s_pkgs" ]; then
+        log_info "Removing SUSE-distro Kubernetes packages to avoid conflicts: $suse_k8s_pkgs"
+        # shellcheck disable=SC2086
+        if ! zypper --non-interactive remove -y $suse_k8s_pkgs; then
+            log_warn "Failed to remove SUSE-distro Kubernetes packages: $suse_k8s_pkgs"
+            log_error "Cannot proceed — conflicting packages would cause file conflicts during install"
+            return 1
+        fi
+    fi
+
+    zypper --non-interactive install --allow-vendor-change --replacefiles -y kubelet kubeadm kubectl cri-tools
 
     # Pin packages to prevent automatic updates - consistent with Debian apt-mark hold
     log_info "Pinning Kubernetes packages to prevent automatic updates..."

@@ -18,16 +18,15 @@ fi
 # Default GitHub base URL (can be overridden)
 GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main}"
 
-# Check if running in offline mode
-OFFLINE_MODE="${OFFLINE_MODE:-false}"
+# Check if running in bundled mode (all modules embedded in this script)
+BUNDLED_MODE="${BUNDLED_MODE:-false}"
 
 # Single-pass argument parsing: detect global flags and build cli_args
-# before bootstrap to avoid unnecessary network fetch for --help / --offline.
+# before bootstrap to avoid unnecessary network fetch for --help.
 cli_args=()
 for _arg in "$@"; do
     # shellcheck disable=SC2034 # LOG_LEVEL used by logging module
     case "$_arg" in
-        --offline) OFFLINE_MODE="true" ;;
         --help|-h)
             cat <<'HELPEOF'
 Usage: cleanup-k8s.sh [options]
@@ -38,7 +37,6 @@ Options:
   --remove-helm           Remove Helm binary and configuration
   --verbose               Enable debug logging
   --quiet                 Suppress informational messages (errors only)
-  --offline               Run in offline mode (use bundled modules)
   --help, -h              Display this help message
 HELPEOF
             exit 0
@@ -54,9 +52,9 @@ unset _arg
 if ! type -t _validate_shell_module &>/dev/null; then
     if [ "$_STDIN_MODE" = false ] && [ -f "$SCRIPT_DIR/common/bootstrap.sh" ]; then
         source "$SCRIPT_DIR/common/bootstrap.sh"
-    elif [ "$OFFLINE_MODE" = "true" ]; then
-        # Bundled mode: bootstrap functions are expected to be already defined
-        :
+    elif [ "$BUNDLED_MODE" = "true" ]; then
+        echo "Error: Bundled mode via stdin requires a script with embedded modules." >&2
+        exit 1
     else
         # Running standalone (e.g. curl | bash): download bootstrap.sh from GitHub
         _BOOTSTRAP_TMP=$(mktemp -t bootstrap-XXXXXX.sh)
@@ -82,10 +80,10 @@ main() {
 
     # Load modules:
     #   - Local checkout (common/ exists): source from SCRIPT_DIR
-    #   - Offline (bundled): use pre-defined functions
+    #   - Bundled: modules already defined as functions
     #   - stdin or single-file download: fetch from GitHub
-    if { [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; } || [ "$OFFLINE_MODE" = "true" ]; then
-        run_offline "parse_cleanup_args" cleanup
+    if { [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; } || [ "$BUNDLED_MODE" = "true" ]; then
+        run_local "parse_cleanup_args" cleanup
     else
         load_modules "cleanup-k8s" cleanup
     fi

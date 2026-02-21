@@ -2,7 +2,7 @@
 
 # Install AUR packages via a temporary unprivileged user with scoped sudo.
 # Requires AUR_HELPER to be set (see _ensure_aur_helper in kubernetes.sh).
-# Usage: _aur_install_packages [--yay-flags "FLAGS"] <package...>
+# Usage: _aur_install_packages <package...>
 _AUR_INSTALLER_USER=""
 _AUR_INSTALLER_SUDOERS=""
 _cleanup_aur_installer() {
@@ -13,10 +13,6 @@ _cleanup_aur_installer() {
 }
 
 _aur_install_packages() {
-    local yay_extra_flags=""
-    if [ "${1:-}" = "--yay-flags" ]; then
-        yay_extra_flags="$2"; shift 2
-    fi
     local -a packages=("$@")
 
     _AUR_INSTALLER_USER="aur_installer_$$"
@@ -34,8 +30,9 @@ Defaults:$tmp_user secure_path="/usr/bin:/usr/sbin"
 $tmp_user ALL=(ALL) NOPASSWD: /usr/bin/pacman *
 SUDOERS_EOF
     chmod 0440 "$sudoers_file"
-    if ! visudo -cf "$sudoers_file" >/dev/null 2>&1; then
-        log_error "Generated sudoers file is invalid"
+    local _visudo_err
+    if ! _visudo_err=$(visudo -cf "$sudoers_file" 2>&1); then
+        log_error "Generated sudoers file is invalid: $_visudo_err"
         rc=1
     fi
 
@@ -45,7 +42,7 @@ SUDOERS_EOF
 
     if [ "$rc" -eq 0 ]; then
         log_info "Installing AUR packages: ${packages[*]}..."
-        if ! su - "$tmp_user" -c "$AUR_HELPER -S --noconfirm --needed $yay_extra_flags ${packages[*]}"; then
+        if ! su - "$tmp_user" -c "$AUR_HELPER -S --noconfirm --needed ${packages[*]}"; then
             log_error "AUR installation failed for: ${packages[*]}"
             rc=1
         fi
@@ -71,9 +68,9 @@ install_dependencies_arch() {
     if pacman -Qi iptables-nft &>/dev/null; then
         log_info "iptables-nft already installed (uses nftables backend)"
     elif [ "$CRI" = "crio" ]; then
-        # CRI-O requires iptables-nft; pacman handles conflict resolution atomically
+        # CRI-O requires iptables-nft; --ask 4 auto-resolves conflict with iptables
         log_info "Installing iptables-nft for CRI-O compatibility..."
-        pacman -S --noconfirm iptables-nft
+        pacman -S --noconfirm --ask 4 iptables-nft
     else
         pacman -S --noconfirm iptables
     fi

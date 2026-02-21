@@ -315,7 +315,10 @@ _rollback_vip() {
     local iface="$HA_VIP_INTERFACE"
     if ip addr show dev "$iface" 2>/dev/null | grep -q "inet ${vip}/"; then
         log_info "Rolling back pre-added VIP $vip from $iface..."
-        ip addr del "${vip}/32" dev "$iface" 2>/dev/null || true
+        local _vip_err
+        if ! _vip_err=$(ip addr del "${vip}/32" dev "$iface" 2>&1); then
+            log_warn "VIP rollback failed: $_vip_err"
+        fi
     fi
 }
 
@@ -395,7 +398,13 @@ initialize_cluster() {
     local init_exit=0
     if [ "$PROXY_MODE" != "iptables" ] || [ -n "$KUBEADM_POD_CIDR" ] || [ -n "$KUBEADM_SERVICE_CIDR" ] || [ -n "$KUBEADM_API_ADDR" ] || [ -n "$KUBEADM_CP_ENDPOINT" ]; then
         local CONFIG_FILE
-        CONFIG_FILE=$(generate_kubeadm_config)
+        if ! CONFIG_FILE=$(generate_kubeadm_config); then
+            log_error "Failed to generate kubeadm configuration"
+            if [ "$HA_ENABLED" = true ]; then
+                _rollback_vip
+            fi
+            return 1
+        fi
         log_info "Using kubeadm configuration file: $CONFIG_FILE"
         kubeadm init --config "$CONFIG_FILE" || init_exit=$?
         rm -f "$CONFIG_FILE"
@@ -434,9 +443,9 @@ initialize_cluster() {
         log_info "=== HA Cluster: Control-Plane Join Information ==="
         local cert_output cert_key
         if ! cert_output=$(kubeadm init phase upload-certs --upload-certs); then
-            log_error "kubeadm upload-certs failed"
-            log_error "You can manually run: kubeadm init phase upload-certs --upload-certs"
-            return 1
+            log_warn "kubeadm upload-certs failed (cluster init succeeded)"
+            log_warn "You can manually run: kubeadm init phase upload-certs --upload-certs"
+            return 0
         fi
         cert_key=$(echo "$cert_output" | tail -1)
         if ! [[ "$cert_key" =~ ^[a-f0-9]{64}$ ]]; then
@@ -506,7 +515,7 @@ join_cluster() {
 # Helper: Clean up .kube directories
 cleanup_kube_configs() {
     # Clean up .kube directory
-    if [ -n "${SUDO_USER:-}" ]; then
+    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
         local USER_HOME
         USER_HOME=$(get_user_home "$SUDO_USER")
         log_info "Cleanup: Removing .kube directory and config for user $SUDO_USER"
@@ -528,9 +537,15 @@ reset_containerd_config() {
         log_info "Resetting containerd configuration to default..."
         if command -v containerd &> /dev/null; then
             # Backup current config
-            cp /etc/containerd/config.toml "/etc/containerd/config.toml.bak.$(date +%Y%m%d%H%M%S)"
+            if ! cp /etc/containerd/config.toml "/etc/containerd/config.toml.bak.$(date +%Y%m%d%H%M%S)"; then
+                log_warn "Failed to backup containerd config"
+                return 1
+            fi
             # Generate default config
-            containerd config default > /etc/containerd/config.toml
+            if ! containerd config default > /etc/containerd/config.toml; then
+                log_warn "Failed to generate default containerd config"
+                return 1
+            fi
             # Restart containerd if it's running
             if systemctl is-active containerd &>/dev/null; then
                 log_info "Restarting containerd with default configuration..."
@@ -543,8 +558,8 @@ reset_containerd_config() {
 # Show installed versions
 show_versions() {
     log_info "Installed versions:"
-    kubectl version --client
-    kubeadm version
+    log_info "  $(kubectl version --client 2>&1)"
+    log_info "  $(kubeadm version 2>&1)"
 }
 
 # Unified cleanup verification: check remaining files and report.

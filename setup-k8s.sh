@@ -18,11 +18,11 @@ fi
 # Default GitHub base URL (can be overridden)
 GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main}"
 
-# Check if running in offline mode
-OFFLINE_MODE="${OFFLINE_MODE:-false}"
+# Check if running in bundled mode (all modules embedded in this script)
+BUNDLED_MODE="${BUNDLED_MODE:-false}"
 
 # Single-pass argument parsing: extract subcommand, global flags, and build cli_args
-# before bootstrap to avoid unnecessary network fetch for --help / --offline.
+# before bootstrap to avoid unnecessary network fetch for --help.
 # Subcommand is detected strictly from the first positional argument only,
 # to avoid misinterpreting option values (e.g. --ha-interface deploy) as subcommands.
 original_args=("$@")
@@ -66,7 +66,6 @@ Options (init/join):
   --enable-completion BOOL  Enable shell completion setup (default: true)
   --completion-shells LIST  Shells to configure (auto, bash, zsh, fish, or comma-separated)
   --install-helm BOOL     Install Helm package manager (default: false)
-  --offline               Run in offline mode (use bundled modules)
   --dry-run               Show configuration summary and exit without making changes
   --verbose               Enable debug logging
   --quiet                 Suppress informational messages (errors only)
@@ -87,10 +86,6 @@ Options (deploy):
 HELPEOF
                 exit 0
             fi
-            ((i += 1))
-            ;;
-        --offline)
-            OFFLINE_MODE="true"
             ((i += 1))
             ;;
         --verbose)
@@ -142,9 +137,9 @@ unset _action_detected
 if ! type -t _validate_shell_module &>/dev/null; then
     if [ "$_STDIN_MODE" = false ] && [ -f "$SCRIPT_DIR/common/bootstrap.sh" ]; then
         source "$SCRIPT_DIR/common/bootstrap.sh"
-    elif [ "$OFFLINE_MODE" = "true" ]; then
-        # Bundled mode: bootstrap functions are expected to be already defined
-        :
+    elif [ "$BUNDLED_MODE" = "true" ]; then
+        echo "Error: Bundled mode via stdin requires a script with embedded modules." >&2
+        exit 1
     else
         # Running standalone (e.g. curl | bash): download bootstrap.sh from GitHub
         _BOOTSTRAP_TMP=$(mktemp -t bootstrap-XXXXXX.sh)
@@ -189,25 +184,32 @@ _setup_dry_run() {
 main() {
     # Deploy subcommand: orchestrator runs locally, no root / distro detection needed
     if [ "$ACTION" = "deploy" ]; then
-        if [ "$_STDIN_MODE" = true ]; then
-            echo "Error: 'deploy' subcommand requires a local checkout. It cannot run via stdin (curl | bash)." >&2
-            exit 1
-        fi
         # Deploy uses associative arrays (declare -A) which require Bash 4.3+
         if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3) )); then
             echo "Error: Deploy mode requires Bash 4.3+ (current: $BASH_VERSION)" >&2
             exit 1
         fi
-        # Source only the common modules needed for deploy
-        local deploy_modules=(variables logging validation deploy)
-        for module in "${deploy_modules[@]}"; do
-            if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
-                source "$SCRIPT_DIR/common/${module}.sh"
-            else
-                echo "Error: Required module common/${module}.sh not found in $SCRIPT_DIR" >&2
-                exit 1
-            fi
-        done
+
+        local deploy_src_modules=(variables logging validation deploy)
+        if [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; then
+            # Local checkout: source modules directly
+            for module in "${deploy_src_modules[@]}"; do
+                if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
+                    source "$SCRIPT_DIR/common/${module}.sh"
+                else
+                    echo "Error: Required module common/${module}.sh not found in $SCRIPT_DIR" >&2
+                    exit 1
+                fi
+            done
+        else
+            # Standalone or curl | bash: download all modules for deploy bundle
+            load_deploy_modules
+            for module in "${deploy_src_modules[@]}"; do
+                source "$DEPLOY_MODULES_DIR/common/${module}.sh"
+            done
+            # Override SCRIPT_DIR so bundle generation finds the downloaded files
+            SCRIPT_DIR="$DEPLOY_MODULES_DIR"
+        fi
 
         parse_deploy_args "${cli_args[@]}"
         validate_deploy_args
@@ -227,12 +229,18 @@ main() {
         exit 1
     fi
 
+    # Validate action early to avoid unnecessary module loading
+    if [[ "$ACTION" != "init" && "$ACTION" != "join" ]]; then
+        echo "Error: First argument must be 'init' or 'join' subcommand" >&2
+        exit 1
+    fi
+
     # Load modules:
     #   - Local checkout (common/ exists): source from SCRIPT_DIR
-    #   - Offline (bundled): use pre-defined functions
+    #   - Bundled: modules already defined as functions
     #   - stdin or single-file download: fetch from GitHub
-    if { [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; } || [ "$OFFLINE_MODE" = "true" ]; then
-        run_offline "parse_setup_args" dependencies containerd crio kubernetes
+    if { [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; } || [ "$BUNDLED_MODE" = "true" ]; then
+        run_local "parse_setup_args" dependencies containerd crio kubernetes
     else
         load_modules "setup-k8s" dependencies containerd crio kubernetes
     fi
@@ -241,7 +249,6 @@ main() {
     parse_setup_args "${cli_args[@]}"
 
     # Validate inputs
-    validate_action
     validate_join_args
     validate_cri
     validate_completion_options
