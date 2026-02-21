@@ -19,7 +19,7 @@ validate_join_args() {
         fi
         # Validate join address format: host:port (host part must be non-empty)
         if ! [[ "$JOIN_ADDRESS" =~ ^.+:[0-9]+$ ]]; then
-            log_error "--join-address should include a port (e.g., 192.168.1.10:6443, got: $JOIN_ADDRESS)"
+            log_error "--join-address should include a port (e.g., 192.168.1.10:6443 or [::1]:6443, got: $JOIN_ADDRESS)"
             exit 1
         fi
         local _join_port="${JOIN_ADDRESS##*:}"
@@ -112,20 +112,76 @@ validate_swap_enabled() {
     fi
 }
 
-# Validate CIDR format (IPv4)
-_validate_cidr() {
-    local cidr="$1" label="$2"
-    if [[ ! "$cidr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]]; then
-        log_error "Invalid CIDR format for $label: $cidr"
-        log_error "Expected format: x.x.x.x/y (e.g., 192.168.0.0/16)"
+# Check if an address is IPv6 (contains colon)
+_is_ipv6() {
+    [[ "$1" == *:* ]]
+}
+
+# Validate an IPv6 address (no brackets, no CIDR prefix)
+_validate_ipv6_addr() {
+    local addr="$1" label="$2"
+    if ! [[ "$addr" =~ ^[a-fA-F0-9:]+$ ]]; then
+        log_error "Invalid IPv6 address for $label: $addr"
         exit 1
     fi
-    # Validate octet ranges (0-255) and prefix length (0-32)
-    local o1 o2 o3 o4 prefix
-    IFS='./' read -r o1 o2 o3 o4 prefix <<< "$cidr"
-    if (( 10#$o1>255 || 10#$o2>255 || 10#$o3>255 || 10#$o4>255 || 10#$prefix>32 )); then
-        log_error "CIDR values out of range for $label: $cidr"
+}
+
+# Validate an IPv6 CIDR (addr/prefix)
+_validate_ipv6_cidr() {
+    local cidr="$1" label="$2"
+    local addr prefix
+    addr="${cidr%/*}"
+    prefix="${cidr##*/}"
+    if ! [[ "$addr" =~ ^[a-fA-F0-9:]+$ ]] || ! [[ "$prefix" =~ ^[0-9]+$ ]]; then
+        log_error "Invalid IPv6 CIDR for $label: $cidr"
         exit 1
+    fi
+    if (( 10#$prefix > 128 )); then
+        log_error "IPv6 prefix length out of range for $label: $cidr (max 128)"
+        exit 1
+    fi
+}
+
+# Validate a single CIDR (IPv4 or IPv6)
+_validate_single_cidr() {
+    local cidr="$1" label="$2"
+    if _is_ipv6 "${cidr%/*}"; then
+        _validate_ipv6_cidr "$cidr" "$label"
+    else
+        # IPv4 CIDR validation
+        if [[ ! "$cidr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]]; then
+            log_error "Invalid CIDR format for $label: $cidr"
+            log_error "Expected format: x.x.x.x/y (e.g., 192.168.0.0/16)"
+            exit 1
+        fi
+        local o1 o2 o3 o4 prefix
+        IFS='./' read -r o1 o2 o3 o4 prefix <<< "$cidr"
+        if (( 10#$o1>255 || 10#$o2>255 || 10#$o3>255 || 10#$o4>255 || 10#$prefix>32 )); then
+            log_error "CIDR values out of range for $label: $cidr"
+            exit 1
+        fi
+    fi
+}
+
+# Validate CIDR format (IPv4, IPv6, or dual-stack comma-separated)
+_validate_cidr() {
+    local cidr="$1" label="$2"
+    if [[ "$cidr" == *,* ]]; then
+        # Dual-stack: validate each CIDR separately
+        local first="${cidr%%,*}"
+        local second="${cidr#*,}"
+        _validate_single_cidr "$first" "$label (first)"
+        _validate_single_cidr "$second" "$label (second)"
+        # Ensure one IPv4 + one IPv6
+        local first_is_v6=false second_is_v6=false
+        _is_ipv6 "${first%/*}" && first_is_v6=true
+        _is_ipv6 "${second%/*}" && second_is_v6=true
+        if [ "$first_is_v6" = "$second_is_v6" ]; then
+            log_error "Dual-stack $label must have one IPv4 and one IPv6 CIDR (got: $cidr)"
+            exit 1
+        fi
+    else
+        _validate_single_cidr "$cidr" "$label"
     fi
 }
 
@@ -150,16 +206,21 @@ validate_ha_args() {
 
     # VIP address applies to both init --ha and join --control-plane
     if [ -n "$HA_VIP_ADDRESS" ]; then
-        # Validate VIP address format (IPv4)
-        if ! [[ "$HA_VIP_ADDRESS" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            log_error "--ha-vip must be a valid IPv4 address (got: $HA_VIP_ADDRESS)"
-            exit 1
-        fi
-        local _vo1 _vo2 _vo3 _vo4
-        IFS='.' read -r _vo1 _vo2 _vo3 _vo4 <<< "$HA_VIP_ADDRESS"
-        if (( 10#$_vo1>255 || 10#$_vo2>255 || 10#$_vo3>255 || 10#$_vo4>255 )); then
-            log_error "--ha-vip octets out of range (got: $HA_VIP_ADDRESS)"
-            exit 1
+        if _is_ipv6 "$HA_VIP_ADDRESS"; then
+            # Validate IPv6 VIP address
+            _validate_ipv6_addr "$HA_VIP_ADDRESS" "--ha-vip"
+        else
+            # Validate IPv4 VIP address
+            if ! [[ "$HA_VIP_ADDRESS" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                log_error "--ha-vip must be a valid IPv4 address (got: $HA_VIP_ADDRESS)"
+                exit 1
+            fi
+            local _vo1 _vo2 _vo3 _vo4
+            IFS='.' read -r _vo1 _vo2 _vo3 _vo4 <<< "$HA_VIP_ADDRESS"
+            if (( 10#$_vo1>255 || 10#$_vo2>255 || 10#$_vo3>255 || 10#$_vo4>255 )); then
+                log_error "--ha-vip octets out of range (got: $HA_VIP_ADDRESS)"
+                exit 1
+            fi
         fi
         # On join, --ha-vip requires --control-plane
         if [ "$ACTION" = "join" ] && [ "$JOIN_AS_CONTROL_PLANE" != true ]; then
@@ -169,12 +230,23 @@ validate_ha_args() {
         # Auto-detect interface if not specified
         if [ -z "$HA_VIP_INTERFACE" ]; then
             local _iproute_out
-            if ! _iproute_out=$(ip route get 1 2>&1); then
-                log_error "Could not auto-detect network interface. Please specify --ha-interface"
-                [ -n "$_iproute_out" ] && log_error "  ip route error: $_iproute_out"
-                exit 1
+            if _is_ipv6 "$HA_VIP_ADDRESS"; then
+                # IPv6: use ip -6 route get
+                if ! _iproute_out=$(ip -6 route get ::1 2>&1); then
+                    log_error "Could not auto-detect network interface. Please specify --ha-interface"
+                    [ -n "$_iproute_out" ] && log_error "  ip route error: $_iproute_out"
+                    exit 1
+                fi
+                HA_VIP_INTERFACE=$(echo "$_iproute_out" | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1); exit}')
+            else
+                # IPv4: use ip route get
+                if ! _iproute_out=$(ip route get 1 2>&1); then
+                    log_error "Could not auto-detect network interface. Please specify --ha-interface"
+                    [ -n "$_iproute_out" ] && log_error "  ip route error: $_iproute_out"
+                    exit 1
+                fi
+                HA_VIP_INTERFACE=$(echo "$_iproute_out" | awk '{print $5; exit}')
             fi
-            HA_VIP_INTERFACE=$(echo "$_iproute_out" | awk '{print $5; exit}')
             if [ -z "$HA_VIP_INTERFACE" ]; then
                 log_error "Could not auto-detect network interface. Please specify --ha-interface"
                 exit 1
@@ -187,7 +259,11 @@ validate_ha_args() {
         fi
         # Auto-set --control-plane-endpoint for init
         if [ "$ACTION" = "init" ] && [ -z "$KUBEADM_CP_ENDPOINT" ]; then
-            KUBEADM_CP_ENDPOINT="${HA_VIP_ADDRESS}:6443"
+            if _is_ipv6 "$HA_VIP_ADDRESS"; then
+                KUBEADM_CP_ENDPOINT="[${HA_VIP_ADDRESS}]:6443"
+            else
+                KUBEADM_CP_ENDPOINT="${HA_VIP_ADDRESS}:6443"
+            fi
         fi
     fi
 }

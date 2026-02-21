@@ -21,10 +21,10 @@ Usage: setup-k8s.sh <init|join|deploy|upgrade> [options]
 |--------|-------------|---------|---------|
 | `--cri RUNTIME` | Container runtime (containerd or crio) | `containerd` | `--cri crio` |
 | `--proxy-mode MODE` | Kube-proxy mode (iptables, ipvs, or nftables) | `iptables` | `--proxy-mode nftables` |
-| `--pod-network-cidr CIDR` | Pod network CIDR | — | `--pod-network-cidr 192.168.0.0/16` |
+| `--pod-network-cidr CIDR` | Pod network CIDR (IPv4, IPv6, or dual-stack comma-separated) | — | `--pod-network-cidr 10.244.0.0/16,fd00:10:244::/48` |
 | `--apiserver-advertise-address ADDR` | API server advertise address | — | `--apiserver-advertise-address 192.168.1.10` |
 | `--control-plane-endpoint ENDPOINT` | Control plane endpoint | — | `--control-plane-endpoint cluster.example.com` |
-| `--service-cidr CIDR` | Service CIDR | — | `--service-cidr 10.96.0.0/12` |
+| `--service-cidr CIDR` | Service CIDR (IPv4, IPv6, or dual-stack comma-separated) | — | `--service-cidr 10.96.0.0/12,fd00:20::/108` |
 | `--kubernetes-version VER` | Kubernetes version | — | `--kubernetes-version 1.29` |
 | `--join-token TOKEN` | Join token (join only) | — | `--join-token abcdef.1234567890abcdef` |
 | `--join-address ADDR` | Control plane address (join only) | — | `--join-address 192.168.1.10:6443` |

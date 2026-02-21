@@ -211,6 +211,52 @@ Key points:
 - Workers join in parallel for faster deployment
 - Compatible with all init/join options (`--cri`, `--proxy-mode`, `--kubernetes-version`, etc.)
 
+## IPv6 / Dual-Stack
+
+Kubernetes 1.23+ supports IPv6 single-stack and IPv4/IPv6 dual-stack networking (GA). setup-k8s automatically detects the address family from the values passed to `--pod-network-cidr`, `--service-cidr`, and `--ha-vip`.
+
+### Dual-Stack
+
+Pass comma-separated CIDRs (one IPv4, one IPv6) to enable dual-stack:
+
+```bash
+sudo ./setup-k8s.sh init \
+  --pod-network-cidr 10.244.0.0/16,fd00:10:244::/48 \
+  --service-cidr 10.96.0.0/12,fd00:20::/108
+```
+
+### IPv6 Single-Stack
+
+Pass IPv6 CIDRs only:
+
+```bash
+sudo ./setup-k8s.sh init \
+  --pod-network-cidr fd00:10:244::/48 \
+  --service-cidr fd00:20::/108
+```
+
+### HA with IPv6 VIP
+
+IPv6 addresses are supported for `--ha-vip`. The control-plane endpoint is automatically formatted with brackets (`[addr]:6443`):
+
+```bash
+sudo ./setup-k8s.sh init \
+  --ha --ha-vip fd00::100 \
+  --pod-network-cidr fd00:10:244::/48
+```
+
+### CNI Plugin Notes
+
+- Ensure your CNI plugin supports dual-stack or IPv6 if using those modes
+- Calico, Cilium, and Flannel all support dual-stack
+- Some CNI plugins may require additional configuration for IPv6
+
+### Requirements
+
+- Kubernetes 1.23+ (dual-stack GA)
+- CNI plugin with IPv6/dual-stack support
+- IPv6 connectivity between nodes (for IPv6 or dual-stack modes)
+
 ## CNI Setup
 Install a Container Network Interface (CNI) plugin:
 ```bash

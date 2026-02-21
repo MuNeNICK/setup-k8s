@@ -292,7 +292,7 @@ spec:
     - name: vip_interface
       value: "${iface}"
     - name: vip_cidr
-      value: "32"
+      value: "$(_is_ipv6 "$vip" && echo "128" || echo "32")"
     - name: cp_enable
       value: "true"
     - name: cp_namespace
@@ -335,10 +335,16 @@ KVEOF
 _rollback_vip() {
     local vip="$HA_VIP_ADDRESS"
     local iface="$HA_VIP_INTERFACE"
-    if ip addr show dev "$iface" 2>/dev/null | grep -q "inet ${vip}/"; then
+    local inet_keyword="inet"
+    local vip_prefix="32"
+    if _is_ipv6 "$vip"; then
+        inet_keyword="inet6"
+        vip_prefix="128"
+    fi
+    if ip addr show dev "$iface" 2>/dev/null | grep -q "${inet_keyword} ${vip}/"; then
         log_info "Rolling back pre-added VIP $vip from $iface..."
         local _vip_err
-        if ! _vip_err=$(ip addr del "${vip}/32" dev "$iface" 2>&1); then
+        if ! _vip_err=$(ip addr del "${vip}/${vip_prefix}" dev "$iface" 2>&1); then
             log_warn "VIP rollback failed: $_vip_err"
         fi
     fi
@@ -397,10 +403,16 @@ deploy_kube_vip() {
     # Pre-add VIP to the interface so it is reachable during kubeadm init
     # before kube-vip can perform leader election.
     # On join nodes, skip pre-add to avoid VIP conflicts with the existing leader.
+    local inet_keyword="inet"
+    local vip_prefix="32"
+    if _is_ipv6 "$vip"; then
+        inet_keyword="inet6"
+        vip_prefix="128"
+    fi
     if [ "$skip_vip_preadd" = false ]; then
-        if ! ip addr show dev "$iface" | grep -q "inet ${vip}/"; then
+        if ! ip addr show dev "$iface" | grep -q "${inet_keyword} ${vip}/"; then
             log_info "Pre-adding VIP $vip to $iface for bootstrap..."
-            ip addr add "${vip}/32" dev "$iface"
+            ip addr add "${vip}/${vip_prefix}" dev "$iface"
         fi
     else
         log_info "Skipping VIP pre-add (join mode, VIP managed by existing leader)"

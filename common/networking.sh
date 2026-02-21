@@ -75,6 +75,7 @@ configure_network_settings() {
 net.bridge.bridge-nf-call-iptables  = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 net.ipv4.ip_forward                 = 1
+net.ipv6.conf.all.forwarding        = 1
 EOF
 
     sysctl -p /etc/sysctl.d/k8s.conf
@@ -109,6 +110,32 @@ reset_iptables() {
         done
     else
         log_warn "iptables command not found, skipping iptables reset"
+    fi
+
+    # Reset K8s-related ip6tables rules
+    if command -v ip6tables &> /dev/null; then
+        log_info "Resetting K8s-related ip6tables rules..."
+        local k8s_chain_prefixes_v6="KUBE- FLANNEL- CNI- CILIUM_ WEAVE-"
+        for table in filter nat mangle; do
+            local rules_v6
+            if ! rules_v6=$(ip6tables -t "$table" -S 2>&1); then
+                log_warn "Could not read ip6tables table '$table': $rules_v6"
+                continue
+            fi
+            for prefix in $k8s_chain_prefixes_v6; do
+                echo "$rules_v6" | sed -n "s/.*-j \(${prefix}[^ ]*\).*/\1/p" | sort -u | while read -r chain; do
+                    ip6tables -t "$table" -D FORWARD -j "$chain" 2>/dev/null || true
+                    ip6tables -t "$table" -D INPUT -j "$chain" 2>/dev/null || true
+                    ip6tables -t "$table" -D OUTPUT -j "$chain" 2>/dev/null || true
+                    ip6tables -t "$table" -D PREROUTING -j "$chain" 2>/dev/null || true
+                    ip6tables -t "$table" -D POSTROUTING -j "$chain" 2>/dev/null || true
+                done
+                echo "$rules_v6" | awk "/^-N ${prefix}/"'{print $2}' | while read -r chain; do
+                    ip6tables -t "$table" -F "$chain" 2>/dev/null || true
+                    ip6tables -t "$table" -X "$chain" 2>/dev/null || true
+                done
+            done
+        done
     fi
 
     # Reset IPVS rules if ipvsadm is available

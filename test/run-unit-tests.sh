@@ -233,6 +233,7 @@ test_generate_kube_vip_manifest() {
     echo "=== Test: _generate_kube_vip_manifest ==="
     (
         source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
         source "$PROJECT_ROOT/common/helpers.sh"
 
         local manifest
@@ -642,6 +643,213 @@ test_upgrade_help_exit() {
 }
 
 # ============================================================
+# Test: _is_ipv6 address family detection
+# ============================================================
+test_is_ipv6() {
+    echo "=== Test: _is_ipv6 address family detection ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        local result
+        _is_ipv6 "192.168.1.1" && result="true" || result="false"
+        _assert_eq "_is_ipv6 IPv4 returns false" "false" "$result"
+
+        _is_ipv6 "fd00::1" && result="true" || result="false"
+        _assert_eq "_is_ipv6 IPv6 returns true" "true" "$result"
+
+        _is_ipv6 "::1" && result="true" || result="false"
+        _assert_eq "_is_ipv6 loopback returns true" "true" "$result"
+
+        _is_ipv6 "2001:db8::1" && result="true" || result="false"
+        _assert_eq "_is_ipv6 full IPv6 returns true" "true" "$result"
+    )
+}
+
+# ============================================================
+# Test: _validate_ipv6_addr
+# ============================================================
+test_validate_ipv6_addr() {
+    echo "=== Test: _validate_ipv6_addr ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        # Valid addresses should pass
+        local exit_code=0
+        (_validate_ipv6_addr "fd00::1" "test") >/dev/null 2>&1 || exit_code=$?
+        _assert_eq "valid IPv6 addr accepted" "0" "$exit_code"
+
+        exit_code=0
+        (_validate_ipv6_addr "2001:db8:85a3::8a2e:370:7334" "test") >/dev/null 2>&1 || exit_code=$?
+        _assert_eq "full IPv6 addr accepted" "0" "$exit_code"
+
+        # Invalid address should fail
+        exit_code=0
+        (_validate_ipv6_addr "not-an-ipv6" "test") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "invalid IPv6 addr rejected" "0" "$exit_code"
+
+        exit_code=0
+        (_validate_ipv6_addr "fd00::xyz" "test") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "IPv6 addr with invalid chars rejected" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: _validate_cidr with IPv6 and dual-stack
+# ============================================================
+test_validate_cidr_ipv6() {
+    echo "=== Test: _validate_cidr IPv6/dual-stack ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        # IPv4 single CIDR still works
+        local exit_code=0
+        (_validate_cidr "10.244.0.0/16" "test") >/dev/null 2>&1 || exit_code=$?
+        _assert_eq "IPv4 single CIDR accepted" "0" "$exit_code"
+
+        # IPv6 single CIDR
+        exit_code=0
+        (_validate_cidr "fd00::/48" "test") >/dev/null 2>&1 || exit_code=$?
+        _assert_eq "IPv6 single CIDR accepted" "0" "$exit_code"
+
+        # Dual-stack CIDR (IPv4 + IPv6)
+        exit_code=0
+        (_validate_cidr "10.244.0.0/16,fd00:10:244::/48" "test") >/dev/null 2>&1 || exit_code=$?
+        _assert_eq "dual-stack CIDR accepted" "0" "$exit_code"
+
+        # Dual-stack with two IPv4 CIDRs should fail
+        exit_code=0
+        (_validate_cidr "10.244.0.0/16,10.245.0.0/16" "test") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "two IPv4 CIDRs rejected" "0" "$exit_code"
+
+        # Dual-stack with two IPv6 CIDRs should fail
+        exit_code=0
+        (_validate_cidr "fd00::/48,fd01::/48" "test") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "two IPv6 CIDRs rejected" "0" "$exit_code"
+
+        # Invalid IPv6 CIDR
+        exit_code=0
+        (_validate_cidr "xyz::/48" "test") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "invalid IPv6 CIDR rejected" "0" "$exit_code"
+
+        # IPv6 prefix out of range
+        exit_code=0
+        (_validate_cidr "fd00::/200" "test") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "IPv6 prefix >128 rejected" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: parse_setup_args with IPv6/dual-stack CIDRs
+# ============================================================
+test_parse_setup_args_ipv6() {
+    echo "=== Test: parse_setup_args IPv6/dual-stack ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        ACTION="init"
+        parse_setup_args --pod-network-cidr "fd00:10:244::/48" --service-cidr "fd00:20::/108"
+        _assert_eq "IPv6 pod CIDR parsed" "fd00:10:244::/48" "$KUBEADM_POD_CIDR"
+        _assert_eq "IPv6 service CIDR parsed" "fd00:20::/108" "$KUBEADM_SERVICE_CIDR"
+    )
+}
+
+test_parse_setup_args_dual_stack() {
+    echo "=== Test: parse_setup_args dual-stack ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        ACTION="init"
+        parse_setup_args --pod-network-cidr "10.244.0.0/16,fd00:10:244::/48" \
+                         --service-cidr "10.96.0.0/12,fd00:20::/108"
+        _assert_eq "dual-stack pod CIDR parsed" "10.244.0.0/16,fd00:10:244::/48" "$KUBEADM_POD_CIDR"
+        _assert_eq "dual-stack service CIDR parsed" "10.96.0.0/12,fd00:20::/108" "$KUBEADM_SERVICE_CIDR"
+    )
+}
+
+# ============================================================
+# Test: validate_ha_args with IPv6 VIP
+# ============================================================
+test_validate_ha_args_ipv6() {
+    echo "=== Test: validate_ha_args IPv6 VIP ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        # IPv6 VIP with explicit interface should pass
+        ACTION="join"
+        JOIN_AS_CONTROL_PLANE=true
+        HA_VIP_ADDRESS="fd00::100"
+        HA_VIP_INTERFACE="eth0"
+        validate_ha_args
+        _assert_eq "IPv6 VIP accepted" "fd00::100" "$HA_VIP_ADDRESS"
+
+        # IPv6 VIP on init should set bracketed CP endpoint
+        ACTION="init"
+        HA_ENABLED=true
+        HA_VIP_ADDRESS="fd00::100"
+        HA_VIP_INTERFACE="eth0"
+        KUBEADM_CP_ENDPOINT=""
+        validate_ha_args
+        _assert_eq "IPv6 CP endpoint bracketed" "[fd00::100]:6443" "$KUBEADM_CP_ENDPOINT"
+    )
+}
+
+# ============================================================
+# Test: join-address error message contains IPv6 example
+# ============================================================
+test_join_address_ipv6_example() {
+    echo "=== Test: join-address error message IPv6 example ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        ACTION="join"
+        JOIN_TOKEN="abcdef.1234567890abcdef"
+        DISCOVERY_TOKEN_HASH="sha256:$(printf '%064d' 0)"
+        JOIN_ADDRESS="noport"
+        local err_output
+        err_output=$(validate_join_args 2>&1) || true
+        local has_ipv6_example="false"
+        if echo "$err_output" | grep -q '\[::1\]:6443'; then has_ipv6_example="true"; fi
+        _assert_eq "join error contains IPv6 example" "true" "$has_ipv6_example"
+    )
+}
+
+# ============================================================
+# Test: _generate_kube_vip_manifest IPv6 VIP cidr
+# ============================================================
+test_generate_kube_vip_manifest_ipv6() {
+    echo "=== Test: _generate_kube_vip_manifest IPv6 ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+        source "$PROJECT_ROOT/common/helpers.sh"
+
+        local manifest
+        manifest=$(_generate_kube_vip_manifest "fd00::100" "eth0" "ghcr.io/kube-vip/kube-vip:v0.8.9" "/etc/kubernetes/super-admin.conf")
+
+        local has_cidr_128="false"
+        if echo "$manifest" | grep -q 'value: "128"'; then has_cidr_128="true"; fi
+        _assert_eq "IPv6 manifest has vip_cidr 128" "true" "$has_cidr_128"
+
+        local has_vip="false"
+        if echo "$manifest" | grep -q 'value: "fd00::100"'; then has_vip="true"; fi
+        _assert_eq "IPv6 manifest contains VIP" "true" "$has_vip"
+
+        # IPv4 should still get cidr 32
+        manifest=$(_generate_kube_vip_manifest "10.0.0.100" "eth0" "ghcr.io/kube-vip/kube-vip:v0.8.9" "/etc/kubernetes/super-admin.conf")
+        local has_cidr_32="false"
+        if echo "$manifest" | grep -q 'value: "32"'; then has_cidr_32="true"; fi
+        _assert_eq "IPv4 manifest has vip_cidr 32" "true" "$has_cidr_32"
+    )
+}
+
+# ============================================================
 # Run all tests
 # ============================================================
 echo "Running setup-k8s unit tests..."
@@ -674,6 +882,14 @@ test_validate_upgrade_version
 test_detect_node_role
 test_help_contains_upgrade
 test_upgrade_help_exit
+test_is_ipv6
+test_validate_ipv6_addr
+test_validate_cidr_ipv6
+test_parse_setup_args_ipv6
+test_parse_setup_args_dual_stack
+test_validate_ha_args_ipv6
+test_join_address_ipv6_example
+test_generate_kube_vip_manifest_ipv6
 
 echo ""
 TESTS_RUN=$(wc -l < "$_RESULTS_FILE")
