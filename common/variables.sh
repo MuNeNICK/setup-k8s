@@ -53,6 +53,12 @@ DEPLOY_SSH_KNOWN_HOSTS_FILE=""
 DEPLOY_SSH_HOST_KEY_CHECK="${DEPLOY_SSH_HOST_KEY_CHECK:-yes}"
 DEPLOY_PASSTHROUGH_ARGS=()
 
+# Upgrade subcommand
+UPGRADE_TARGET_VERSION=""            # MAJOR.MINOR.PATCH (e.g., 1.33.2)
+UPGRADE_FIRST_CONTROL_PLANE=false    # kubeadm upgrade apply (first CP) vs kubeadm upgrade node
+UPGRADE_SKIP_DRAIN=false             # Skip drain/uncordon in remote mode
+UPGRADE_PASSTHROUGH_ARGS=()          # Arguments to forward to remote nodes
+
 # Version constants (overridable via environment)
 KUBE_VIP_VERSION="${KUBE_VIP_VERSION:-v0.8.9}"
 PAUSE_IMAGE_VERSION="${PAUSE_IMAGE_VERSION:-3.10}"

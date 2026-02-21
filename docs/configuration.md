@@ -138,6 +138,68 @@ sudo ./setup-k8s.sh join \
 - The network interface is auto-detected from the default route if `--ha-interface` is omitted.
 - Both containerd and CRI-O are supported as container runtimes.
 
+## Cluster Upgrade
+
+The `upgrade` subcommand automates Kubernetes version upgrades following the official kubeadm upgrade procedure. It supports both local execution (on each node individually) and remote orchestration (from a local machine via SSH).
+
+### Upgrade Constraints
+
+- Version must be in `MAJOR.MINOR.PATCH` format (e.g., `1.33.2`)
+- Only +1 minor version upgrades are allowed (Kubernetes skew policy)
+- Downgrades are not supported
+- Patch version upgrades within the same minor version are allowed
+
+### Local Mode
+
+Run directly on each node with `sudo`. Useful for manual, node-by-node upgrades.
+
+```bash
+# First control-plane node (runs kubeadm upgrade apply)
+sudo ./setup-k8s.sh upgrade --kubernetes-version 1.33.2 --first-control-plane
+
+# Additional control-plane nodes and workers (runs kubeadm upgrade node)
+sudo ./setup-k8s.sh upgrade --kubernetes-version 1.33.2
+```
+
+For single-node clusters, use `--skip-drain` to avoid draining the only node:
+
+```bash
+sudo ./setup-k8s.sh upgrade --kubernetes-version 1.33.2 --first-control-plane --skip-drain
+```
+
+### Remote Mode
+
+Orchestrate the entire cluster upgrade from a local machine via SSH. The script handles drain, upgrade, and uncordon for each node sequentially.
+
+```bash
+./setup-k8s.sh upgrade \
+  --control-planes 10.0.0.1,10.0.0.2 \
+  --workers 10.0.0.3,10.0.0.4 \
+  --kubernetes-version 1.33.2 \
+  --ssh-key ~/.ssh/id_rsa
+```
+
+The orchestration flow:
+1. Generate and transfer a self-contained bundle to all nodes
+2. Check current cluster version and validate upgrade constraints
+3. Run `kubeadm upgrade plan` (informational)
+4. For each control-plane node: drain, upgrade, uncordon (first CP uses `kubeadm upgrade apply`, others use `kubeadm upgrade node`)
+5. For each worker node: drain, upgrade, uncordon
+6. Verify cluster state with `kubectl get nodes`
+
+### Error Handling
+
+- **Drain timeout**: The upgrade stops at the failing node. The node remains cordoned.
+- **Upgrade failure**: The process stops. Some nodes may be in mixed-version state (allowed by Kubernetes skew policy).
+- **kubelet restart failure**: A warning is logged but the process continues (kubelet may take time to stabilize).
+- No automatic rollback is performed. Manual intervention may be required for partially upgraded clusters.
+
+### Requirements
+
+- SSH access to all nodes (same requirements as the `deploy` subcommand)
+- `kubeadm`, `kubelet`, and `kubectl` must already be installed on all nodes
+- The target version packages must be available in the distribution's package repository
+
 ## Remote Deployment via SSH
 
 For deploying to multiple nodes without manually running `init`/`join` on each, use the `deploy` subcommand. See [Reference - Deploy Options](reference.md#deploy-options) for full usage.

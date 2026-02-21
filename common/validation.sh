@@ -595,6 +595,295 @@ validate_deploy_args() {
     done
 }
 
+# Help message for upgrade
+show_upgrade_help() {
+    echo "Usage: $0 upgrade [options]"
+    echo ""
+    echo "Upgrade a Kubernetes cluster to a new version."
+    echo ""
+    echo "Local mode (run on each node with sudo):"
+    echo "  Required:"
+    echo "    --kubernetes-version VER  Target version in MAJOR.MINOR.PATCH format (e.g., 1.33.2)"
+    echo ""
+    echo "  Optional:"
+    echo "    --first-control-plane     Run 'kubeadm upgrade apply' (first CP only)"
+    echo "    --skip-drain              Skip drain/uncordon (for single-node clusters)"
+    echo "    --verbose                 Enable debug logging"
+    echo "    --quiet                   Suppress informational messages"
+    echo "    --help                    Display this help message"
+    echo ""
+    echo "Remote mode (orchestrate from local machine via SSH):"
+    echo "  Required:"
+    echo "    --control-planes IPs      Comma-separated control-plane nodes (user@ip or ip)"
+    echo "    --kubernetes-version VER  Target version in MAJOR.MINOR.PATCH format"
+    echo ""
+    echo "  Optional:"
+    echo "    --workers IPs             Comma-separated worker nodes (user@ip or ip)"
+    echo "    --ssh-user USER           Default SSH user (default: root)"
+    echo "    --ssh-port PORT           SSH port (default: 22)"
+    echo "    --ssh-key PATH            Path to SSH private key"
+    echo "    --ssh-password PASS       SSH password (requires sshpass; prefer DEPLOY_SSH_PASSWORD env var)"
+    echo "    --ssh-known-hosts FILE    Pre-seeded known_hosts for host key verification"
+    echo "    --ssh-host-key-check MODE SSH host key policy: yes, no, or accept-new (default: yes)"
+    echo "    --skip-drain              Skip drain/uncordon for all nodes"
+    echo "    --dry-run                 Show upgrade plan and exit"
+    echo "    --verbose                 Enable debug logging"
+    echo "    --quiet                   Suppress informational messages"
+    echo "    --help                    Display this help message"
+    echo ""
+    echo "Examples:"
+    echo "  # Local: first control-plane"
+    echo "  sudo $0 upgrade --kubernetes-version 1.33.2 --first-control-plane"
+    echo ""
+    echo "  # Local: additional control-plane or worker"
+    echo "  sudo $0 upgrade --kubernetes-version 1.33.2"
+    echo ""
+    echo "  # Remote: full cluster upgrade"
+    echo "  $0 upgrade --control-planes 10.0.0.1,10.0.0.2 --workers 10.0.0.3 --kubernetes-version 1.33.2 --ssh-key ~/.ssh/id_rsa"
+    echo ""
+    echo "  # Single-node (skip drain)"
+    echo "  sudo $0 upgrade --kubernetes-version 1.33.2 --first-control-plane --skip-drain"
+    exit "${1:-0}"
+}
+
+# Parse command line arguments for upgrade (local mode)
+parse_upgrade_local_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --help|-h)
+                show_upgrade_help
+                ;;
+            --kubernetes-version)
+                _require_value $# "$1" "${2:-}"
+                if ! [[ "$2" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    log_error "--kubernetes-version for upgrade must be MAJOR.MINOR.PATCH (e.g., 1.33.2)"
+                    exit 1
+                fi
+                UPGRADE_TARGET_VERSION="$2"
+                shift 2
+                ;;
+            --first-control-plane)
+                # shellcheck disable=SC2034 # used by common/upgrade.sh
+                UPGRADE_FIRST_CONTROL_PLANE=true
+                shift
+                ;;
+            --skip-drain)
+                # shellcheck disable=SC2034 # used by common/upgrade.sh
+                UPGRADE_SKIP_DRAIN=true
+                shift
+                ;;
+            *)
+                log_error "Unknown upgrade option: $1"
+                show_upgrade_help 1
+                ;;
+        esac
+    done
+    if [ -z "$UPGRADE_TARGET_VERSION" ]; then
+        log_error "--kubernetes-version is required for upgrade"
+        exit 1
+    fi
+}
+
+# Parse command line arguments for upgrade (remote/deploy mode)
+parse_upgrade_deploy_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --help|-h)
+                show_upgrade_help
+                ;;
+            --control-planes)
+                _require_value $# "$1" "${2:-}"
+                DEPLOY_CONTROL_PLANES="$2"
+                shift 2
+                ;;
+            --workers)
+                _require_value $# "$1" "${2:-}"
+                DEPLOY_WORKERS="$2"
+                shift 2
+                ;;
+            --ssh-user)
+                _require_value $# "$1" "${2:-}"
+                DEPLOY_SSH_USER="$2"
+                shift 2
+                ;;
+            --ssh-port)
+                _require_value $# "$1" "${2:-}"
+                DEPLOY_SSH_PORT="$2"
+                shift 2
+                ;;
+            --ssh-key)
+                _require_value $# "$1" "${2:-}"
+                DEPLOY_SSH_KEY="$2"
+                shift 2
+                ;;
+            --ssh-password)
+                if [[ $# -lt 2 ]]; then
+                    log_error "$1 requires a value"
+                    exit 1
+                fi
+                log_warn "--ssh-password exposes the password in the process list. Prefer DEPLOY_SSH_PASSWORD env var."
+                DEPLOY_SSH_PASSWORD="$2"
+                shift 2
+                ;;
+            --ssh-known-hosts)
+                _require_value $# "$1" "${2:-}"
+                DEPLOY_SSH_KNOWN_HOSTS_FILE="$2"
+                shift 2
+                ;;
+            --ssh-host-key-check)
+                _require_value $# "$1" "${2:-}"
+                if [[ "$2" != "yes" && "$2" != "no" && "$2" != "accept-new" ]]; then
+                    log_error "--ssh-host-key-check must be 'yes', 'no', or 'accept-new'"
+                    exit 1
+                fi
+                if [[ "$2" == "no" ]]; then
+                    log_warn "Disabling SSH host key verification allows MITM attacks. Consider 'accept-new' instead."
+                fi
+                # shellcheck disable=SC2034 # used by common/deploy.sh
+                DEPLOY_SSH_HOST_KEY_CHECK="$2"
+                shift 2
+                ;;
+            --kubernetes-version)
+                _require_value $# "$1" "${2:-}"
+                if ! [[ "$2" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    log_error "--kubernetes-version for upgrade must be MAJOR.MINOR.PATCH (e.g., 1.33.2)"
+                    exit 1
+                fi
+                UPGRADE_TARGET_VERSION="$2"
+                UPGRADE_PASSTHROUGH_ARGS+=("$1" "$2")
+                shift 2
+                ;;
+            --skip-drain)
+                # shellcheck disable=SC2034 # used by common/upgrade.sh
+                UPGRADE_SKIP_DRAIN=true
+                UPGRADE_PASSTHROUGH_ARGS+=("$1")
+                shift
+                ;;
+            *)
+                log_error "Unknown upgrade option: $1"
+                show_upgrade_help 1
+                ;;
+        esac
+    done
+}
+
+# Validate upgrade deploy arguments (reuses address validation patterns from validate_deploy_args)
+validate_upgrade_deploy_args() {
+    # --control-planes is required
+    if [ -z "$DEPLOY_CONTROL_PLANES" ]; then
+        log_error "--control-planes is required for upgrade"
+        exit 1
+    fi
+
+    # --kubernetes-version is required
+    if [ -z "$UPGRADE_TARGET_VERSION" ]; then
+        log_error "--kubernetes-version is required for upgrade"
+        exit 1
+    fi
+
+    # Normalize node lists
+    _normalize_node_list() {
+        local raw="$1" result=() cleaned=() token
+        IFS=',' read -ra result <<< "$raw"
+        for token in "${result[@]}"; do
+            token="${token#"${token%%[![:space:]]*}"}"
+            token="${token%"${token##*[![:space:]]}"}"
+            [ -n "$token" ] && cleaned+=("$token")
+        done
+        local IFS=','
+        echo "${cleaned[*]}"
+    }
+    DEPLOY_CONTROL_PLANES=$(_normalize_node_list "$DEPLOY_CONTROL_PLANES")
+    [ -n "$DEPLOY_WORKERS" ] && DEPLOY_WORKERS=$(_normalize_node_list "$DEPLOY_WORKERS")
+
+    if [ -z "$DEPLOY_CONTROL_PLANES" ]; then
+        log_error "--control-planes contains no valid node addresses"
+        exit 1
+    fi
+
+    # Validate SSH user
+    if [ -n "$DEPLOY_SSH_USER" ] && ! [[ "$DEPLOY_SSH_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_.-]*$ ]]; then
+        log_error "Invalid SSH user: $DEPLOY_SSH_USER"
+        exit 1
+    fi
+
+    # Validate SSH key file
+    if [ -n "$DEPLOY_SSH_KEY" ] && [ ! -f "$DEPLOY_SSH_KEY" ]; then
+        log_error "SSH key file not found: $DEPLOY_SSH_KEY"
+        exit 1
+    fi
+
+    # Validate known_hosts file
+    if [ -n "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ] && [ ! -f "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
+        log_error "Known hosts file not found: $DEPLOY_SSH_KNOWN_HOSTS_FILE"
+        exit 1
+    fi
+
+    # Check sshpass if password authentication is used
+    if [ -n "$DEPLOY_SSH_PASSWORD" ] && ! command -v sshpass &>/dev/null; then
+        log_error "sshpass is required for --ssh-password. Install it with your package manager."
+        exit 1
+    fi
+
+    # Validate port number
+    if ! [[ "$DEPLOY_SSH_PORT" =~ ^[0-9]+$ ]] || [ "$DEPLOY_SSH_PORT" -lt 1 ] || [ "$DEPLOY_SSH_PORT" -gt 65535 ]; then
+        log_error "Invalid SSH port: $DEPLOY_SSH_PORT"
+        exit 1
+    fi
+
+    # Validate node addresses
+    local all_addrs="$DEPLOY_CONTROL_PLANES"
+    [ -n "$DEPLOY_WORKERS" ] && all_addrs="$all_addrs,$DEPLOY_WORKERS"
+    IFS=',' read -ra _all_nodes <<< "$all_addrs"
+
+    # Check for duplicate host addresses
+    local -A _seen_hosts=()
+    for addr in "${_all_nodes[@]}"; do
+        local host="${addr#*@}"
+        if [ -n "${_seen_hosts[$host]:-}" ]; then
+            log_error "Duplicate node address: $host"
+            exit 1
+        fi
+        _seen_hosts[$host]="$addr"
+    done
+
+    for addr in "${_all_nodes[@]}"; do
+        if [[ "$addr" == *@* ]]; then
+            local username="${addr%%@*}"
+            if [ -z "$username" ]; then
+                log_error "Empty username in node address: $addr"
+                exit 1
+            fi
+            if [[ "$username" == -* ]]; then
+                log_error "Invalid username (starts with '-'): $username"
+                exit 1
+            fi
+            if ! [[ "$username" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+                log_error "Invalid username: $username"
+                exit 1
+            fi
+        fi
+        local host="${addr#*@}"
+        if [ -z "$host" ]; then
+            log_error "Empty node address in list"
+            exit 1
+        fi
+        if [[ "$host" =~ ^\[.*\]$ ]]; then
+            local ipv6_inner="${host:1:${#host}-2}"
+            if ! [[ "$ipv6_inner" =~ ^[a-fA-F0-9:]+$ ]]; then
+                log_error "Invalid IPv6 address: $host"
+                exit 1
+            fi
+        elif [[ "$host" == *:* ]]; then
+            log_error "IPv6 addresses must be enclosed in brackets, e.g., [$host]"
+            exit 1
+        elif ! [[ "$host" =~ ^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$ ]]; then
+            log_error "Invalid node address: $host"
+            exit 1
+        fi
+    done
+}
+
 # Parse command line arguments for cleanup
 parse_cleanup_args() {
     while [[ $# -gt 0 ]]; do

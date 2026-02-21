@@ -483,6 +483,165 @@ test_deploy_parse_swap_enabled() {
 }
 
 # ============================================================
+# Test: UPGRADE_* variable defaults
+# ============================================================
+test_upgrade_variables_defaults() {
+    echo "=== Test: UPGRADE_* variable defaults ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        _assert_eq "UPGRADE_TARGET_VERSION default" "" "$UPGRADE_TARGET_VERSION"
+        _assert_eq "UPGRADE_FIRST_CONTROL_PLANE default" "false" "$UPGRADE_FIRST_CONTROL_PLANE"
+        _assert_eq "UPGRADE_SKIP_DRAIN default" "false" "$UPGRADE_SKIP_DRAIN"
+    )
+}
+
+# ============================================================
+# Test: parse_upgrade_local_args
+# ============================================================
+test_parse_upgrade_local_args() {
+    echo "=== Test: parse_upgrade_local_args ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        parse_upgrade_local_args --kubernetes-version 1.33.2 --first-control-plane --skip-drain
+        _assert_eq "UPGRADE_TARGET_VERSION parsed" "1.33.2" "$UPGRADE_TARGET_VERSION"
+        _assert_eq "UPGRADE_FIRST_CONTROL_PLANE parsed" "true" "$UPGRADE_FIRST_CONTROL_PLANE"
+        _assert_eq "UPGRADE_SKIP_DRAIN parsed" "true" "$UPGRADE_SKIP_DRAIN"
+    )
+}
+
+# ============================================================
+# Test: upgrade --kubernetes-version format validation
+# ============================================================
+test_upgrade_version_format() {
+    echo "=== Test: upgrade --kubernetes-version format validation ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        # MAJOR.MINOR should be rejected (must be MAJOR.MINOR.PATCH)
+        local exit_code=0
+        (parse_upgrade_local_args --kubernetes-version 1.33) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "MAJOR.MINOR rejected" "0" "$exit_code"
+
+        # MAJOR.MINOR.PATCH should be accepted
+        exit_code=0
+        (parse_upgrade_local_args --kubernetes-version 1.33.2) >/dev/null 2>&1 || exit_code=$?
+        _assert_eq "MAJOR.MINOR.PATCH accepted" "0" "$exit_code"
+
+        # Missing --kubernetes-version should be rejected
+        exit_code=0
+        (parse_upgrade_local_args --first-control-plane) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "missing --kubernetes-version rejected" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: _version_minor extraction
+# ============================================================
+test_version_minor() {
+    echo "=== Test: _version_minor extraction ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/upgrade.sh"
+
+        _assert_eq "_version_minor 1.33.2" "1.33" "$(_version_minor "1.33.2")"
+        _assert_eq "_version_minor 1.28.0" "1.28" "$(_version_minor "1.28.0")"
+        _assert_eq "_version_minor 2.0.1" "2.0" "$(_version_minor "2.0.1")"
+    )
+}
+
+# ============================================================
+# Test: _validate_upgrade_version constraints
+# ============================================================
+test_validate_upgrade_version() {
+    echo "=== Test: _validate_upgrade_version constraints ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/upgrade.sh"
+
+        # +1 minor should be OK
+        local exit_code=0
+        (_validate_upgrade_version "1.32.0" "1.33.2") >/dev/null 2>&1 || exit_code=$?
+        _assert_eq "+1 minor allowed" "0" "$exit_code"
+
+        # Same minor, higher patch should be OK
+        exit_code=0
+        (_validate_upgrade_version "1.32.0" "1.32.5") >/dev/null 2>&1 || exit_code=$?
+        _assert_eq "patch upgrade allowed" "0" "$exit_code"
+
+        # +2 minor should be rejected
+        exit_code=0
+        (_validate_upgrade_version "1.31.0" "1.33.0") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "+2 minor rejected" "0" "$exit_code"
+
+        # Downgrade should be rejected
+        exit_code=0
+        (_validate_upgrade_version "1.33.0" "1.32.0") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "downgrade rejected" "0" "$exit_code"
+
+        # Same version should be rejected
+        exit_code=0
+        (_validate_upgrade_version "1.33.2" "1.33.2") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "same version rejected" "0" "$exit_code"
+
+        # Patch downgrade should be rejected
+        exit_code=0
+        (_validate_upgrade_version "1.33.5" "1.33.2") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "patch downgrade rejected" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: _detect_node_role
+# ============================================================
+test_detect_node_role() {
+    echo "=== Test: _detect_node_role ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/upgrade.sh"
+
+        # Without kube-apiserver manifest → worker
+        local role
+        role=$(_detect_node_role)
+        _assert_eq "no manifest = worker" "worker" "$role"
+
+        # With UPGRADE_FIRST_CONTROL_PLANE=false and no manifest → worker
+        UPGRADE_FIRST_CONTROL_PLANE=true
+        role=$(_detect_node_role)
+        _assert_eq "no manifest + first-cp flag = still worker" "worker" "$role"
+    )
+}
+
+# ============================================================
+# Test: help text contains 'upgrade'
+# ============================================================
+test_help_contains_upgrade() {
+    echo "=== Test: help text contains upgrade ==="
+    (
+        local help_out
+        help_out=$(bash "$PROJECT_ROOT/setup-k8s.sh" --help 2>&1)
+        local has_upgrade="false"
+        if echo "$help_out" | grep -q 'upgrade'; then has_upgrade="true"; fi
+        _assert_eq "help contains upgrade" "true" "$has_upgrade"
+    )
+}
+
+# ============================================================
+# Test: upgrade --help exits 0
+# ============================================================
+test_upgrade_help_exit() {
+    echo "=== Test: upgrade --help exits 0 ==="
+    _assert_exit_code "setup-k8s.sh upgrade --help exits 0" 0 bash "$PROJECT_ROOT/setup-k8s.sh" upgrade --help
+}
+
+# ============================================================
 # Run all tests
 # ============================================================
 echo "Running setup-k8s unit tests..."
@@ -507,6 +666,14 @@ test_parse_swap_enabled
 test_validate_swap_enabled
 test_help_contains_swap
 test_deploy_parse_swap_enabled
+test_upgrade_variables_defaults
+test_parse_upgrade_local_args
+test_upgrade_version_format
+test_version_minor
+test_validate_upgrade_version
+test_detect_node_role
+test_help_contains_upgrade
+test_upgrade_help_exit
 
 echo ""
 TESTS_RUN=$(wc -l < "$_RESULTS_FILE")

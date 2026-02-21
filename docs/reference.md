@@ -3,7 +3,7 @@
 ## setup-k8s.sh
 
 ```
-Usage: setup-k8s.sh <init|join|deploy> [options]
+Usage: setup-k8s.sh <init|join|deploy|upgrade> [options]
 ```
 
 ### Subcommands
@@ -13,6 +13,7 @@ Usage: setup-k8s.sh <init|join|deploy> [options]
 | `init` | Initialize a new Kubernetes cluster |
 | `join` | Join an existing cluster as a worker or control-plane node |
 | `deploy` | Deploy a cluster across remote nodes via SSH |
+| `upgrade` | Upgrade cluster Kubernetes version |
 
 ### Options
 
@@ -59,6 +60,37 @@ Options specific to the `deploy` subcommand. Init/join options like `--cri`, `--
 | `--ha-vip ADDRESS` | VIP for HA (required when >1 control-plane) | — | `--ha-vip 10.0.0.100` |
 | `--ha-interface IFACE` | Network interface for VIP | auto-detect | `--ha-interface eth0` |
 | `--dry-run` | Show deployment plan and exit | — | `--dry-run` |
+
+### Upgrade Options (local mode)
+
+Options for the `upgrade` subcommand when run locally with `sudo`.
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `--kubernetes-version VER` | Target version in MAJOR.MINOR.PATCH format | — (required) | `--kubernetes-version 1.33.2` |
+| `--first-control-plane` | Run `kubeadm upgrade apply` (first CP only) | — | `--first-control-plane` |
+| `--skip-drain` | Skip drain/uncordon | — | `--skip-drain` |
+| `--verbose` | Enable debug logging | — | `--verbose` |
+| `--quiet` | Suppress informational messages | — | `--quiet` |
+| `--help` | Display help message | — | `--help` |
+
+### Upgrade Options (remote mode)
+
+Options for the `upgrade` subcommand when orchestrating remotely via SSH. SSH options (`--ssh-user`, `--ssh-port`, `--ssh-key`, `--ssh-password`, `--ssh-known-hosts`, `--ssh-host-key-check`) follow the same behavior as the `deploy` subcommand.
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `--control-planes IPs` | Comma-separated control-plane nodes (user@ip or ip) | — (required) | `--control-planes 10.0.0.1,10.0.0.2` |
+| `--workers IPs` | Comma-separated worker nodes (user@ip or ip) | — | `--workers 10.0.0.3,10.0.0.4` |
+| `--kubernetes-version VER` | Target version in MAJOR.MINOR.PATCH format | — (required) | `--kubernetes-version 1.33.2` |
+| `--ssh-user USER` | Default SSH user | `root` | `--ssh-user ubuntu` |
+| `--ssh-port PORT` | SSH port | `22` | `--ssh-port 2222` |
+| `--ssh-key PATH` | Path to SSH private key | — | `--ssh-key ~/.ssh/id_rsa` |
+| `--ssh-password PASS` | SSH password (requires sshpass) | — | `DEPLOY_SSH_PASSWORD=secret bash setup-k8s.sh upgrade ...` |
+| `--ssh-known-hosts FILE` | Pre-seeded known_hosts file | — | `--ssh-known-hosts ~/.ssh/known_hosts` |
+| `--ssh-host-key-check MODE` | SSH host key policy (`yes`, `no`, or `accept-new`) | `yes` | `--ssh-host-key-check accept-new` |
+| `--skip-drain` | Skip drain/uncordon for all nodes | — | `--skip-drain` |
+| `--dry-run` | Show upgrade plan and exit | — | `--dry-run` |
 
 ## cleanup-k8s.sh
 

@@ -14,3 +14,19 @@ setup_kubernetes_generic() {
     fi
     log_info "kubeadm, kubelet, and kubectl found, continuing with existing installation."
 }
+
+# Upgrade kubeadm for generic distributions
+upgrade_kubeadm_generic() {
+    local target="$1"
+    log_error "Automatic kubeadm upgrade is not supported for this distribution."
+    log_error "Please manually upgrade kubeadm to v${target} and re-run this command."
+    return 1
+}
+
+# Upgrade kubelet and kubectl for generic distributions
+upgrade_kubelet_kubectl_generic() {
+    local target="$1"
+    log_error "Automatic kubelet/kubectl upgrade is not supported for this distribution."
+    log_error "Please manually upgrade kubelet and kubectl to v${target} and re-run this command."
+    return 1
+}

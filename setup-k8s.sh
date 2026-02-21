@@ -35,17 +35,18 @@ while [ $i -lt ${#original_args[@]} ]; do
     # shellcheck disable=SC2034 # LOG_LEVEL used by logging module
     case "$arg" in
         --help|-h)
-            # Deploy --help is deferred to deploy parser
-            if [ "$_action_detected" = true ] && [ "$ACTION" = "deploy" ]; then
+            # Deploy/upgrade --help is deferred to their parsers
+            if [ "$_action_detected" = true ] && { [ "$ACTION" = "deploy" ] || [ "$ACTION" = "upgrade" ]; }; then
                 cli_args+=("$arg")
             else
                 cat <<'HELPEOF'
-Usage: setup-k8s.sh <init|join|deploy> [options]
+Usage: setup-k8s.sh <init|join|deploy|upgrade> [options]
 
 Subcommands:
   init                    Initialize a new Kubernetes cluster
   join                    Join an existing cluster as a worker or control-plane node
   deploy                  Deploy a cluster across remote nodes via SSH
+  upgrade                 Upgrade cluster Kubernetes version
 
 Options (init/join):
   --cri RUNTIME           Container runtime (containerd or crio). Default: containerd
@@ -84,6 +85,15 @@ Options (deploy):
   --ha-vip ADDRESS        VIP for HA (required when >1 control-plane)
 
   Run 'setup-k8s.sh deploy --help' for deploy-specific details.
+
+Options (upgrade):
+  --kubernetes-version VER  Target version in MAJOR.MINOR.PATCH format (e.g., 1.33.2)
+  --first-control-plane     Run 'kubeadm upgrade apply' (first CP only)
+  --skip-drain              Skip drain/uncordon (for single-node clusters)
+  --control-planes IPs      Remote mode: comma-separated control-plane nodes
+  --workers IPs             Remote mode: comma-separated worker nodes
+
+  Run 'setup-k8s.sh upgrade --help' for upgrade-specific details.
 HELPEOF
                 exit 0
             fi
@@ -101,7 +111,7 @@ HELPEOF
             DRY_RUN=true
             ((i += 1))
             ;;
-        --ha|--control-plane|--swap-enabled)
+        --ha|--control-plane|--swap-enabled|--first-control-plane|--skip-drain)
             cli_args+=("$arg")
             ((i += 1))
             ;;
@@ -119,7 +129,7 @@ HELPEOF
             # First non-flag positional argument is the subcommand (strip it from cli_args)
             if [ "$_action_detected" = false ]; then
                 case "$arg" in
-                    init|join|deploy)
+                    init|join|deploy|upgrade)
                         ACTION="$arg"
                         _action_detected=true
                         ((i += 1))
@@ -223,6 +233,101 @@ main() {
 
         deploy_cluster
         exit $?
+    fi
+
+    # Upgrade subcommand: local or remote mode
+    if [ "$ACTION" = "upgrade" ]; then
+        # Detect mode: --control-planes present → remote mode, otherwise → local mode
+        local _upgrade_remote=false
+        for _uarg in "${cli_args[@]}"; do
+            if [ "$_uarg" = "--control-planes" ]; then
+                _upgrade_remote=true
+                break
+            fi
+        done
+
+        if [ "$_upgrade_remote" = true ]; then
+            # Remote mode: orchestrate upgrade via SSH (no root required locally)
+            if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3) )); then
+                echo "Error: Upgrade remote mode requires Bash 4.3+ (current: $BASH_VERSION)" >&2
+                exit 1
+            fi
+
+            local upgrade_deploy_modules=(variables logging validation deploy upgrade)
+            if [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; then
+                for module in "${upgrade_deploy_modules[@]}"; do
+                    if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
+                        source "$SCRIPT_DIR/common/${module}.sh"
+                    else
+                        echo "Error: Required module common/${module}.sh not found in $SCRIPT_DIR" >&2
+                        exit 1
+                    fi
+                done
+            else
+                load_deploy_modules
+                for module in "${upgrade_deploy_modules[@]}"; do
+                    source "$DEPLOY_MODULES_DIR/common/${module}.sh"
+                done
+                SCRIPT_DIR="$DEPLOY_MODULES_DIR"
+            fi
+
+            parse_upgrade_deploy_args "${cli_args[@]}"
+            validate_upgrade_deploy_args
+
+            if [ "$DRY_RUN" = true ]; then
+                upgrade_dry_run
+                exit 0
+            fi
+
+            upgrade_cluster
+            exit $?
+        else
+            # Local mode: upgrade this node (root required)
+            # Handle --help before root check (allow non-root users to see help)
+            for _uarg in "${cli_args[@]}"; do
+                if [ "$_uarg" = "--help" ] || [ "$_uarg" = "-h" ]; then
+                    source "$SCRIPT_DIR/common/variables.sh" 2>/dev/null || true
+                    source "$SCRIPT_DIR/common/logging.sh" 2>/dev/null || true
+                    source "$SCRIPT_DIR/common/validation.sh" 2>/dev/null || true
+                    show_upgrade_help
+                fi
+            done
+            if [ "$(id -u)" -ne 0 ]; then
+                echo "Error: Local upgrade must be run as root" >&2
+                exit 1
+            fi
+
+            if { [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; } || [ "$BUNDLED_MODE" = "true" ]; then
+                run_local "parse_upgrade_local_args" dependencies containerd crio kubernetes
+                # Source upgrade module
+                if [ "$BUNDLED_MODE" != "true" ] && [ -f "$SCRIPT_DIR/common/upgrade.sh" ]; then
+                    source "$SCRIPT_DIR/common/upgrade.sh"
+                fi
+            else
+                load_modules "setup-k8s" dependencies containerd crio kubernetes
+                # Download and source upgrade module
+                local _upgrade_tmp
+                _upgrade_tmp=$(mktemp -t upgrade-XXXXXX.sh)
+                if curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/upgrade.sh" > "$_upgrade_tmp" && [ -s "$_upgrade_tmp" ]; then
+                    source "$_upgrade_tmp"
+                    rm -f "$_upgrade_tmp"
+                else
+                    echo "Error: Failed to download upgrade.sh" >&2
+                    rm -f "$_upgrade_tmp"
+                    exit 1
+                fi
+            fi
+
+            parse_upgrade_local_args "${cli_args[@]}"
+
+            # Detect distribution (if not already detected)
+            if [ -z "${DISTRO_FAMILY:-}" ]; then
+                detect_distribution
+            fi
+
+            upgrade_node_local
+            exit $?
+        fi
     fi
 
     # Check root privileges early (before loading modules)

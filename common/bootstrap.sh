@@ -6,7 +6,7 @@
 # Canonical list of common modules (single source of truth).
 # Used by load_modules, run_local, and bundle generation.
 # bootstrap is listed for bundling but excluded from runtime loading (already sourced).
-_COMMON_MODULES=(variables logging detection validation helpers networking swap completion helm)
+_COMMON_MODULES=(variables logging detection validation helpers networking swap completion helm upgrade)
 _DISTRO_FAMILIES=(arch debian generic rhel suse)
 _DISTRO_MODULES=(cleanup containerd crio dependencies kubernetes)
 
@@ -205,12 +205,14 @@ load_deploy_modules() {
         fi
     done
 
-    # Download deploy module separately (not in _COMMON_MODULES)
-    echo "  - common/deploy.sh" >&2
-    if ! curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/deploy.sh" > "$DEPLOY_MODULES_DIR/common/deploy.sh"; then
-        echo "Error: Failed to download common/deploy.sh" >&2
-        return 1
-    fi
+    # Download deploy and upgrade modules separately (not in _COMMON_MODULES)
+    for extra_module in deploy upgrade; do
+        echo "  - common/${extra_module}.sh" >&2
+        if ! curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/${extra_module}.sh" > "$DEPLOY_MODULES_DIR/common/${extra_module}.sh"; then
+            echo "Error: Failed to download common/${extra_module}.sh" >&2
+            return 1
+        fi
+    done
 
     # Download distro modules (cleanup excluded — not needed for deploy bundle)
     for family in "${_DISTRO_FAMILIES[@]}"; do
@@ -237,6 +239,7 @@ load_deploy_modules() {
         _validate_shell_module "$DEPLOY_MODULES_DIR/common/${module}.sh" || return 1
     done
     _validate_shell_module "$DEPLOY_MODULES_DIR/common/deploy.sh" || return 1
+    _validate_shell_module "$DEPLOY_MODULES_DIR/common/upgrade.sh" || return 1
     for family in "${_DISTRO_FAMILIES[@]}"; do
         for module in "${_DISTRO_MODULES[@]}"; do
             [ "$module" = "cleanup" ] && continue

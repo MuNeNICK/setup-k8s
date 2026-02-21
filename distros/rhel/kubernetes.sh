@@ -45,3 +45,40 @@ EOF
     # Enable and start kubelet
     systemctl enable --now kubelet
 }
+
+# Upgrade kubeadm to a specific MAJOR.MINOR.PATCH version
+upgrade_kubeadm_rhel() {
+    local target="$1"
+    local minor
+    minor=$(_version_minor "$target")
+
+    local PKG_MGR
+    PKG_MGR=$(_rhel_pkg_mgr)
+
+    log_info "Updating Kubernetes yum repository to v${minor}..."
+    cat <<EOF | tee /etc/yum.repos.d/kubernetes.repo
+[kubernetes]
+name=Kubernetes
+baseurl=https://pkgs.k8s.io/core:/stable:/v${minor}/rpm/
+enabled=1
+gpgcheck=1
+gpgkey=https://pkgs.k8s.io/core:/stable:/v${minor}/rpm/repodata/repomd.xml.key
+EOF
+
+    # Remove version lock, upgrade, re-lock
+    $PKG_MGR versionlock delete kubeadm 2>/dev/null || true
+    $PKG_MGR install -y kubeadm
+    $PKG_MGR versionlock add kubeadm 2>/dev/null || log_warn "versionlock failed for kubeadm"
+}
+
+# Upgrade kubelet and kubectl to a specific MAJOR.MINOR.PATCH version
+upgrade_kubelet_kubectl_rhel() {
+    local target="$1"
+
+    local PKG_MGR
+    PKG_MGR=$(_rhel_pkg_mgr)
+
+    $PKG_MGR versionlock delete kubelet kubectl 2>/dev/null || true
+    $PKG_MGR install -y kubelet kubectl
+    $PKG_MGR versionlock add kubelet kubectl 2>/dev/null || log_warn "versionlock failed for kubelet/kubectl"
+}

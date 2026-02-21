@@ -90,3 +90,21 @@ setup_kubernetes_arch() {
     # Enable and start kubelet
     systemctl enable --now kubelet
 }
+
+# Upgrade kubeadm to a specific MAJOR.MINOR.PATCH version
+upgrade_kubeadm_arch() {
+    local target="$1"
+    log_warn "Arch AUR packages always install the latest version. Cannot pin to ${target}."
+    log_warn "Ensure the AUR packages match or exceed v${target}."
+
+    _ensure_aur_helper || return 1
+    _aur_install_packages kubeadm-bin || return 1
+}
+
+# Upgrade kubelet and kubectl to a specific MAJOR.MINOR.PATCH version
+upgrade_kubelet_kubectl_arch() {
+    local target="$1"
+    log_warn "Arch AUR packages always install the latest version. Cannot pin to ${target}."
+
+    _aur_install_packages kubelet-bin kubectl-bin || return 1
+}

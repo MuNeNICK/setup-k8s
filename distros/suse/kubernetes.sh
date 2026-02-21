@@ -39,3 +39,29 @@ setup_kubernetes_suse() {
     # Enable and start kubelet
     systemctl enable --now kubelet
 }
+
+# Upgrade kubeadm to a specific MAJOR.MINOR.PATCH version
+upgrade_kubeadm_suse() {
+    local target="$1"
+    local minor
+    minor=$(_version_minor "$target")
+
+    log_info "Updating Kubernetes zypper repository to v${minor}..."
+    rpm --import "https://pkgs.k8s.io/core:/stable:/v${minor}/rpm/repodata/repomd.xml.key"
+    zypper removerepo kubernetes 2>/dev/null || true
+    zypper addrepo --gpgcheck "https://pkgs.k8s.io/core:/stable:/v${minor}/rpm/" kubernetes
+    zypper --non-interactive refresh
+
+    zypper removelock kubeadm 2>/dev/null || true
+    zypper --non-interactive install --allow-vendor-change --replacefiles -y kubeadm
+    zypper addlock kubeadm 2>/dev/null || log_warn "zypper addlock failed for kubeadm"
+}
+
+# Upgrade kubelet and kubectl to a specific MAJOR.MINOR.PATCH version
+upgrade_kubelet_kubectl_suse() {
+    local target="$1"
+
+    zypper removelock kubelet kubectl 2>/dev/null || true
+    zypper --non-interactive install --allow-vendor-change --replacefiles -y kubelet kubectl
+    zypper addlock kubelet kubectl 2>/dev/null || log_warn "zypper addlock failed for kubelet/kubectl"
+}
