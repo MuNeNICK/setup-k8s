@@ -100,6 +100,18 @@ validate_proxy_mode() {
     fi
 }
 
+# Validate swap enabled option (requires K8s 1.28+)
+validate_swap_enabled() {
+    if [ "$SWAP_ENABLED" = true ] && [ -n "$K8S_VERSION" ]; then
+        local k8s_minor
+        k8s_minor=$(echo "$K8S_VERSION" | cut -d. -f2)
+        if [ -n "$k8s_minor" ] && [ "$k8s_minor" -lt 28 ]; then
+            log_error "--swap-enabled requires Kubernetes 1.28+ (got: $K8S_VERSION)"
+            exit 1
+        fi
+    fi
+}
+
 # Validate CIDR format (IPv4)
 _validate_cidr() {
     local cidr="$1" label="$2"
@@ -295,6 +307,10 @@ parse_setup_args() {
                 KUBEADM_CP_ENDPOINT="$2"
                 shift 2
                 ;;
+            --swap-enabled)
+                SWAP_ENABLED=true
+                shift
+                ;;
             *)
                 log_error "Unknown option: $1"
                 log_error "Run with --help for usage information"
@@ -325,6 +341,7 @@ show_deploy_help() {
     echo "  --ha-interface IFACE    Network interface for VIP (auto-detected on remote)"
     echo "  --cri RUNTIME           Container runtime (containerd or crio)"
     echo "  --proxy-mode MODE       Kube-proxy mode (iptables, ipvs, or nftables)"
+    echo "  --swap-enabled          Keep swap enabled (K8s 1.28+)"
     echo "  --kubernetes-version VER Kubernetes version (e.g., 1.32)"
     echo "  --pod-network-cidr CIDR Pod network CIDR"
     echo "  --service-cidr CIDR     Service CIDR"
@@ -414,6 +431,10 @@ parse_deploy_args() {
                 _require_value $# "$1" "${2:-}"
                 DEPLOY_PASSTHROUGH_ARGS+=("$1" "$2")
                 shift 2
+                ;;
+            --swap-enabled)
+                DEPLOY_PASSTHROUGH_ARGS+=("$1")
+                shift
                 ;;
             --enable-completion|--install-helm|--completion-shells)
                 _require_value $# "$1" "${2:-}"

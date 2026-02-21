@@ -393,6 +393,96 @@ test_pipefail_safety() {
 }
 
 # ============================================================
+# Test: --swap-enabled flag parsing and default
+# ============================================================
+test_swap_enabled_default() {
+    echo "=== Test: SWAP_ENABLED default ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        _assert_eq "SWAP_ENABLED default" "false" "$SWAP_ENABLED"
+    )
+}
+
+test_parse_swap_enabled() {
+    echo "=== Test: parse_setup_args --swap-enabled ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        parse_setup_args --swap-enabled
+        _assert_eq "SWAP_ENABLED parsed" "true" "$SWAP_ENABLED"
+    )
+}
+
+# ============================================================
+# Test: validate_swap_enabled version check
+# ============================================================
+test_validate_swap_enabled() {
+    echo "=== Test: validate_swap_enabled ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        # swap enabled with K8s 1.32 should pass
+        SWAP_ENABLED=true
+        K8S_VERSION="1.32"
+        validate_swap_enabled
+        _assert_eq "swap enabled 1.32 passes" "true" "$SWAP_ENABLED"
+
+        # swap enabled with K8s 1.28 should pass
+        SWAP_ENABLED=true
+        K8S_VERSION="1.28"
+        validate_swap_enabled
+        _assert_eq "swap enabled 1.28 passes" "true" "$SWAP_ENABLED"
+
+        # swap enabled with K8s 1.27 should fail
+        SWAP_ENABLED=true
+        K8S_VERSION="1.27"
+        local exit_code=0
+        (validate_swap_enabled) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "swap enabled 1.27 rejected" "0" "$exit_code"
+
+        # swap disabled should always pass regardless of version
+        SWAP_ENABLED=false
+        K8S_VERSION="1.25"
+        validate_swap_enabled
+        _assert_eq "swap disabled always passes" "false" "$SWAP_ENABLED"
+    )
+}
+
+# ============================================================
+# Test: --swap-enabled in help text
+# ============================================================
+test_help_contains_swap() {
+    echo "=== Test: help text contains --swap-enabled ==="
+    (
+        local help_out
+        help_out=$(bash "$PROJECT_ROOT/setup-k8s.sh" --help 2>&1)
+        local has_swap="false"
+        if echo "$help_out" | grep -q -- '--swap-enabled'; then has_swap="true"; fi
+        _assert_eq "help contains --swap-enabled" "true" "$has_swap"
+    )
+}
+
+# ============================================================
+# Test: --swap-enabled deploy passthrough
+# ============================================================
+test_deploy_parse_swap_enabled() {
+    echo "=== Test: parse_deploy_args --swap-enabled passthrough ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        parse_deploy_args --control-planes 10.0.0.1 --swap-enabled
+        local has_swap="false"
+        for arg in "${DEPLOY_PASSTHROUGH_ARGS[@]}"; do
+            if [ "$arg" = "--swap-enabled" ]; then has_swap="true"; break; fi
+        done
+        _assert_eq "swap-enabled in passthrough" "true" "$has_swap"
+    )
+}
+
+# ============================================================
 # Run all tests
 # ============================================================
 echo "Running setup-k8s unit tests..."
@@ -412,6 +502,11 @@ test_unknown_option_exit_code
 test_help_early_exit
 test_validate_proxy_mode
 test_pipefail_safety
+test_swap_enabled_default
+test_parse_swap_enabled
+test_validate_swap_enabled
+test_help_contains_swap
+test_deploy_parse_swap_enabled
 
 echo ""
 TESTS_RUN=$(wc -l < "$_RESULTS_FILE")

@@ -131,6 +131,15 @@ _kubeproxy_api_version() {
     echo "$api_ver"
 }
 
+_kubelet_api_version() {
+    local api_ver
+    api_ver=$(_kubeadm_defaults | awk '/^apiVersion: kubelet\.config\.k8s\.io\// {print $2; exit}')
+    if [ -z "$api_ver" ]; then
+        api_ver="kubelet.config.k8s.io/v1beta1"
+    fi
+    echo "$api_ver"
+}
+
 # Helper: Generate kubeadm configuration
 generate_kubeadm_config() {
     local config_file
@@ -208,6 +217,19 @@ EOF
 apiVersion: $kubeproxy_api
 kind: KubeProxyConfiguration
 mode: nftables
+EOF
+    fi
+
+    if [ "$SWAP_ENABLED" = true ]; then
+        local kubelet_api
+        kubelet_api=$(_kubelet_api_version)
+        cat >> "$config_file" <<EOF
+---
+apiVersion: $kubelet_api
+kind: KubeletConfiguration
+failSwapOn: false
+memorySwap:
+  swapBehavior: LimitedSwap
 EOF
     fi
 
@@ -396,7 +418,9 @@ initialize_cluster() {
 
     # Run kubeadm init, capturing exit code for rollback
     local init_exit=0
-    if [ "$PROXY_MODE" != "iptables" ] || [ -n "$KUBEADM_POD_CIDR" ] || [ -n "$KUBEADM_SERVICE_CIDR" ] || [ -n "$KUBEADM_API_ADDR" ] || [ -n "$KUBEADM_CP_ENDPOINT" ]; then
+    if [ "$PROXY_MODE" != "iptables" ] || [ -n "$KUBEADM_POD_CIDR" ] || \
+       [ -n "$KUBEADM_SERVICE_CIDR" ] || [ -n "$KUBEADM_API_ADDR" ] || \
+       [ -n "$KUBEADM_CP_ENDPOINT" ] || [ "$SWAP_ENABLED" = true ]; then
         local CONFIG_FILE
         if ! CONFIG_FILE=$(generate_kubeadm_config); then
             log_error "Failed to generate kubeadm configuration"

@@ -63,6 +63,7 @@ Options (init/join):
   --ha                    Enable HA mode with kube-vip (init only)
   --ha-vip ADDRESS        VIP address (required when --ha; also for join --control-plane)
   --ha-interface IFACE    Network interface for VIP (auto-detected if omitted)
+  --swap-enabled          Keep swap enabled (K8s 1.28+, NodeSwap LimitedSwap)
   --enable-completion BOOL  Enable shell completion setup (default: true)
   --completion-shells LIST  Shells to configure (auto, bash, zsh, fish, or comma-separated)
   --install-helm BOOL     Install Helm package manager (default: false)
@@ -100,7 +101,7 @@ HELPEOF
             DRY_RUN=true
             ((i += 1))
             ;;
-        --ha|--control-plane)
+        --ha|--control-plane|--swap-enabled)
             cli_args+=("$arg")
             ((i += 1))
             ;;
@@ -163,6 +164,7 @@ _setup_dry_run() {
     log_info "Proxy mode: ${PROXY_MODE}"
     log_info "Kubernetes Version (minor): ${K8S_VERSION}"
     log_info "Distribution: ${DISTRO_NAME:-unknown} (family: ${DISTRO_FAMILY:-unknown})"
+    log_info "Swap enabled: ${SWAP_ENABLED}"
     log_info "Install Helm: ${INSTALL_HELM}"
     log_info "Shell Completion: ${ENABLE_COMPLETION} (shells: ${COMPLETION_SHELLS})"
     [ -n "$KUBEADM_POD_CIDR" ] && log_info "Pod network CIDR: $KUBEADM_POD_CIDR"
@@ -264,6 +266,9 @@ main() {
     # Validate proxy mode after K8S_VERSION is determined
     validate_proxy_mode
 
+    # Validate swap enabled option
+    validate_swap_enabled
+
     # Validate HA arguments
     validate_ha_args
 
@@ -277,11 +282,14 @@ main() {
     log_info "Action: ${ACTION}"
     log_info "Container Runtime: ${CRI}"
     log_info "Proxy mode: ${PROXY_MODE}"
+    log_info "Swap enabled: ${SWAP_ENABLED}"
     log_info "Kubernetes Version (minor): ${K8S_VERSION}"
 
-    # Disable swap
-    disable_swap
-    disable_zram_swap
+    # Disable swap (unless --swap-enabled)
+    if [ "$SWAP_ENABLED" != true ]; then
+        disable_swap
+        disable_zram_swap
+    fi
 
     # Enable kernel modules and network settings
     enable_kernel_modules

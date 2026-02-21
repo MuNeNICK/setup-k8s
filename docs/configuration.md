@@ -47,6 +47,35 @@ nftables mode (requires K8s 1.29+):
 
 **Note**: If prerequisites are not met, the script will exit with an error. Ensure all required packages and kernel modules are available before selecting IPVS or nftables mode.
 
+## Swap Support (K8s 1.28+)
+
+By default, `setup-k8s` disables swap entirely (`swapoff -a`, comments out fstab entries, disables zram). This is required for Kubernetes versions before 1.28.
+
+Starting with Kubernetes 1.28, the `NodeSwap` feature gate is stable and allows nodes to run with swap enabled. Use the `--swap-enabled` flag to keep swap active and configure kubelet accordingly.
+
+When `--swap-enabled` is used, the script:
+1. **Skips swap disable** — swap remains active as configured by the OS
+2. **Configures kubelet** — sets `failSwapOn: false` and `memorySwap.swapBehavior: LimitedSwap` via KubeletConfiguration
+
+### LimitedSwap Behavior
+
+With `LimitedSwap`, Kubernetes limits swap usage to pods that have memory limits set. Pods without memory limits will not use swap. This prevents unbounded swap usage while allowing workloads that benefit from swap to use it in a controlled manner.
+
+### Usage
+
+```bash
+# Initialize a cluster with swap enabled
+sudo ./setup-k8s.sh init --swap-enabled --kubernetes-version 1.32
+
+# Deploy across nodes with swap enabled
+./setup-k8s.sh deploy --control-planes 10.0.0.1 --workers 10.0.0.2 --swap-enabled
+```
+
+### Requirements
+
+- Kubernetes 1.28 or higher (the script will error if used with older versions)
+- Swap must be configured at the OS level (the script does not enable swap, it simply preserves existing swap configuration)
+
 ## HA Cluster with kube-vip
 
 The script supports deploying a highly available control plane using [kube-vip](https://kube-vip.io/) for Virtual IP (VIP) management. kube-vip runs as a static pod on each control-plane node and provides a floating VIP using ARP-based leader election.

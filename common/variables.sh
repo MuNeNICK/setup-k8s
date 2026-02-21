@@ -18,6 +18,7 @@ DISTRO_VERSION=""
 DISTRO_FAMILY=""
 CRI="containerd"  # Container runtime interface (containerd, crio, etc.)
 PROXY_MODE="iptables"  # iptables, ipvs, or nftables (nftables requires K8s 1.29+)
+SWAP_ENABLED=false  # Keep swap enabled (K8s 1.28+, NodeSwap feature)
 
 # HA cluster support
 JOIN_AS_CONTROL_PLANE=false
