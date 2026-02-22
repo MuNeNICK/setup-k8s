@@ -60,6 +60,11 @@ UPGRADE_FIRST_CONTROL_PLANE=false    # kubeadm upgrade apply (first CP) vs kubea
 UPGRADE_SKIP_DRAIN=false             # Skip drain/uncordon in remote mode
 UPGRADE_PASSTHROUGH_ARGS=()          # Arguments to forward to remote nodes
 
+# Backup/Restore subcommand
+ETCD_SNAPSHOT_PATH=""         # snapshot file path (backup: output, restore: input)
+ETCD_CONTROL_PLANE=""         # remote mode: target control-plane node (user@ip or ip)
+ETCD_PASSTHROUGH_ARGS=()      # arguments to forward to remote nodes
+
 # Version constants (overridable via environment)
 KUBE_VIP_VERSION="${KUBE_VIP_VERSION:-v0.8.9}"
 PAUSE_IMAGE_VERSION="${PAUSE_IMAGE_VERSION:-3.10}"

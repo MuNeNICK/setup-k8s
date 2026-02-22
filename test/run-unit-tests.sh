@@ -989,6 +989,195 @@ test_detect_arch
 test_detect_init_system
 test_download_binary_failure
 
+# ============================================================
+# Test: ETCD_* variable defaults
+# ============================================================
+test_etcd_variables_defaults() {
+    echo "=== Test: ETCD_* variable defaults ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        _assert_eq "ETCD_SNAPSHOT_PATH default" "" "$ETCD_SNAPSHOT_PATH"
+        _assert_eq "ETCD_CONTROL_PLANE default" "" "$ETCD_CONTROL_PLANE"
+    )
+}
+
+# ============================================================
+# Test: parse_backup_local_args
+# ============================================================
+test_parse_backup_local_args() {
+    echo "=== Test: parse_backup_local_args ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        # With explicit snapshot path
+        parse_backup_local_args --snapshot-path /tmp/test-snapshot.db
+        _assert_eq "ETCD_SNAPSHOT_PATH parsed" "/tmp/test-snapshot.db" "$ETCD_SNAPSHOT_PATH"
+    )
+}
+
+# ============================================================
+# Test: parse_backup_local_args default snapshot path
+# ============================================================
+test_parse_backup_local_args_default_path() {
+    echo "=== Test: parse_backup_local_args default path ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        # Without snapshot path, should get auto-generated default
+        parse_backup_local_args
+        local has_prefix="false"
+        if [[ "$ETCD_SNAPSHOT_PATH" == /var/lib/etcd-backup/snapshot-*.db ]]; then has_prefix="true"; fi
+        _assert_eq "backup default path has expected prefix" "true" "$has_prefix"
+    )
+}
+
+# ============================================================
+# Test: parse_restore_local_args requires --snapshot-path
+# ============================================================
+test_parse_restore_local_args_required() {
+    echo "=== Test: parse_restore_local_args requires --snapshot-path ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        local exit_code=0
+        (parse_restore_local_args) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "missing --snapshot-path rejected" "0" "$exit_code"
+
+        exit_code=0
+        (parse_restore_local_args --snapshot-path /tmp/snap.db) >/dev/null 2>&1 || exit_code=$?
+        _assert_eq "with --snapshot-path accepted" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: parse_backup_remote_args
+# ============================================================
+test_parse_backup_remote_args() {
+    echo "=== Test: parse_backup_remote_args ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        parse_backup_remote_args --control-plane 10.0.0.1 --snapshot-path /tmp/snap.db --ssh-port 2222
+        _assert_eq "ETCD_CONTROL_PLANE parsed" "10.0.0.1" "$ETCD_CONTROL_PLANE"
+        _assert_eq "ETCD_SNAPSHOT_PATH parsed" "/tmp/snap.db" "$ETCD_SNAPSHOT_PATH"
+        _assert_eq "DEPLOY_SSH_PORT parsed" "2222" "$DEPLOY_SSH_PORT"
+    )
+}
+
+# ============================================================
+# Test: parse_restore_remote_args
+# ============================================================
+test_parse_restore_remote_args() {
+    echo "=== Test: parse_restore_remote_args ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        parse_restore_remote_args --control-plane admin@10.0.0.1 --snapshot-path /tmp/snap.db --ssh-key /tmp/id_rsa
+        _assert_eq "ETCD_CONTROL_PLANE parsed" "admin@10.0.0.1" "$ETCD_CONTROL_PLANE"
+        _assert_eq "ETCD_SNAPSHOT_PATH parsed" "/tmp/snap.db" "$ETCD_SNAPSHOT_PATH"
+        _assert_eq "DEPLOY_SSH_KEY parsed" "/tmp/id_rsa" "$DEPLOY_SSH_KEY"
+    )
+}
+
+# ============================================================
+# Test: validate_backup_remote_args requires --control-plane
+# ============================================================
+test_validate_backup_remote_args() {
+    echo "=== Test: validate_backup_remote_args ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        # Missing --control-plane should fail
+        local exit_code=0
+        (validate_backup_remote_args) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "missing --control-plane rejected" "0" "$exit_code"
+
+        # With valid --control-plane should pass
+        ETCD_CONTROL_PLANE="10.0.0.1"
+        exit_code=0
+        (validate_backup_remote_args) >/dev/null 2>&1 || exit_code=$?
+        _assert_eq "valid --control-plane accepted" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: backup/restore unknown option
+# ============================================================
+test_backup_restore_unknown_option() {
+    echo "=== Test: backup/restore unknown option ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        local exit_code=0
+        (parse_backup_local_args --bogus-flag) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "backup unknown option rejected" "0" "$exit_code"
+
+        exit_code=0
+        (parse_restore_local_args --bogus-flag) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "restore unknown option rejected" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: backup --help exits 0
+# ============================================================
+test_backup_help_exit() {
+    echo "=== Test: backup --help exits 0 ==="
+    _assert_exit_code "setup-k8s.sh backup --help exits 0" 0 bash "$PROJECT_ROOT/setup-k8s.sh" backup --help
+}
+
+# ============================================================
+# Test: restore --help exits 0
+# ============================================================
+test_restore_help_exit() {
+    echo "=== Test: restore --help exits 0 ==="
+    _assert_exit_code "setup-k8s.sh restore --help exits 0" 0 bash "$PROJECT_ROOT/setup-k8s.sh" restore --help
+}
+
+# ============================================================
+# Test: help text contains 'backup' and 'restore'
+# ============================================================
+test_help_contains_backup_restore() {
+    echo "=== Test: help text contains backup/restore ==="
+    (
+        local help_out
+        help_out=$(bash "$PROJECT_ROOT/setup-k8s.sh" --help 2>&1)
+        local has_backup="false"
+        if echo "$help_out" | grep -q 'backup'; then has_backup="true"; fi
+        _assert_eq "help contains backup" "true" "$has_backup"
+
+        local has_restore="false"
+        if echo "$help_out" | grep -q 'restore'; then has_restore="true"; fi
+        _assert_eq "help contains restore" "true" "$has_restore"
+    )
+}
+
+test_etcd_variables_defaults
+test_parse_backup_local_args
+test_parse_backup_local_args_default_path
+test_parse_restore_local_args_required
+test_parse_backup_remote_args
+test_parse_restore_remote_args
+test_validate_backup_remote_args
+test_backup_restore_unknown_option
+test_backup_help_exit
+test_restore_help_exit
+test_help_contains_backup_restore
+
 echo ""
 TESTS_RUN=$(wc -l < "$_RESULTS_FILE")
 TESTS_PASSED=$(grep -c '^PASS$' "$_RESULTS_FILE" || true)

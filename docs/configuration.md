@@ -200,6 +200,84 @@ The orchestration flow:
 - `kubeadm`, `kubelet`, and `kubectl` must already be installed on all nodes
 - The target version packages must be available in the distribution's package repository
 
+## etcd Backup / Restore
+
+The `backup` and `restore` subcommands manage etcd snapshots for kubeadm clusters. Both support local execution (directly on a control-plane node) and remote orchestration (from a local machine via SSH), following the same pattern as the `upgrade` subcommand.
+
+### How It Works
+
+**Backup** creates an etcd snapshot using `etcdctl snapshot save` inside the running etcd container via `crictl exec`. The snapshot is saved through etcd's hostPath mount (`/var/lib/etcd`) and copied to the specified output path.
+
+**Restore** extracts `etcdctl` and `etcdutl` binaries from the etcd container image (OCI layer extraction, compatible with distroless images), then:
+
+1. Moves the etcd static pod manifest to stop the etcd container
+2. Backs up the existing `/var/lib/etcd` directory
+3. Runs `etcdutl snapshot restore` (etcd 3.6+) or `etcdctl snapshot restore` (etcd 3.5)
+4. Restores the manifest to restart etcd
+5. Waits for etcd health check to pass
+
+A cleanup handler automatically restores the etcd manifest if the process fails mid-way.
+
+### Local Mode
+
+Run directly on a control-plane node with `sudo`.
+
+```bash
+# Backup
+sudo ./setup-k8s.sh backup --snapshot-path /path/to/snapshot.db
+
+# Backup with auto-generated path (default: /var/lib/etcd-backup/snapshot-YYYYMMDD-HHMMSS.db)
+sudo ./setup-k8s.sh backup
+
+# Restore
+sudo ./setup-k8s.sh restore --snapshot-path /path/to/snapshot.db
+```
+
+### Remote Mode
+
+Orchestrate backup/restore from a local machine via SSH. The script generates a self-contained bundle, transfers it to the target node, and executes the operation remotely.
+
+```bash
+# Backup (downloads snapshot to local machine)
+./setup-k8s.sh backup \
+  --control-plane root@192.168.1.10 \
+  --ssh-key ~/.ssh/id_rsa \
+  --snapshot-path ./etcd-snapshot.db
+
+# Restore (uploads snapshot and restores on remote node)
+./setup-k8s.sh restore \
+  --control-plane root@192.168.1.10 \
+  --ssh-key ~/.ssh/id_rsa \
+  --snapshot-path ./etcd-snapshot.db
+```
+
+Remote backup flow:
+1. Check SSH connectivity and sudo access
+2. Generate and transfer a self-contained bundle to the control-plane node
+3. Execute backup on the remote node (local mode inside the bundle)
+4. Download the snapshot file via SCP
+
+Remote restore flow:
+1. Check SSH connectivity and sudo access
+2. Upload the snapshot file via SCP
+3. Generate and transfer a self-contained bundle
+4. Execute restore on the remote node (local mode inside the bundle)
+
+### etcd Version Compatibility
+
+| etcd Version | Backup | Restore Tool |
+|---|---|---|
+| 3.5.x | `etcdctl snapshot save` | `etcdctl snapshot restore` |
+| 3.6.x+ | `etcdctl snapshot save` | `etcdutl snapshot restore` |
+
+The script automatically detects the available tools and uses `etcdutl` when available, falling back to `etcdctl` for older versions. Both `etcdctl` and `etcdutl` are extracted from the etcd container image via OCI layer extraction, which works with distroless images (no shell required inside the container).
+
+### Requirements
+
+- The target node must be a kubeadm control-plane node with etcd running as a static pod
+- SSH access with passwordless sudo (for remote mode)
+- Sufficient disk space for the snapshot file and the etcd data backup
+
 ## Remote Deployment via SSH
 
 For deploying to multiple nodes without manually running `init`/`join` on each, use the `deploy` subcommand. See [Reference - Deploy Options](reference.md#deploy-options) for full usage.

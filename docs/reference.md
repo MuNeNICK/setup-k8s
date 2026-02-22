@@ -3,7 +3,7 @@
 ## setup-k8s.sh
 
 ```
-Usage: setup-k8s.sh <init|join|deploy|upgrade> [options]
+Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore> [options]
 ```
 
 ### Subcommands
@@ -14,6 +14,8 @@ Usage: setup-k8s.sh <init|join|deploy|upgrade> [options]
 | `join` | Join an existing cluster as a worker or control-plane node |
 | `deploy` | Deploy a cluster across remote nodes via SSH |
 | `upgrade` | Upgrade cluster Kubernetes version |
+| `backup` | Create an etcd snapshot |
+| `restore` | Restore etcd from a snapshot |
 
 ### Options
 
@@ -92,6 +94,62 @@ Options for the `upgrade` subcommand when orchestrating remotely via SSH. SSH op
 | `--ssh-host-key-check MODE` | SSH host key policy (`yes`, `no`, or `accept-new`) | `yes` | `--ssh-host-key-check accept-new` |
 | `--skip-drain` | Skip drain/uncordon for all nodes | — | `--skip-drain` |
 | `--dry-run` | Show upgrade plan and exit | — | `--dry-run` |
+
+### Backup Options (local mode)
+
+Options for the `backup` subcommand when run locally with `sudo`.
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `--snapshot-path PATH` | Output snapshot file path | `/var/lib/etcd-backup/snapshot-YYYYMMDD-HHMMSS.db` | `--snapshot-path /tmp/snap.db` |
+| `--verbose` | Enable debug logging | — | `--verbose` |
+| `--quiet` | Suppress informational messages | — | `--quiet` |
+| `--dry-run` | Show backup plan and exit | — | `--dry-run` |
+| `--help` | Display help message | — | `--help` |
+
+### Backup Options (remote mode)
+
+Options for the `backup` subcommand when orchestrating remotely via SSH. SSH options follow the same behavior as the `deploy` subcommand.
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `--control-plane IP` | Target control-plane node (user@ip or ip) | — (required) | `--control-plane root@10.0.0.1` |
+| `--snapshot-path PATH` | Local path to save the downloaded snapshot | `/var/lib/etcd-backup/snapshot-YYYYMMDD-HHMMSS.db` | `--snapshot-path ./snap.db` |
+| `--ssh-user USER` | Default SSH user | `root` | `--ssh-user ubuntu` |
+| `--ssh-port PORT` | SSH port | `22` | `--ssh-port 2222` |
+| `--ssh-key PATH` | Path to SSH private key | — | `--ssh-key ~/.ssh/id_rsa` |
+| `--ssh-password PASS` | SSH password (requires sshpass) | — | `DEPLOY_SSH_PASSWORD=secret bash setup-k8s.sh backup ...` |
+| `--ssh-known-hosts FILE` | Pre-seeded known_hosts file | — | `--ssh-known-hosts ~/.ssh/known_hosts` |
+| `--ssh-host-key-check MODE` | SSH host key policy (`yes`, `no`, or `accept-new`) | `yes` | `--ssh-host-key-check accept-new` |
+| `--dry-run` | Show backup plan and exit | — | `--dry-run` |
+
+### Restore Options (local mode)
+
+Options for the `restore` subcommand when run locally with `sudo`.
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `--snapshot-path PATH` | Snapshot file to restore | — (required) | `--snapshot-path /tmp/snap.db` |
+| `--verbose` | Enable debug logging | — | `--verbose` |
+| `--quiet` | Suppress informational messages | — | `--quiet` |
+| `--dry-run` | Show restore plan and exit | — | `--dry-run` |
+| `--help` | Display help message | — | `--help` |
+
+### Restore Options (remote mode)
+
+Options for the `restore` subcommand when orchestrating remotely via SSH. SSH options follow the same behavior as the `deploy` subcommand.
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `--control-plane IP` | Target control-plane node (user@ip or ip) | — (required) | `--control-plane root@10.0.0.1` |
+| `--snapshot-path PATH` | Local snapshot file to upload and restore | — (required) | `--snapshot-path ./snap.db` |
+| `--ssh-user USER` | Default SSH user | `root` | `--ssh-user ubuntu` |
+| `--ssh-port PORT` | SSH port | `22` | `--ssh-port 2222` |
+| `--ssh-key PATH` | Path to SSH private key | — | `--ssh-key ~/.ssh/id_rsa` |
+| `--ssh-password PASS` | SSH password (requires sshpass) | — | `DEPLOY_SSH_PASSWORD=secret bash setup-k8s.sh restore ...` |
+| `--ssh-known-hosts FILE` | Pre-seeded known_hosts file | — | `--ssh-known-hosts ~/.ssh/known_hosts` |
+| `--ssh-host-key-check MODE` | SSH host key policy (`yes`, `no`, or `accept-new`) | `yes` | `--ssh-host-key-check accept-new` |
+| `--dry-run` | Show restore plan and exit | — | `--dry-run` |
 
 ## cleanup-k8s.sh
 

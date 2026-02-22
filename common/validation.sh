@@ -268,6 +268,169 @@ validate_ha_args() {
     fi
 }
 
+# --- SSH common helpers (shared by deploy, upgrade, backup/restore) ---
+
+# Parse a single SSH-related option.
+# Returns: 0=handled (shift count in _SSH_SHIFT), 1=not an SSH option
+# Usage: _parse_common_ssh_args <argc> <arg> [next_arg]
+_parse_common_ssh_args() {
+    local argc=$1 arg="$2" next="${3:-}"
+    _SSH_SHIFT=0
+    case "$arg" in
+        --ssh-user)
+            _require_value "$argc" "$arg" "$next"
+            DEPLOY_SSH_USER="$next"
+            _SSH_SHIFT=2
+            ;;
+        --ssh-port)
+            _require_value "$argc" "$arg" "$next"
+            DEPLOY_SSH_PORT="$next"
+            _SSH_SHIFT=2
+            ;;
+        --ssh-key)
+            _require_value "$argc" "$arg" "$next"
+            DEPLOY_SSH_KEY="$next"
+            _SSH_SHIFT=2
+            ;;
+        --ssh-password)
+            if [[ $argc -lt 2 ]]; then
+                log_error "$arg requires a value"
+                exit 1
+            fi
+            log_warn "--ssh-password exposes the password in the process list. Prefer DEPLOY_SSH_PASSWORD env var."
+            DEPLOY_SSH_PASSWORD="$next"
+            _SSH_SHIFT=2
+            ;;
+        --ssh-known-hosts)
+            _require_value "$argc" "$arg" "$next"
+            DEPLOY_SSH_KNOWN_HOSTS_FILE="$next"
+            _SSH_SHIFT=2
+            ;;
+        --ssh-host-key-check)
+            _require_value "$argc" "$arg" "$next"
+            if [[ "$next" != "yes" && "$next" != "no" && "$next" != "accept-new" ]]; then
+                log_error "--ssh-host-key-check must be 'yes', 'no', or 'accept-new'"
+                exit 1
+            fi
+            if [[ "$next" == "no" ]]; then
+                log_warn "Disabling SSH host key verification allows MITM attacks. Consider 'accept-new' instead."
+            fi
+            # shellcheck disable=SC2034 # used by common/deploy.sh
+            DEPLOY_SSH_HOST_KEY_CHECK="$next"
+            _SSH_SHIFT=2
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+# Validate common SSH arguments (user, key, known_hosts, sshpass, port)
+_validate_common_ssh_args() {
+    # Validate SSH user if specified
+    if [ -n "$DEPLOY_SSH_USER" ] && ! [[ "$DEPLOY_SSH_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_.-]*$ ]]; then
+        log_error "Invalid SSH user: $DEPLOY_SSH_USER"
+        exit 1
+    fi
+
+    # Validate SSH key file exists if specified
+    if [ -n "$DEPLOY_SSH_KEY" ] && [ ! -f "$DEPLOY_SSH_KEY" ]; then
+        log_error "SSH key file not found: $DEPLOY_SSH_KEY"
+        exit 1
+    fi
+
+    # Validate known_hosts file exists if specified
+    if [ -n "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ] && [ ! -f "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
+        log_error "Known hosts file not found: $DEPLOY_SSH_KNOWN_HOSTS_FILE"
+        exit 1
+    fi
+
+    # Check sshpass if password authentication is used
+    if [ -n "$DEPLOY_SSH_PASSWORD" ] && ! command -v sshpass &>/dev/null; then
+        log_error "sshpass is required for --ssh-password. Install it with your package manager."
+        exit 1
+    fi
+
+    # Validate port number
+    if ! [[ "$DEPLOY_SSH_PORT" =~ ^[0-9]+$ ]] || [ "$DEPLOY_SSH_PORT" -lt 1 ] || [ "$DEPLOY_SSH_PORT" -gt 65535 ]; then
+        log_error "Invalid SSH port: $DEPLOY_SSH_PORT"
+        exit 1
+    fi
+}
+
+# Normalize a comma-separated node list: trim whitespace and remove empty tokens.
+# Usage: result=$(_normalize_node_list "node1 , node2,,node3")
+_normalize_node_list() {
+    local raw="$1" result=() cleaned=() token
+    IFS=',' read -ra result <<< "$raw"
+    for token in "${result[@]}"; do
+        token="${token#"${token%%[![:space:]]*}"}"  # trim leading whitespace
+        token="${token%"${token##*[![:space:]]}"}"  # trim trailing whitespace
+        [ -n "$token" ] && cleaned+=("$token")
+    done
+    local IFS=','
+    echo "${cleaned[*]}"
+}
+
+# Validate node addresses (IP or hostname format, duplicate check, username validation)
+# Usage: _validate_node_addresses <comma-separated-addresses>
+_validate_node_addresses() {
+    local all_addrs="$1"
+    IFS=',' read -ra _all_nodes <<< "$all_addrs"
+
+    # Check for duplicate host addresses
+    local -A _seen_hosts=()
+    for addr in "${_all_nodes[@]}"; do
+        local host="${addr#*@}"
+        if [ -n "${_seen_hosts[$host]:-}" ]; then
+            log_error "Duplicate node address: $host"
+            exit 1
+        fi
+        _seen_hosts[$host]="$addr"
+    done
+
+    for addr in "${_all_nodes[@]}"; do
+        # Validate optional user@ prefix
+        if [[ "$addr" == *@* ]]; then
+            local username="${addr%%@*}"
+            if [ -z "$username" ]; then
+                log_error "Empty username in node address: $addr"
+                exit 1
+            fi
+            # Reject usernames starting with '-' (SSH option injection)
+            if [[ "$username" == -* ]]; then
+                log_error "Invalid username (starts with '-'): $username"
+                exit 1
+            fi
+            # Only allow safe characters in usernames
+            if ! [[ "$username" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+                log_error "Invalid username: $username"
+                exit 1
+            fi
+        fi
+        # Strip optional user@ prefix
+        local host="${addr#*@}"
+        if [ -z "$host" ]; then
+            log_error "Empty node address in list"
+            exit 1
+        fi
+        # Validate host: IPv4, hostname, or bracketed IPv6 (e.g., [::1])
+        if [[ "$host" =~ ^\[.*\]$ ]]; then
+            # Bracketed IPv6: strip brackets and validate hex/colons
+            local ipv6_inner="${host:1:${#host}-2}"
+            if ! [[ "$ipv6_inner" =~ ^[a-fA-F0-9:]+$ ]]; then
+                log_error "Invalid IPv6 address: $host"
+                exit 1
+            fi
+        elif [[ "$host" == *:* ]]; then
+            # Raw IPv6 without brackets: require brackets for SCP compatibility
+            log_error "IPv6 addresses must be enclosed in brackets, e.g., [$host]"
+            exit 1
+        elif ! [[ "$host" =~ ^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$ ]]; then
+            log_error "Invalid node address: $host"
+            exit 1
+        fi
+    done
+}
+
 # Guard for options requiring a value argument
 _require_value() {
     if [[ $1 -lt 2 ]]; then
@@ -464,48 +627,9 @@ parse_deploy_args() {
                 DEPLOY_WORKERS="$2"
                 shift 2
                 ;;
-            --ssh-user)
-                _require_value $# "$1" "${2:-}"
-                # shellcheck disable=SC2034 # used by common/deploy.sh after sourcing
-                DEPLOY_SSH_USER="$2"
-                shift 2
-                ;;
-            --ssh-port)
-                _require_value $# "$1" "${2:-}"
-                DEPLOY_SSH_PORT="$2"
-                shift 2
-                ;;
-            --ssh-key)
-                _require_value $# "$1" "${2:-}"
-                DEPLOY_SSH_KEY="$2"
-                shift 2
-                ;;
-            --ssh-password)
-                if [[ $# -lt 2 ]]; then
-                    log_error "$1 requires a value"
-                    exit 1
-                fi
-                log_warn "--ssh-password exposes the password in the process list. Prefer DEPLOY_SSH_PASSWORD env var."
-                DEPLOY_SSH_PASSWORD="$2"
-                shift 2
-                ;;
-            --ssh-known-hosts)
-                _require_value $# "$1" "${2:-}"
-                DEPLOY_SSH_KNOWN_HOSTS_FILE="$2"
-                shift 2
-                ;;
-            --ssh-host-key-check)
-                _require_value $# "$1" "${2:-}"
-                if [[ "$2" != "yes" && "$2" != "no" && "$2" != "accept-new" ]]; then
-                    log_error "--ssh-host-key-check must be 'yes', 'no', or 'accept-new'"
-                    exit 1
-                fi
-                if [[ "$2" == "no" ]]; then
-                    log_warn "Disabling SSH host key verification allows MITM attacks. Consider 'accept-new' instead."
-                fi
-                # shellcheck disable=SC2034 # used by common/deploy.sh after sourcing
-                DEPLOY_SSH_HOST_KEY_CHECK="$2"
-                shift 2
+            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-known-hosts|--ssh-host-key-check)
+                _parse_common_ssh_args $# "$1" "${2:-}"
+                shift "$_SSH_SHIFT"
                 ;;
             --ha-vip)
                 _require_value $# "$1" "${2:-}"
@@ -552,19 +676,7 @@ validate_deploy_args() {
         exit 1
     fi
 
-    # Normalize node lists early: trim whitespace and remove empty tokens.
-    # Write back to source variables so all subsequent logic sees clean values.
-    _normalize_node_list() {
-        local raw="$1" result=() cleaned=() token
-        IFS=',' read -ra result <<< "$raw"
-        for token in "${result[@]}"; do
-            token="${token#"${token%%[![:space:]]*}"}"  # trim leading whitespace
-            token="${token%"${token##*[![:space:]]}"}"  # trim trailing whitespace
-            [ -n "$token" ] && cleaned+=("$token")
-        done
-        local IFS=','
-        echo "${cleaned[*]}"
-    }
+    # Normalize node lists
     DEPLOY_CONTROL_PLANES=$(_normalize_node_list "$DEPLOY_CONTROL_PLANES")
     [ -n "$DEPLOY_WORKERS" ] && DEPLOY_WORKERS=$(_normalize_node_list "$DEPLOY_WORKERS")
 
@@ -574,11 +686,7 @@ validate_deploy_args() {
         exit 1
     fi
 
-    # Validate SSH user if specified
-    if [ -n "$DEPLOY_SSH_USER" ] && ! [[ "$DEPLOY_SSH_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_.-]*$ ]]; then
-        log_error "Invalid SSH user: $DEPLOY_SSH_USER"
-        exit 1
-    fi
+    _validate_common_ssh_args
 
     # Count control-plane nodes
     local cp_count
@@ -606,88 +714,10 @@ validate_deploy_args() {
         exit 1
     fi
 
-    # Validate SSH key file exists if specified
-    if [ -n "$DEPLOY_SSH_KEY" ] && [ ! -f "$DEPLOY_SSH_KEY" ]; then
-        log_error "SSH key file not found: $DEPLOY_SSH_KEY"
-        exit 1
-    fi
-
-    # Validate known_hosts file exists if specified
-    if [ -n "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ] && [ ! -f "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
-        log_error "Known hosts file not found: $DEPLOY_SSH_KNOWN_HOSTS_FILE"
-        exit 1
-    fi
-
-    # Check sshpass if password authentication is used
-    if [ -n "$DEPLOY_SSH_PASSWORD" ] && ! command -v sshpass &>/dev/null; then
-        log_error "sshpass is required for --ssh-password. Install it with your package manager."
-        exit 1
-    fi
-
-    # Validate port number
-    if ! [[ "$DEPLOY_SSH_PORT" =~ ^[0-9]+$ ]] || [ "$DEPLOY_SSH_PORT" -lt 1 ] || [ "$DEPLOY_SSH_PORT" -gt 65535 ]; then
-        log_error "Invalid SSH port: $DEPLOY_SSH_PORT"
-        exit 1
-    fi
-
-    # Validate node addresses (IP or hostname format)
+    # Validate node addresses
     local all_addrs="$DEPLOY_CONTROL_PLANES"
     [ -n "$DEPLOY_WORKERS" ] && all_addrs="$all_addrs,$DEPLOY_WORKERS"
-    IFS=',' read -ra _all_nodes <<< "$all_addrs"
-
-    # Check for duplicate host addresses
-    local -A _seen_hosts=()
-    for addr in "${_all_nodes[@]}"; do
-        local host="${addr#*@}"
-        if [ -n "${_seen_hosts[$host]:-}" ]; then
-            log_error "Duplicate node address: $host"
-            exit 1
-        fi
-        _seen_hosts[$host]="$addr"
-    done
-
-    for addr in "${_all_nodes[@]}"; do
-        # Validate optional user@ prefix
-        if [[ "$addr" == *@* ]]; then
-            local username="${addr%%@*}"
-            if [ -z "$username" ]; then
-                log_error "Empty username in node address: $addr"
-                exit 1
-            fi
-            # Reject usernames starting with '-' (SSH option injection)
-            if [[ "$username" == -* ]]; then
-                log_error "Invalid username (starts with '-'): $username"
-                exit 1
-            fi
-            # Only allow safe characters in usernames
-            if ! [[ "$username" =~ ^[a-zA-Z0-9._-]+$ ]]; then
-                log_error "Invalid username: $username"
-                exit 1
-            fi
-        fi
-        # Strip optional user@ prefix
-        local host="${addr#*@}"
-        if [ -z "$host" ]; then
-            log_error "Empty node address in list"
-            exit 1
-        fi
-        # Validate host: IPv4, hostname, or bracketed IPv6 (e.g., [::1])
-        if [[ "$host" =~ ^\[.*\]$ ]]; then
-            # Bracketed IPv6: strip brackets and validate hex/colons
-            local ipv6_inner="${host:1:${#host}-2}"
-            if ! [[ "$ipv6_inner" =~ ^[a-fA-F0-9:]+$ ]]; then
-                log_error "Invalid IPv6 address: $host"
-                exit 1
-            fi
-        elif [[ "$host" == *:* ]]; then
-            # Raw IPv6 without brackets: require brackets for SCP compatibility
-            log_error "IPv6 addresses must be enclosed in brackets, e.g., [$host]"
-            exit 1
-        elif ! [[ "$host" =~ ^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$ ]]; then
-            log_error "Invalid node address: $host"
-            exit 1
-        fi
-    done
+    _validate_node_addresses "$all_addrs"
 }
 
 # Help message for upgrade
@@ -810,47 +840,9 @@ parse_upgrade_deploy_args() {
                 DEPLOY_WORKERS="$2"
                 shift 2
                 ;;
-            --ssh-user)
-                _require_value $# "$1" "${2:-}"
-                DEPLOY_SSH_USER="$2"
-                shift 2
-                ;;
-            --ssh-port)
-                _require_value $# "$1" "${2:-}"
-                DEPLOY_SSH_PORT="$2"
-                shift 2
-                ;;
-            --ssh-key)
-                _require_value $# "$1" "${2:-}"
-                DEPLOY_SSH_KEY="$2"
-                shift 2
-                ;;
-            --ssh-password)
-                if [[ $# -lt 2 ]]; then
-                    log_error "$1 requires a value"
-                    exit 1
-                fi
-                log_warn "--ssh-password exposes the password in the process list. Prefer DEPLOY_SSH_PASSWORD env var."
-                DEPLOY_SSH_PASSWORD="$2"
-                shift 2
-                ;;
-            --ssh-known-hosts)
-                _require_value $# "$1" "${2:-}"
-                DEPLOY_SSH_KNOWN_HOSTS_FILE="$2"
-                shift 2
-                ;;
-            --ssh-host-key-check)
-                _require_value $# "$1" "${2:-}"
-                if [[ "$2" != "yes" && "$2" != "no" && "$2" != "accept-new" ]]; then
-                    log_error "--ssh-host-key-check must be 'yes', 'no', or 'accept-new'"
-                    exit 1
-                fi
-                if [[ "$2" == "no" ]]; then
-                    log_warn "Disabling SSH host key verification allows MITM attacks. Consider 'accept-new' instead."
-                fi
-                # shellcheck disable=SC2034 # used by common/deploy.sh
-                DEPLOY_SSH_HOST_KEY_CHECK="$2"
-                shift 2
+            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-known-hosts|--ssh-host-key-check)
+                _parse_common_ssh_args $# "$1" "${2:-}"
+                shift "$_SSH_SHIFT"
                 ;;
             --kubernetes-version)
                 _require_value $# "$1" "${2:-}"
@@ -896,17 +888,6 @@ validate_upgrade_deploy_args() {
     fi
 
     # Normalize node lists
-    _normalize_node_list() {
-        local raw="$1" result=() cleaned=() token
-        IFS=',' read -ra result <<< "$raw"
-        for token in "${result[@]}"; do
-            token="${token#"${token%%[![:space:]]*}"}"
-            token="${token%"${token##*[![:space:]]}"}"
-            [ -n "$token" ] && cleaned+=("$token")
-        done
-        local IFS=','
-        echo "${cleaned[*]}"
-    }
     DEPLOY_CONTROL_PLANES=$(_normalize_node_list "$DEPLOY_CONTROL_PLANES")
     [ -n "$DEPLOY_WORKERS" ] && DEPLOY_WORKERS=$(_normalize_node_list "$DEPLOY_WORKERS")
 
@@ -915,87 +896,12 @@ validate_upgrade_deploy_args() {
         exit 1
     fi
 
-    # Validate SSH user
-    if [ -n "$DEPLOY_SSH_USER" ] && ! [[ "$DEPLOY_SSH_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_.-]*$ ]]; then
-        log_error "Invalid SSH user: $DEPLOY_SSH_USER"
-        exit 1
-    fi
-
-    # Validate SSH key file
-    if [ -n "$DEPLOY_SSH_KEY" ] && [ ! -f "$DEPLOY_SSH_KEY" ]; then
-        log_error "SSH key file not found: $DEPLOY_SSH_KEY"
-        exit 1
-    fi
-
-    # Validate known_hosts file
-    if [ -n "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ] && [ ! -f "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
-        log_error "Known hosts file not found: $DEPLOY_SSH_KNOWN_HOSTS_FILE"
-        exit 1
-    fi
-
-    # Check sshpass if password authentication is used
-    if [ -n "$DEPLOY_SSH_PASSWORD" ] && ! command -v sshpass &>/dev/null; then
-        log_error "sshpass is required for --ssh-password. Install it with your package manager."
-        exit 1
-    fi
-
-    # Validate port number
-    if ! [[ "$DEPLOY_SSH_PORT" =~ ^[0-9]+$ ]] || [ "$DEPLOY_SSH_PORT" -lt 1 ] || [ "$DEPLOY_SSH_PORT" -gt 65535 ]; then
-        log_error "Invalid SSH port: $DEPLOY_SSH_PORT"
-        exit 1
-    fi
+    _validate_common_ssh_args
 
     # Validate node addresses
     local all_addrs="$DEPLOY_CONTROL_PLANES"
     [ -n "$DEPLOY_WORKERS" ] && all_addrs="$all_addrs,$DEPLOY_WORKERS"
-    IFS=',' read -ra _all_nodes <<< "$all_addrs"
-
-    # Check for duplicate host addresses
-    local -A _seen_hosts=()
-    for addr in "${_all_nodes[@]}"; do
-        local host="${addr#*@}"
-        if [ -n "${_seen_hosts[$host]:-}" ]; then
-            log_error "Duplicate node address: $host"
-            exit 1
-        fi
-        _seen_hosts[$host]="$addr"
-    done
-
-    for addr in "${_all_nodes[@]}"; do
-        if [[ "$addr" == *@* ]]; then
-            local username="${addr%%@*}"
-            if [ -z "$username" ]; then
-                log_error "Empty username in node address: $addr"
-                exit 1
-            fi
-            if [[ "$username" == -* ]]; then
-                log_error "Invalid username (starts with '-'): $username"
-                exit 1
-            fi
-            if ! [[ "$username" =~ ^[a-zA-Z0-9._-]+$ ]]; then
-                log_error "Invalid username: $username"
-                exit 1
-            fi
-        fi
-        local host="${addr#*@}"
-        if [ -z "$host" ]; then
-            log_error "Empty node address in list"
-            exit 1
-        fi
-        if [[ "$host" =~ ^\[.*\]$ ]]; then
-            local ipv6_inner="${host:1:${#host}-2}"
-            if ! [[ "$ipv6_inner" =~ ^[a-fA-F0-9:]+$ ]]; then
-                log_error "Invalid IPv6 address: $host"
-                exit 1
-            fi
-        elif [[ "$host" == *:* ]]; then
-            log_error "IPv6 addresses must be enclosed in brackets, e.g., [$host]"
-            exit 1
-        elif ! [[ "$host" =~ ^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$ ]]; then
-            log_error "Invalid node address: $host"
-            exit 1
-        fi
-    done
+    _validate_node_addresses "$all_addrs"
 }
 
 # Parse command line arguments for cleanup
@@ -1037,6 +943,266 @@ parse_cleanup_args() {
                 ;;
         esac
     done
+}
+
+# Help message for backup
+show_backup_help() {
+    echo "Usage: $0 backup [options]"
+    echo ""
+    echo "Create an etcd snapshot backup from a kubeadm cluster."
+    echo ""
+    echo "Local mode (run on a control-plane node with sudo):"
+    echo "  Optional:"
+    echo "    --snapshot-path PATH    Output snapshot path (default: auto-generated)"
+    echo "    --distro FAMILY         Override distro family detection"
+    echo "    --dry-run               Show backup plan and exit"
+    echo "    --verbose               Enable debug logging"
+    echo "    --quiet                 Suppress informational messages"
+    echo "    --help                  Display this help message"
+    echo ""
+    echo "Remote mode (from local machine via SSH):"
+    echo "  Required:"
+    echo "    --control-plane IP      Target control-plane node (user@ip or ip)"
+    echo ""
+    echo "  Optional:"
+    echo "    --snapshot-path PATH    Local download path for snapshot"
+    echo "    --ssh-user USER         Default SSH user (default: root)"
+    echo "    --ssh-port PORT         SSH port (default: 22)"
+    echo "    --ssh-key PATH          Path to SSH private key"
+    echo "    --ssh-password PASS     SSH password (requires sshpass; prefer DEPLOY_SSH_PASSWORD env var)"
+    echo "    --ssh-known-hosts FILE  Pre-seeded known_hosts for host key verification"
+    echo "    --ssh-host-key-check MODE  SSH host key policy: yes, no, or accept-new (default: yes)"
+    echo "    --dry-run               Show backup plan and exit"
+    echo "    --verbose               Enable debug logging"
+    echo "    --quiet                 Suppress informational messages"
+    echo "    --help                  Display this help message"
+    echo ""
+    echo "Examples:"
+    echo "  # Local: backup on this node"
+    echo "  sudo $0 backup"
+    echo "  sudo $0 backup --snapshot-path /tmp/etcd-snapshot.db"
+    echo ""
+    echo "  # Remote: backup from control-plane node"
+    echo "  $0 backup --control-plane 10.0.0.1 --ssh-key ~/.ssh/id_rsa"
+    exit "${1:-0}"
+}
+
+# Help message for restore
+show_restore_help() {
+    echo "Usage: $0 restore [options]"
+    echo ""
+    echo "Restore an etcd snapshot to a kubeadm cluster."
+    echo ""
+    echo "Local mode (run on a control-plane node with sudo):"
+    echo "  Required:"
+    echo "    --snapshot-path PATH    Snapshot file to restore"
+    echo ""
+    echo "  Optional:"
+    echo "    --distro FAMILY         Override distro family detection"
+    echo "    --dry-run               Show restore plan and exit"
+    echo "    --verbose               Enable debug logging"
+    echo "    --quiet                 Suppress informational messages"
+    echo "    --help                  Display this help message"
+    echo ""
+    echo "Remote mode (from local machine via SSH):"
+    echo "  Required:"
+    echo "    --control-plane IP      Target control-plane node (user@ip or ip)"
+    echo "    --snapshot-path PATH    Snapshot file to restore (uploaded to remote)"
+    echo ""
+    echo "  Optional:"
+    echo "    --ssh-user USER         Default SSH user (default: root)"
+    echo "    --ssh-port PORT         SSH port (default: 22)"
+    echo "    --ssh-key PATH          Path to SSH private key"
+    echo "    --ssh-password PASS     SSH password (requires sshpass; prefer DEPLOY_SSH_PASSWORD env var)"
+    echo "    --ssh-known-hosts FILE  Pre-seeded known_hosts for host key verification"
+    echo "    --ssh-host-key-check MODE  SSH host key policy: yes, no, or accept-new (default: yes)"
+    echo "    --dry-run               Show restore plan and exit"
+    echo "    --verbose               Enable debug logging"
+    echo "    --quiet                 Suppress informational messages"
+    echo "    --help                  Display this help message"
+    echo ""
+    echo "Examples:"
+    echo "  # Local: restore on this node"
+    echo "  sudo $0 restore --snapshot-path /tmp/etcd-snapshot.db"
+    echo ""
+    echo "  # Remote: restore to control-plane node"
+    echo "  $0 restore --control-plane 10.0.0.1 --snapshot-path /tmp/etcd-snapshot.db --ssh-key ~/.ssh/id_rsa"
+    exit "${1:-0}"
+}
+
+# Parse command line arguments for backup (local mode)
+parse_backup_local_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --help|-h)
+                show_backup_help
+                ;;
+            --snapshot-path)
+                _require_value $# "$1" "${2:-}"
+                # shellcheck disable=SC2034 # used by common/etcd.sh
+                ETCD_SNAPSHOT_PATH="$2"
+                shift 2
+                ;;
+            --distro)
+                _require_value $# "$1" "${2:-}"
+                case "$2" in
+                    debian|rhel|suse|arch|alpine|generic)
+                        DISTRO_OVERRIDE="$2"
+                        ;;
+                    *)
+                        log_error "--distro must be one of: debian, rhel, suse, arch, alpine, generic (got '$2')"
+                        exit 1
+                        ;;
+                esac
+                shift 2
+                ;;
+            *)
+                log_error "Unknown backup option: $1"
+                show_backup_help 1
+                ;;
+        esac
+    done
+    # Default snapshot path
+    if [ -z "$ETCD_SNAPSHOT_PATH" ]; then
+        ETCD_SNAPSHOT_PATH="/var/lib/etcd-backup/snapshot-$(date +%Y%m%d-%H%M%S).db"
+    fi
+}
+
+# Parse command line arguments for backup (remote mode)
+parse_backup_remote_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --help|-h)
+                show_backup_help
+                ;;
+            --control-plane)
+                _require_value $# "$1" "${2:-}"
+                ETCD_CONTROL_PLANE="$2"
+                shift 2
+                ;;
+            --snapshot-path)
+                _require_value $# "$1" "${2:-}"
+                ETCD_SNAPSHOT_PATH="$2"
+                shift 2
+                ;;
+            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-known-hosts|--ssh-host-key-check)
+                _parse_common_ssh_args $# "$1" "${2:-}"
+                shift "$_SSH_SHIFT"
+                ;;
+            --distro)
+                _require_value $# "$1" "${2:-}"
+                ETCD_PASSTHROUGH_ARGS+=("$1" "$2")
+                shift 2
+                ;;
+            *)
+                log_error "Unknown backup option: $1"
+                show_backup_help 1
+                ;;
+        esac
+    done
+    # Default local download path
+    if [ -z "$ETCD_SNAPSHOT_PATH" ]; then
+        ETCD_SNAPSHOT_PATH="./etcd-snapshot-$(date +%Y%m%d-%H%M%S).db"
+    fi
+}
+
+# Parse command line arguments for restore (local mode)
+parse_restore_local_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --help|-h)
+                show_restore_help
+                ;;
+            --snapshot-path)
+                _require_value $# "$1" "${2:-}"
+                ETCD_SNAPSHOT_PATH="$2"
+                shift 2
+                ;;
+            --distro)
+                _require_value $# "$1" "${2:-}"
+                case "$2" in
+                    debian|rhel|suse|arch|alpine|generic)
+                        DISTRO_OVERRIDE="$2"
+                        ;;
+                    *)
+                        log_error "--distro must be one of: debian, rhel, suse, arch, alpine, generic (got '$2')"
+                        exit 1
+                        ;;
+                esac
+                shift 2
+                ;;
+            *)
+                log_error "Unknown restore option: $1"
+                show_restore_help 1
+                ;;
+        esac
+    done
+    if [ -z "$ETCD_SNAPSHOT_PATH" ]; then
+        log_error "--snapshot-path is required for restore"
+        exit 1
+    fi
+}
+
+# Parse command line arguments for restore (remote mode)
+parse_restore_remote_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --help|-h)
+                show_restore_help
+                ;;
+            --control-plane)
+                _require_value $# "$1" "${2:-}"
+                ETCD_CONTROL_PLANE="$2"
+                shift 2
+                ;;
+            --snapshot-path)
+                _require_value $# "$1" "${2:-}"
+                ETCD_SNAPSHOT_PATH="$2"
+                shift 2
+                ;;
+            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-known-hosts|--ssh-host-key-check)
+                _parse_common_ssh_args $# "$1" "${2:-}"
+                shift "$_SSH_SHIFT"
+                ;;
+            --distro)
+                _require_value $# "$1" "${2:-}"
+                ETCD_PASSTHROUGH_ARGS+=("$1" "$2")
+                shift 2
+                ;;
+            *)
+                log_error "Unknown restore option: $1"
+                show_restore_help 1
+                ;;
+        esac
+    done
+    if [ -z "$ETCD_SNAPSHOT_PATH" ]; then
+        log_error "--snapshot-path is required for restore"
+        exit 1
+    fi
+}
+
+# Validate backup remote arguments
+validate_backup_remote_args() {
+    if [ -z "$ETCD_CONTROL_PLANE" ]; then
+        log_error "--control-plane is required for remote backup"
+        exit 1
+    fi
+    _validate_common_ssh_args
+    _validate_node_addresses "$ETCD_CONTROL_PLANE"
+}
+
+# Validate restore remote arguments
+validate_restore_remote_args() {
+    if [ -z "$ETCD_CONTROL_PLANE" ]; then
+        log_error "--control-plane is required for remote restore"
+        exit 1
+    fi
+    if [ ! -f "$ETCD_SNAPSHOT_PATH" ]; then
+        log_error "Snapshot file not found: $ETCD_SNAPSHOT_PATH"
+        exit 1
+    fi
+    _validate_common_ssh_args
+    _validate_node_addresses "$ETCD_CONTROL_PLANE"
 }
 
 # Confirmation prompt for cleanup

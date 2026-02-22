@@ -41,18 +41,20 @@ while [ $i -lt ${#original_args[@]} ]; do
     # shellcheck disable=SC2034 # LOG_LEVEL used by logging module
     case "$arg" in
         --help|-h)
-            # Deploy/upgrade --help is deferred to their parsers
-            if [ "$_action_detected" = true ] && { [ "$ACTION" = "deploy" ] || [ "$ACTION" = "upgrade" ]; }; then
+            # Deploy/upgrade/backup/restore --help is deferred to their parsers
+            if [ "$_action_detected" = true ] && { [ "$ACTION" = "deploy" ] || [ "$ACTION" = "upgrade" ] || [ "$ACTION" = "backup" ] || [ "$ACTION" = "restore" ]; }; then
                 cli_args+=("$arg")
             else
                 cat <<'HELPEOF'
-Usage: setup-k8s.sh <init|join|deploy|upgrade> [options]
+Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore> [options]
 
 Subcommands:
   init                    Initialize a new Kubernetes cluster
   join                    Join an existing cluster as a worker or control-plane node
   deploy                  Deploy a cluster across remote nodes via SSH
   upgrade                 Upgrade cluster Kubernetes version
+  backup                  Create an etcd snapshot backup
+  restore                 Restore an etcd snapshot
 
 Options (init/join):
   --cri RUNTIME           Container runtime (containerd or crio). Default: containerd
@@ -101,6 +103,18 @@ Options (upgrade):
   --workers IPs             Remote mode: comma-separated worker nodes
 
   Run 'setup-k8s.sh upgrade --help' for upgrade-specific details.
+
+Options (backup):
+  --snapshot-path PATH    Output snapshot path (default: auto-generated)
+  --control-plane IP      Remote mode: target control-plane node (user@ip or ip)
+
+  Run 'setup-k8s.sh backup --help' for details.
+
+Options (restore):
+  --snapshot-path PATH    Snapshot file to restore (required)
+  --control-plane IP      Remote mode: target control-plane node (user@ip or ip)
+
+  Run 'setup-k8s.sh restore --help' for details.
 HELPEOF
                 exit 0
             fi
@@ -145,7 +159,7 @@ HELPEOF
             # First non-flag positional argument is the subcommand (strip it from cli_args)
             if [ "$_action_detected" = false ]; then
                 case "$arg" in
-                    init|join|deploy|upgrade)
+                    init|join|deploy|upgrade|backup|restore)
                         ACTION="$arg"
                         _action_detected=true
                         ((i += 1))
@@ -342,6 +356,119 @@ main() {
             fi
 
             upgrade_node_local
+            exit $?
+        fi
+    fi
+
+    # Backup/Restore subcommand: local or remote mode
+    if [ "$ACTION" = "backup" ] || [ "$ACTION" = "restore" ]; then
+        # Detect mode: --control-plane present → remote mode, otherwise → local mode
+        local _etcd_remote=false
+        for _earg in "${cli_args[@]}"; do
+            if [ "$_earg" = "--control-plane" ]; then
+                _etcd_remote=true; break
+            fi
+        done
+
+        if [ "$_etcd_remote" = true ]; then
+            # Remote mode: orchestrate via SSH (no root required locally)
+            if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3) )); then
+                echo "Error: Backup/restore remote mode requires Bash 4.3+ (current: $BASH_VERSION)" >&2
+                exit 1
+            fi
+
+            local etcd_deploy_modules=(variables logging validation deploy etcd)
+            if [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; then
+                for module in "${etcd_deploy_modules[@]}"; do
+                    if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
+                        source "$SCRIPT_DIR/common/${module}.sh"
+                    else
+                        echo "Error: Required module common/${module}.sh not found in $SCRIPT_DIR" >&2
+                        exit 1
+                    fi
+                done
+            else
+                load_deploy_modules
+                for module in "${etcd_deploy_modules[@]}"; do
+                    source "$DEPLOY_MODULES_DIR/common/${module}.sh"
+                done
+                SCRIPT_DIR="$DEPLOY_MODULES_DIR"
+            fi
+
+            if [ "$ACTION" = "backup" ]; then
+                parse_backup_remote_args "${cli_args[@]}"
+                validate_backup_remote_args
+                if [ "$DRY_RUN" = true ]; then
+                    backup_dry_run
+                    exit 0
+                fi
+                backup_etcd_remote
+            else
+                parse_restore_remote_args "${cli_args[@]}"
+                validate_restore_remote_args
+                if [ "$DRY_RUN" = true ]; then
+                    restore_dry_run
+                    exit 0
+                fi
+                restore_etcd_remote
+            fi
+            exit $?
+        else
+            # Local mode: run on control-plane node (root required)
+            # Handle --help before root check
+            for _earg in "${cli_args[@]}"; do
+                if [ "$_earg" = "--help" ] || [ "$_earg" = "-h" ]; then
+                    source "$SCRIPT_DIR/common/variables.sh" 2>/dev/null || true
+                    source "$SCRIPT_DIR/common/logging.sh" 2>/dev/null || true
+                    source "$SCRIPT_DIR/common/validation.sh" 2>/dev/null || true
+                    if [ "$ACTION" = "backup" ]; then
+                        show_backup_help
+                    else
+                        show_restore_help
+                    fi
+                fi
+            done
+            if [ "$(id -u)" -ne 0 ]; then
+                echo "Error: Local backup/restore must be run as root" >&2
+                exit 1
+            fi
+
+            if { [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; } || [ "$BUNDLED_MODE" = "true" ]; then
+                run_local "parse_backup_local_args" dependencies containerd crio kubernetes
+                # Source etcd module
+                if [ "$BUNDLED_MODE" != "true" ] && [ -f "$SCRIPT_DIR/common/etcd.sh" ]; then
+                    source "$SCRIPT_DIR/common/etcd.sh"
+                fi
+            else
+                load_modules "setup-k8s" dependencies containerd crio kubernetes
+                # Download and source etcd module
+                local _etcd_tmp
+                _etcd_tmp=$(mktemp -t etcd-XXXXXX.sh)
+                if curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/etcd.sh" > "$_etcd_tmp" && [ -s "$_etcd_tmp" ]; then
+                    source "$_etcd_tmp"
+                    rm -f "$_etcd_tmp"
+                else
+                    echo "Error: Failed to download etcd.sh" >&2
+                    rm -f "$_etcd_tmp"
+                    exit 1
+                fi
+            fi
+
+            if [ "$ACTION" = "backup" ]; then
+                parse_backup_local_args "${cli_args[@]}"
+                if [ "$DRY_RUN" = true ]; then
+                    backup_dry_run
+                    exit 0
+                fi
+                backup_etcd_local
+            else
+                parse_restore_local_args "${cli_args[@]}"
+                if [ "$DRY_RUN" = true ]; then
+                    restore_dry_run
+                    exit 0
+                fi
+                restore_etcd_local
+            fi
             exit $?
         fi
     fi
