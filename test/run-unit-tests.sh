@@ -811,6 +811,7 @@ test_join_address_ipv6_example() {
 
         ACTION="join"
         JOIN_TOKEN="abcdef.1234567890abcdef"
+        # shellcheck disable=SC2034 # Used by validate_join_args
         DISCOVERY_TOKEN_HASH="sha256:$(printf '%064d' 0)"
         JOIN_ADDRESS="noport"
         local err_output
