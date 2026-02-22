@@ -178,8 +178,12 @@ configure_containerd_toml() {
     mkdir -p /etc/containerd
     containerd config default > /etc/containerd/config.toml
 
-    # Ensure SystemdCgroup=true for runc
-    sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
+    # Set SystemdCgroup based on init system
+    if [ "$(_detect_init_system)" = "systemd" ]; then
+        sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
+    else
+        sed -i 's/SystemdCgroup = true/SystemdCgroup = false/g' /etc/containerd/config.toml
+    fi
 
     # Only inject a version header when the generated config lacks one
     if ! grep -q '^version *= *[0-9]' /etc/containerd/config.toml 2>/dev/null; then
@@ -210,7 +214,10 @@ configure_containerd_toml() {
     _service_restart containerd
     if ! _service_is_active containerd; then
         log_error "containerd failed to start after configuration"
-        systemctl status containerd --no-pager 2>/dev/null || true
+        case "$(_detect_init_system)" in
+            systemd) systemctl status containerd --no-pager 2>/dev/null || true ;;
+            openrc)  rc-service containerd status 2>/dev/null || true ;;
+        esac
         return 1
     fi
 }

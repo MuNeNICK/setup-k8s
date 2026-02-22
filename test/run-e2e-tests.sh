@@ -36,6 +36,7 @@ SUPPORTED_DISTROS=(
     almalinux-8
     oracle-linux-9
     archlinux
+    alpine-3
 )
 
 # VM resource defaults
@@ -66,11 +67,14 @@ SSH_OPTS=("${SSH_BASE_OPTS[@]}")
 # Global cleanup state (must be module-level for EXIT trap)
 _VM_CONTAINER_NAME=""
 _WATCHDOG_PID=""
+_CLOUD_INIT_USER_DATA=""
 
 _e2e_cleanup_vm_container() {
     _cleanup_vm_container "$_WATCHDOG_PID" "$_VM_CONTAINER_NAME"
     _WATCHDOG_PID=""
     _VM_CONTAINER_NAME=""
+    rm -f "$_CLOUD_INIT_USER_DATA"
+    _CLOUD_INIT_USER_DATA=""
 }
 
 # Help message
@@ -185,20 +189,46 @@ run_vm_container() {
 
     # Start container in detached mode
     log_info "Starting container: $container_name (SSH port: $SSH_PORT)"
-    docker run -d --rm \
-        --name "$container_name" \
-        --label "managed-by=k8s-test-runner" \
-        --device /dev/kvm:/dev/kvm \
-        -v "$VM_DATA_DIR:/data" \
-        -p "${SSH_PORT}:2222" \
-        -e "DISTRO=$distro" \
-        -e "GUEST_NAME=$container_name" \
-        -e "SSH_PUBKEY=$(cat "$SSH_KEY_DIR/id_test.pub")" \
-        -e "NO_CONSOLE=1" \
-        -e "MEMORY=$VM_MEMORY" \
-        -e "CPUS=$VM_CPUS" \
-        -e "DISK_SIZE=$VM_DISK_SIZE" \
-        "$DOCKER_VM_RUNNER_IMAGE" >/dev/null
+
+    # Build docker run args
+    local -a _docker_run_args=(
+        docker run -d --rm
+        --name "$container_name"
+        --label "managed-by=k8s-test-runner"
+        --device /dev/kvm:/dev/kvm
+        -v "$VM_DATA_DIR:/data"
+        -p "${SSH_PORT}:2222"
+        -e "DISTRO=$distro"
+        -e "GUEST_NAME=$container_name"
+        -e "SSH_PUBKEY=$(cat "$SSH_KEY_DIR/id_test.pub")"
+        -e "NO_CONSOLE=1"
+        -e "MEMORY=$VM_MEMORY"
+        -e "CPUS=$VM_CPUS"
+        -e "DISK_SIZE=$VM_DISK_SIZE"
+    )
+
+    # Alpine: cloud image has no bash/sudo/openssh pre-installed
+    case "$distro" in
+        alpine-*)
+            _CLOUD_INIT_USER_DATA=$(mktemp /tmp/cloud-init-userdata.XXXXXX.yaml)
+            cat > "$_CLOUD_INIT_USER_DATA" <<'CIEOF'
+#cloud-config
+packages:
+  - bash
+  - sudo
+  - openssh
+runcmd:
+  - ["sh", "-c", "rc-update add sshd default && rc-service sshd start"]
+CIEOF
+            _docker_run_args+=(
+                -v "$_CLOUD_INIT_USER_DATA:/cloud-init-userdata.yaml:ro"
+                -e "CLOUD_INIT_USER_DATA=/cloud-init-userdata.yaml"
+            )
+            ;;
+    esac
+
+    _docker_run_args+=("$DOCKER_VM_RUNNER_IMAGE")
+    "${_docker_run_args[@]}" >/dev/null
     _VM_CONTAINER_NAME="$container_name"
     _WATCHDOG_PID=$(_start_vm_container_watchdog "$$" "$container_name")
     log_success "Container started"
@@ -263,7 +293,17 @@ run_vm_container() {
     # --- Phase 2: Verify setup ---
     log_info "Verifying Kubernetes components..."
     local kubelet_status
-    kubelet_status=$(vm_ssh "systemctl is-active kubelet" 2>/dev/null) || kubelet_status="inactive"
+    if vm_ssh "test -x /usr/bin/systemctl || test -x /bin/systemctl" >/dev/null 2>&1; then
+        kubelet_status=$(vm_ssh "systemctl is-active kubelet" 2>/dev/null) || kubelet_status="inactive"
+    elif vm_ssh "test -x /sbin/rc-service || test -x /usr/sbin/rc-service" >/dev/null 2>&1; then
+        if vm_ssh "rc-service kubelet status" >/dev/null 2>&1; then
+            kubelet_status="active"
+        else
+            kubelet_status="inactive"
+        fi
+    else
+        kubelet_status="unknown"
+    fi
     kubelet_status=$(echo "$kubelet_status" | tr -d '[:space:]')
     log_info "kubelet: $kubelet_status"
 
@@ -313,8 +353,24 @@ run_vm_container() {
         # --- Phase 4: Verify cleanup ---
         log_info "Verifying cleanup..."
         local kubelet_active kubelet_enabled
-        kubelet_active=$(vm_ssh "systemctl is-active kubelet" 2>/dev/null) || kubelet_active="inactive"
-        kubelet_enabled=$(vm_ssh "systemctl is-enabled kubelet" 2>/dev/null) || kubelet_enabled="disabled"
+        if vm_ssh "test -x /usr/bin/systemctl || test -x /bin/systemctl" >/dev/null 2>&1; then
+            kubelet_active=$(vm_ssh "systemctl is-active kubelet" 2>/dev/null) || kubelet_active="inactive"
+            kubelet_enabled=$(vm_ssh "systemctl is-enabled kubelet" 2>/dev/null) || kubelet_enabled="disabled"
+        elif vm_ssh "test -x /sbin/rc-service || test -x /usr/sbin/rc-service" >/dev/null 2>&1; then
+            if vm_ssh "rc-service kubelet status" >/dev/null 2>&1; then
+                kubelet_active="active"
+            else
+                kubelet_active="inactive"
+            fi
+            if vm_ssh "rc-update show default 2>/dev/null | grep -q kubelet" >/dev/null 2>&1; then
+                kubelet_enabled="enabled"
+            else
+                kubelet_enabled="disabled"
+            fi
+        else
+            kubelet_active="inactive"
+            kubelet_enabled="disabled"
+        fi
 
         if [ "$(echo "$kubelet_active" | tr -d '[:space:]')" = "active" ] || [ "$(echo "$kubelet_enabled" | tr -d '[:space:]')" = "enabled" ]; then
             services_stopped="false"

@@ -390,11 +390,11 @@ parse_setup_args() {
             --distro)
                 _require_value $# "$1" "${2:-}"
                 case "$2" in
-                    debian|rhel|suse|arch|generic)
+                    debian|rhel|suse|arch|alpine|generic)
                         DISTRO_OVERRIDE="$2"
                         ;;
                     *)
-                        log_error "--distro must be one of: debian, rhel, suse, arch, generic (got '$2')"
+                        log_error "--distro must be one of: debian, rhel, suse, arch, alpine, generic (got '$2')"
                         exit 1
                         ;;
                 esac
@@ -771,11 +771,11 @@ parse_upgrade_local_args() {
             --distro)
                 _require_value $# "$1" "${2:-}"
                 case "$2" in
-                    debian|rhel|suse|arch|generic)
+                    debian|rhel|suse|arch|alpine|generic)
                         DISTRO_OVERRIDE="$2"
                         ;;
                     *)
-                        log_error "--distro must be one of: debian, rhel, suse, arch, generic (got '$2')"
+                        log_error "--distro must be one of: debian, rhel, suse, arch, alpine, generic (got '$2')"
                         exit 1
                         ;;
                 esac
@@ -1019,12 +1019,12 @@ parse_cleanup_args() {
             --distro)
                 _require_value $# "$1" "${2:-}"
                 case "$2" in
-                    debian|rhel|suse|arch|generic)
+                    debian|rhel|suse|arch|alpine|generic)
                         # shellcheck disable=SC2034 # used by detection.sh after sourcing
                         DISTRO_OVERRIDE="$2"
                         ;;
                     *)
-                        log_error "--distro must be one of: debian, rhel, suse, arch, generic (got '$2')"
+                        log_error "--distro must be one of: debian, rhel, suse, arch, alpine, generic (got '$2')"
                         exit 1
                         ;;
                 esac

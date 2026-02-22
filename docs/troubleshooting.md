@@ -84,6 +84,13 @@ If the script fails to detect your distribution correctly:
 - Uses zypper for package management
 - SLES may require subscription for repositories
 
+### Alpine Linux
+- Uses apk for package management
+- Uses OpenRC instead of systemd; cgroup manager is set to `cgroupfs`
+- Community repository is automatically enabled for Kubernetes packages
+- Check kubelet logs with `rc-service kubelet status` or `/var/log/kubelet.log`
+- `--ignore-preflight-errors=SystemVerification` is automatically added to kubeadm commands
+
 ### Arch Linux
 - Uses pacman and AUR (Arch User Repository)
 - Automatically installs yay AUR helper if needed

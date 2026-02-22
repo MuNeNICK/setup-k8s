@@ -7,7 +7,7 @@ Docker + QEMU test framework that validates `setup-k8s.sh` across multiple Linux
 - **Simple**: Complete test execution with a single command
 - **No host pollution**: No need to install QEMU/cloud-utils on host
 - **Fully automated**: Unattended execution from VM boot to K8s setup and result collection
-- **18 distributions/versions supported**: Ubuntu, Debian, CentOS, Fedora, openSUSE, Rocky, AlmaLinux, Oracle Linux, Arch Linux
+- **19 distributions/versions supported**: Ubuntu, Debian, CentOS, Fedora, openSUSE, Rocky, AlmaLinux, Oracle Linux, Arch Linux, Alpine Linux
 - **Reliable result verification**: Confirms setup-k8s.sh execution, kubelet startup, and API response
 
 ## Test Scripts
@@ -40,6 +40,7 @@ Docker + QEMU test framework that validates `setup-k8s.sh` across multiple Linux
 | almalinux-9 | 9 | user |
 | almalinux-8 | 8 | user |
 | oracle-linux-9 | 9 | user |
+| alpine-3 | 3.23 | user |
 | archlinux | Rolling | user |
 
 ## System Requirements

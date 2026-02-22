@@ -83,7 +83,7 @@ Example:
   $0                                           # Test generic on ubuntu-2404
   $0 --host-distro debian-12                   # Test generic on debian-12
   $0 --k8s-version 1.32                        # Test with specific K8s version
-  $0 --host-distro alpine-3 --boot-mode legacy # Test on Alpine (BIOS image)
+  $0 --host-distro alpine-3                    # Test on Alpine
 EOF
 }
 
@@ -174,6 +174,9 @@ run_test() {
 packages:
   - bash
   - sudo
+  - openssh
+runcmd:
+  - ["sh", "-c", "rc-update add sshd default && rc-service sshd start"]
 CIEOF
 
     log_info "Starting VM container: $container_name (SSH port: $SSH_PORT)"

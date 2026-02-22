@@ -4,7 +4,7 @@
 
 Set up or tear down a Kubernetes cluster with a single command.
 Follows the official [kubeadm installation guide](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/).
-Distro auto-detection means the same command works on Ubuntu, Rocky Linux, Arch, and more.
+Distro auto-detection means the same command works on Ubuntu, Rocky Linux, Arch, Alpine, and more.
 
 Supports single-node, multi-node, and HA (high availability) clusters with kube-vip.
 Proxy mode, CRI (containerd/CRI-O), version pinning, and many other options are fully configurable.
@@ -89,6 +89,7 @@ Tested with Kubernetes v1.35 (latest stable).
 | openSUSE | Tumbleweed | 2026-02-21 | ✅ Tested | |
 | openSUSE | Leap 16.0 | 2026-02-21 | ✅ Tested | |
 | SLES | 15 SP5 | - | 🚫 Untested | Subscription required |
+| Alpine Linux | 3.23 | 2026-02-23 | ✅ Tested | OpenRC, cgroupfs |
 | Arch Linux | Rolling | 2026-02-21 | ✅ Tested | |
 | Manjaro | Rolling | - | 🚫 Untested | No cloud image |
 

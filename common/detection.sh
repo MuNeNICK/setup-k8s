@@ -37,6 +37,9 @@ detect_distribution() {
         arch|manjaro)
             DISTRO_FAMILY="arch"
             ;;
+        alpine)
+            DISTRO_FAMILY="alpine"
+            ;;
         *)
             DISTRO_FAMILY="unknown"
             ;;
@@ -44,7 +47,7 @@ detect_distribution() {
 
     # Check if distribution is supported
     case "$DISTRO_FAMILY" in
-        debian|rhel|suse|arch)
+        debian|rhel|suse|arch|alpine)
             log_info "Distribution $DISTRO_NAME (family: $DISTRO_FAMILY) is supported."
             ;;
         *)

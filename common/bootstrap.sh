@@ -7,7 +7,7 @@
 # Used by load_modules, run_local, and bundle generation.
 # bootstrap is listed for bundling but excluded from runtime loading (already sourced).
 _COMMON_MODULES=(variables logging detection validation helpers networking swap completion helm upgrade)
-_DISTRO_FAMILIES=(arch debian generic rhel suse)
+_DISTRO_FAMILIES=(alpine arch debian generic rhel suse)
 _DISTRO_MODULES=(cleanup containerd crio dependencies kubernetes)
 
 # EXIT trap: collect cleanup paths and run cleanup handlers on exit
