@@ -41,6 +41,7 @@ cleanup_ssh_key() {
     fi
     # Reset SSH_OPTS to base (remove stale -i options from previous runs)
     SSH_OPTS=("${SSH_BASE_OPTS[@]}")
+    _VM_ESCALATE_CMD=""
 }
 
 # Find a free port for SSH forwarding (with retry to mitigate race conditions)
@@ -205,7 +206,7 @@ wait_for_cloud_init() {
             log_error "[$label] Container exited before cloud-init completed"
             return 1
         fi
-        if docker logs --tail 50 "$container_name" 2>&1 | grep -qE "Cloud-init (complete|finished|disabled|did not finish)|Could not query cloud-init"; then
+        if docker logs --tail 50 "$container_name" 2>&1 | grep -qE "Cloud-init (complete|finished|disabled|did not finish)|Could not query cloud-init|Guest agent did not respond"; then
             break
         fi
         sleep 5
@@ -240,9 +241,25 @@ wait_for_ssh() {
     log_success "[$label] SSH is ready"
 }
 
+# Detect privilege escalation command (sudo or doas) on the remote VM.
+# Caches the result in _VM_ESCALATE_CMD for subsequent calls.
+_VM_ESCALATE_CMD=""
+_detect_escalate_cmd() {
+    if [ -n "$_VM_ESCALATE_CMD" ]; then return; fi
+    if ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" "$LOGIN_USER@localhost" "command -v sudo" >/dev/null 2>&1; then
+        _VM_ESCALATE_CMD="sudo"
+    elif ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" "$LOGIN_USER@localhost" "command -v doas" >/dev/null 2>&1; then
+        _VM_ESCALATE_CMD="doas"
+    else
+        log_warn "Neither sudo nor doas found on VM — running commands without escalation"
+        _VM_ESCALATE_CMD=""
+    fi
+}
+
 # SSH helper: run command on VM as root (requires SSH_OPTS, SSH_PORT, LOGIN_USER)
 vm_ssh() {
-    ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" "$LOGIN_USER@localhost" sudo "$@"
+    _detect_escalate_cmd
+    ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" "$LOGIN_USER@localhost" $_VM_ESCALATE_CMD "$@"
 }
 
 # SCP helper: copy file to VM (requires SSH_OPTS, SSH_PORT, LOGIN_USER)

@@ -11,6 +11,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Temporary file for collecting assertion results across subshells
 _RESULTS_FILE=$(mktemp -t unit-test-results-XXXXXX)
+# shellcheck disable=SC2329 # invoked indirectly via trap
 _cleanup_results() { rm -f "$_RESULTS_FILE"; }
 trap _cleanup_results EXIT
 
@@ -850,6 +851,97 @@ test_generate_kube_vip_manifest_ipv6() {
 }
 
 # ============================================================
+# Test: --distro option sets DISTRO_OVERRIDE
+# ============================================================
+test_parse_distro_override() {
+    echo "=== Test: --distro sets DISTRO_OVERRIDE ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        parse_setup_args --distro generic
+        _assert_eq "DISTRO_OVERRIDE set to generic" "generic" "$DISTRO_OVERRIDE"
+    )
+}
+
+# ============================================================
+# Test: --distro rejects invalid values
+# ============================================================
+test_parse_distro_invalid() {
+    echo "=== Test: --distro rejects invalid values ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        local exit_code=0
+        (parse_setup_args --distro invalid_distro) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "--distro invalid value rejected" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: _detect_arch returns known architecture
+# ============================================================
+test_detect_arch() {
+    echo "=== Test: _detect_arch ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/helpers.sh"
+
+        local arch
+        arch=$(_detect_arch)
+        _assert_ne "_detect_arch returns non-empty" "" "$arch"
+        # Should be one of the known architectures on typical test hosts
+        local known=false
+        for a in amd64 arm64 arm s390x ppc64le; do
+            if [ "$arch" = "$a" ]; then known=true; break; fi
+        done
+        _assert_eq "_detect_arch returns known arch" "true" "$known"
+    )
+}
+
+# ============================================================
+# Test: _detect_init_system returns valid value
+# ============================================================
+test_detect_init_system() {
+    echo "=== Test: _detect_init_system ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/helpers.sh"
+
+        local init
+        init=$(_detect_init_system)
+        _assert_ne "_detect_init_system returns non-empty" "" "$init"
+        local valid=false
+        for v in systemd openrc unknown; do
+            if [ "$init" = "$v" ]; then valid=true; break; fi
+        done
+        _assert_eq "_detect_init_system returns valid value" "true" "$valid"
+    )
+}
+
+# ============================================================
+# Test: _download_binary fails on invalid URL
+# ============================================================
+test_download_binary_failure() {
+    echo "=== Test: _download_binary fails on invalid URL ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/helpers.sh"
+
+        local exit_code=0
+        local tmp
+        tmp=$(mktemp -t test-dl-XXXXXX)
+        (_download_binary "https://invalid.example.com/nonexistent" "$tmp") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "_download_binary fails on invalid URL" "0" "$exit_code"
+        rm -f "$tmp"
+    )
+}
+
+# ============================================================
 # Run all tests
 # ============================================================
 echo "Running setup-k8s unit tests..."
@@ -890,6 +982,11 @@ test_parse_setup_args_dual_stack
 test_validate_ha_args_ipv6
 test_join_address_ipv6_example
 test_generate_kube_vip_manifest_ipv6
+test_parse_distro_override
+test_parse_distro_invalid
+test_detect_arch
+test_detect_init_system
+test_download_binary_failure
 
 echo ""
 TESTS_RUN=$(wc -l < "$_RESULTS_FILE")

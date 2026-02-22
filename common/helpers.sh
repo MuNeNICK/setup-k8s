@@ -1,5 +1,145 @@
 #!/bin/bash
 
+# === Architecture and Init System Detection ===
+
+_detect_arch() {
+    local arch
+    arch=$(uname -m)
+    case "$arch" in
+        x86_64)  echo "amd64" ;;
+        aarch64) echo "arm64" ;;
+        armv7l|armv6l) echo "arm" ;;
+        s390x)   echo "s390x" ;;
+        ppc64le) echo "ppc64le" ;;
+        *)       log_warn "Unknown architecture: $arch"; echo "$arch" ;;
+    esac
+}
+
+_detect_init_system() {
+    if command -v systemctl &>/dev/null && systemctl --version &>/dev/null; then
+        echo "systemd"
+    elif command -v rc-service &>/dev/null; then
+        echo "openrc"
+    else
+        echo "unknown"
+    fi
+}
+
+# === Download Helpers ===
+
+_download_binary() {
+    local url="$1" dest="$2"
+    log_info "Downloading: $url"
+    if ! curl -fsSL --retry 3 --retry-delay 2 -o "$dest" "$url"; then
+        log_error "Failed to download: $url"
+        return 1
+    fi
+    chmod +x "$dest"
+}
+
+# Checksum-verified download (verification is best-effort)
+# Usage: _download_with_checksum <url> <dest> [checksum_url]
+_download_with_checksum() {
+    local url="$1" dest="$2" checksum_url="${3:-}"
+    _download_binary "$url" "$dest"
+    if [ -n "$checksum_url" ]; then
+        local expected actual
+        if expected=$(curl -fsSL "$checksum_url" 2>/dev/null); then
+            expected=$(echo "$expected" | awk '{print $1}')
+            actual=$(sha256sum "$dest" | awk '{print $1}')
+            if [ "$expected" != "$actual" ]; then
+                log_error "Checksum mismatch for $dest"
+                rm -f "$dest"
+                return 1
+            fi
+            log_info "Checksum verified: $(basename "$dest")"
+        fi
+    fi
+}
+
+# GitHub API: resolve latest release version (without "v" prefix)
+_resolve_github_latest_version() {
+    local repo="$1"
+    local auth_args=()
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        auth_args=(-H "Authorization: token ${GITHUB_TOKEN}")
+    fi
+    local tag
+    tag=$(curl -fsSL --retry 3 --retry-delay 2 "${auth_args[@]}" \
+        "https://api.github.com/repos/${repo}/releases/latest" \
+        | awk -F'"' '/"tag_name"/{print $4; exit}')
+    if [ -z "$tag" ]; then
+        log_error "Failed to resolve latest version for ${repo}"
+        return 1
+    fi
+    echo "${tag#v}"
+}
+
+# === Service Abstraction (systemd / OpenRC) ===
+
+_service_enable() {
+    local svc="$1"
+    case "$(_detect_init_system)" in
+        systemd) systemctl enable "$svc" ;;
+        openrc)  rc-update add "$svc" default ;;
+    esac
+}
+
+_service_start() {
+    local svc="$1"
+    case "$(_detect_init_system)" in
+        systemd) systemctl start "$svc" ;;
+        openrc)  rc-service "$svc" start ;;
+    esac
+}
+
+_service_stop() {
+    local svc="$1"
+    case "$(_detect_init_system)" in
+        systemd) systemctl stop "$svc" 2>/dev/null || true ;;
+        openrc)  rc-service "$svc" stop 2>/dev/null || true ;;
+    esac
+}
+
+_service_restart() {
+    local svc="$1"
+    case "$(_detect_init_system)" in
+        systemd) systemctl restart "$svc" ;;
+        openrc)  rc-service "$svc" restart ;;
+    esac
+}
+
+_service_disable() {
+    local svc="$1"
+    case "$(_detect_init_system)" in
+        systemd) systemctl disable "$svc" 2>/dev/null || true ;;
+        openrc)  rc-update del "$svc" default 2>/dev/null || true ;;
+    esac
+}
+
+_service_is_active() {
+    local svc="$1"
+    case "$(_detect_init_system)" in
+        systemd) systemctl is-active --quiet "$svc" ;;
+        openrc)  rc-service "$svc" status &>/dev/null ;;
+    esac
+}
+
+_service_reload() {
+    case "$(_detect_init_system)" in
+        systemd) systemctl daemon-reload ;;
+        openrc)  : ;; # OpenRC does not need daemon-reload
+    esac
+}
+
+# === kubeadm Preflight Ignore (OpenRC) ===
+
+_kubeadm_preflight_ignore_args() {
+    if [ "$(_detect_init_system)" != "systemd" ]; then
+        echo "--ignore-preflight-errors=SystemVerification"
+    fi
+}
+
 # Helper: Get the home directory for a given user (portable, no hardcoded /home)
 get_user_home() {
     local user="$1"
@@ -65,12 +205,12 @@ configure_containerd_toml() {
         fi
     fi
 
-    systemctl daemon-reload
-    systemctl enable containerd
-    systemctl restart containerd
-    if ! systemctl is-active --quiet containerd; then
+    _service_reload
+    _service_enable containerd
+    _service_restart containerd
+    if ! _service_is_active containerd; then
         log_error "containerd failed to start after configuration"
-        systemctl status containerd --no-pager || true
+        systemctl status containerd --no-pager 2>/dev/null || true
         return 1
     fi
 }
@@ -442,15 +582,18 @@ initialize_cluster() {
             return 1
         fi
         log_info "Using kubeadm configuration file: $CONFIG_FILE"
-        kubeadm init --config "$CONFIG_FILE" || init_exit=$?
+        # shellcheck disable=SC2046 # intentional word splitting
+        kubeadm init --config "$CONFIG_FILE" $(_kubeadm_preflight_ignore_args) || init_exit=$?
         rm -f "$CONFIG_FILE"
     else
         if [ "$CRI" != "containerd" ]; then
             local cri_socket
             cri_socket=$(get_cri_socket)
-            kubeadm init --cri-socket "$cri_socket" || init_exit=$?
+            # shellcheck disable=SC2046 # intentional word splitting
+            kubeadm init --cri-socket "$cri_socket" $(_kubeadm_preflight_ignore_args) || init_exit=$?
         else
-            kubeadm init || init_exit=$?
+            # shellcheck disable=SC2046 # intentional word splitting
+            kubeadm init $(_kubeadm_preflight_ignore_args) || init_exit=$?
         fi
     fi
 
@@ -527,7 +670,8 @@ join_cluster() {
     fi
 
     local join_exit=0
-    kubeadm join "${join_args[@]}" || join_exit=$?
+    # shellcheck disable=SC2046 # intentional word splitting
+    kubeadm join "${join_args[@]}" $(_kubeadm_preflight_ignore_args) || join_exit=$?
 
     if [ "$join_exit" -ne 0 ]; then
         log_error "kubeadm join failed (exit code: $join_exit)"
@@ -583,9 +727,9 @@ reset_containerd_config() {
                 return 1
             fi
             # Restart containerd if it's running
-            if systemctl is-active containerd &>/dev/null; then
+            if _service_is_active containerd; then
                 log_info "Restarting containerd with default configuration..."
-                systemctl restart containerd
+                _service_restart containerd
             fi
         fi
     fi
@@ -621,10 +765,10 @@ _verify_cleanup() {
 # Stop Kubernetes services
 stop_kubernetes_services() {
     log_info "Stopping Kubernetes services..."
-    systemctl stop kubelet || true
-    systemctl disable kubelet || true
+    _service_stop kubelet
+    _service_disable kubelet
     # Verify kubelet is actually stopped
-    if systemctl is-active --quiet kubelet 2>/dev/null; then
+    if _service_is_active kubelet; then
         log_error "kubelet is still active after stop attempt"
         return 1
     fi
@@ -633,18 +777,23 @@ stop_kubernetes_services() {
 # Stop CRI services
 stop_cri_services() {
     log_info "Checking and stopping CRI services..."
-    
+
     # Stop CRI-O if present
-    if systemctl list-unit-files | grep -q '^crio\.service'; then
+    local _crio_found=false
+    case "$(_detect_init_system)" in
+        systemd) systemctl list-unit-files 2>/dev/null | grep -q '^crio\.service' && _crio_found=true ;;
+        openrc)  [ -f /etc/init.d/crio ] && _crio_found=true ;;
+    esac
+    if [ "$_crio_found" = true ]; then
         log_info "Stopping and disabling CRI-O service..."
-        systemctl stop crio || true
-        systemctl disable crio || true
-        if systemctl is-active --quiet crio 2>/dev/null; then
+        _service_stop crio
+        _service_disable crio
+        if _service_is_active crio; then
             log_warn "CRI-O is still active after stop attempt"
             return 1
         fi
     fi
-    
+
     # Note: containerd is not stopped to avoid impacting Docker
     # Only its configuration will be reset later with reset_containerd_config()
 }

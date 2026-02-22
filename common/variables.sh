@@ -13,6 +13,7 @@ ACTION="${ACTION:-}"  # init or join (set by subcommand)
 JOIN_TOKEN=""
 JOIN_ADDRESS=""
 DISCOVERY_TOKEN_HASH=""
+DISTRO_OVERRIDE=""  # Manual distro family override (debian, rhel, suse, arch, generic)
 DISTRO_NAME=""
 DISTRO_VERSION=""
 DISTRO_FAMILY=""
@@ -62,6 +63,12 @@ UPGRADE_PASSTHROUGH_ARGS=()          # Arguments to forward to remote nodes
 # Version constants (overridable via environment)
 KUBE_VIP_VERSION="${KUBE_VIP_VERSION:-v0.8.9}"
 PAUSE_IMAGE_VERSION="${PAUSE_IMAGE_VERSION:-3.10}"
+
+# Component version defaults for generic distro (overridable via environment)
+CONTAINERD_VERSION="${CONTAINERD_VERSION:-2.0.4}"
+RUNC_VERSION="${RUNC_VERSION:-1.2.5}"
+CNI_PLUGINS_VERSION="${CNI_PLUGINS_VERSION:-1.6.2}"
+CRIO_VERSION="${CRIO_VERSION:-1.32.0}"
 # Bundle module list: bootstrap + _COMMON_MODULES (defined in bootstrap.sh)
 BUNDLE_COMMON_MODULES="bootstrap ${_COMMON_MODULES[*]}"
 

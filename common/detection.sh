@@ -2,6 +2,14 @@
 
 # Detect Linux distribution
 detect_distribution() {
+    if [ -n "$DISTRO_OVERRIDE" ]; then
+        DISTRO_FAMILY="$DISTRO_OVERRIDE"
+        DISTRO_NAME="${DISTRO_OVERRIDE}-manual"
+        DISTRO_VERSION="manual"
+        log_info "Using manually specified distro family: $DISTRO_FAMILY"
+        return 0
+    fi
+
     log_info "Detecting Linux distribution..."
 
     if [ -f /etc/os-release ]; then

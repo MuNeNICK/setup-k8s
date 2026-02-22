@@ -35,6 +35,7 @@ Usage: setup-k8s.sh <init|join|deploy|upgrade> [options]
 | `--ha-vip ADDRESS` | VIP address (required when --ha is set) | — | `--ha-vip 192.168.1.100` |
 | `--ha-interface IFACE` | Network interface for VIP | auto-detect | `--ha-interface eth0` |
 | `--swap-enabled` | Keep swap enabled (K8s 1.28+, NodeSwap LimitedSwap) | — | `--swap-enabled` |
+| `--distro FAMILY` | Override distro family detection | auto-detect | `--distro generic` |
 | `--enable-completion BOOL` | Enable shell completion setup | `true` | `--enable-completion false` |
 | `--completion-shells LIST` | Shells to configure (auto, bash, zsh, fish, or comma-separated) | `auto` | `--completion-shells bash,zsh` |
 | `--install-helm BOOL` | Install Helm package manager | `false` | `--install-helm true` |

@@ -387,6 +387,19 @@ parse_setup_args() {
                 SWAP_ENABLED=true
                 shift
                 ;;
+            --distro)
+                _require_value $# "$1" "${2:-}"
+                case "$2" in
+                    debian|rhel|suse|arch|generic)
+                        DISTRO_OVERRIDE="$2"
+                        ;;
+                    *)
+                        log_error "--distro must be one of: debian, rhel, suse, arch, generic (got '$2')"
+                        exit 1
+                        ;;
+                esac
+                shift 2
+                ;;
             *)
                 log_error "Unknown option: $1"
                 log_error "Run with --help for usage information"
@@ -417,6 +430,7 @@ show_deploy_help() {
     echo "  --ha-interface IFACE    Network interface for VIP (auto-detected on remote)"
     echo "  --cri RUNTIME           Container runtime (containerd or crio)"
     echo "  --proxy-mode MODE       Kube-proxy mode (iptables, ipvs, or nftables)"
+    echo "  --distro FAMILY         Override distro family detection"
     echo "  --swap-enabled          Keep swap enabled (K8s 1.28+)"
     echo "  --kubernetes-version VER Kubernetes version (e.g., 1.32)"
     echo "  --pod-network-cidr CIDR Pod network CIDR"
@@ -501,6 +515,11 @@ parse_deploy_args() {
             --ha-interface)
                 _require_value $# "$1" "${2:-}"
                 DEPLOY_PASSTHROUGH_ARGS+=("--ha-interface" "$2")
+                shift 2
+                ;;
+            --distro)
+                _require_value $# "$1" "${2:-}"
+                DEPLOY_PASSTHROUGH_ARGS+=("$1" "$2")
                 shift 2
                 ;;
             --cri|--proxy-mode|--kubernetes-version|--pod-network-cidr|--service-cidr|--apiserver-advertise-address|--control-plane-endpoint)
@@ -684,6 +703,7 @@ show_upgrade_help() {
     echo "  Optional:"
     echo "    --first-control-plane     Run 'kubeadm upgrade apply' (first CP only)"
     echo "    --skip-drain              Skip drain/uncordon (for single-node clusters)"
+    echo "    --distro FAMILY           Override distro family detection"
     echo "    --verbose                 Enable debug logging"
     echo "    --quiet                   Suppress informational messages"
     echo "    --help                    Display this help message"
@@ -747,6 +767,19 @@ parse_upgrade_local_args() {
                 # shellcheck disable=SC2034 # used by common/upgrade.sh
                 UPGRADE_SKIP_DRAIN=true
                 shift
+                ;;
+            --distro)
+                _require_value $# "$1" "${2:-}"
+                case "$2" in
+                    debian|rhel|suse|arch|generic)
+                        DISTRO_OVERRIDE="$2"
+                        ;;
+                    *)
+                        log_error "--distro must be one of: debian, rhel, suse, arch, generic (got '$2')"
+                        exit 1
+                        ;;
+                esac
+                shift 2
                 ;;
             *)
                 log_error "Unknown upgrade option: $1"
@@ -834,6 +867,11 @@ parse_upgrade_deploy_args() {
                 UPGRADE_SKIP_DRAIN=true
                 UPGRADE_PASSTHROUGH_ARGS+=("$1")
                 shift
+                ;;
+            --distro)
+                _require_value $# "$1" "${2:-}"
+                UPGRADE_PASSTHROUGH_ARGS+=("$1" "$2")
+                shift 2
                 ;;
             *)
                 log_error "Unknown upgrade option: $1"
@@ -977,6 +1015,20 @@ parse_cleanup_args() {
                 # shellcheck disable=SC2034 # used by cleanup-k8s.sh after sourcing
                 REMOVE_HELM=true
                 shift
+                ;;
+            --distro)
+                _require_value $# "$1" "${2:-}"
+                case "$2" in
+                    debian|rhel|suse|arch|generic)
+                        # shellcheck disable=SC2034 # used by detection.sh after sourcing
+                        DISTRO_OVERRIDE="$2"
+                        ;;
+                    *)
+                        log_error "--distro must be one of: debian, rhel, suse, arch, generic (got '$2')"
+                        exit 1
+                        ;;
+                esac
+                shift 2
                 ;;
             *)
                 log_error "Unknown option: $1"

@@ -2,6 +2,12 @@
 
 set -euo pipefail
 
+# Ensure /usr/local/bin is in PATH (generic distro installs binaries there)
+case ":$PATH:" in
+    *:/usr/local/bin:*) ;;
+    *) export PATH="/usr/local/bin:$PATH" ;;
+esac
+
 # Ensure SUDO_USER is defined even when script runs as root without sudo
 SUDO_USER="${SUDO_USER:-}"
 
@@ -65,6 +71,7 @@ Options (init/join):
   --ha-vip ADDRESS        VIP address (required when --ha; also for join --control-plane)
   --ha-interface IFACE    Network interface for VIP (auto-detected if omitted)
   --swap-enabled          Keep swap enabled (K8s 1.28+, NodeSwap LimitedSwap)
+  --distro FAMILY         Override distro family detection (debian, rhel, suse, arch, generic)
   --enable-completion BOOL  Enable shell completion setup (default: true)
   --completion-shells LIST  Shells to configure (auto, bash, zsh, fish, or comma-separated)
   --install-helm BOOL     Install Helm package manager (default: false)
@@ -110,6 +117,15 @@ HELPEOF
         --dry-run)
             DRY_RUN=true
             ((i += 1))
+            ;;
+        --distro)
+            if [ $((i+1)) -ge ${#original_args[@]} ]; then
+                echo "Error: --distro requires a value" >&2
+                exit 1
+            fi
+            DISTRO_OVERRIDE="${original_args[$((i+1))]}"
+            cli_args+=("$arg" "${original_args[$((i+1))]}")
+            ((i += 2))
             ;;
         --ha|--control-plane|--swap-enabled|--first-control-plane|--skip-drain)
             cli_args+=("$arg")
@@ -365,6 +381,10 @@ main() {
         detect_distribution
     fi
 
+    # Install dependencies early — generic distro needs curl before version detection
+    log_info "Installing dependencies..."
+    _dispatch "install_dependencies_${DISTRO_FAMILY}"
+
     # Determine Kubernetes version
     determine_k8s_version
 
@@ -399,10 +419,6 @@ main() {
     # Enable kernel modules and network settings
     enable_kernel_modules
     configure_network_settings
-
-    # Install dependencies
-    log_info "Installing dependencies..."
-    _dispatch "install_dependencies_${DISTRO_FAMILY}"
 
     # Check IPVS availability if IPVS mode is requested
     if [ "$PROXY_MODE" = "ipvs" ]; then

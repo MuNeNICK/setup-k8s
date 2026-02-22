@@ -2,6 +2,12 @@
 
 set -euo pipefail
 
+# Ensure /usr/local/bin is in PATH (generic distro installs binaries there)
+case ":$PATH:" in
+    *:/usr/local/bin:*) ;;
+    *) export PATH="/usr/local/bin:$PATH" ;;
+esac
+
 # Ensure SUDO_USER is defined even when script runs as root without sudo
 SUDO_USER="${SUDO_USER:-}"
 
@@ -136,8 +142,8 @@ main() {
     # Reset containerd configuration (but don't remove containerd)
     reset_containerd_config || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
 
-    # Reload systemd
-    systemctl daemon-reload || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+    # Reload init system
+    _service_reload || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
 
     # Perform distribution-specific cleanup
     _dispatch "cleanup_${DISTRO_FAMILY}" || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))

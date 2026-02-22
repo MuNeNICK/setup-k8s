@@ -257,6 +257,57 @@ sudo ./setup-k8s.sh init \
 - CNI plugin with IPv6/dual-stack support
 - IPv6 connectivity between nodes (for IPv6 or dual-stack modes)
 
+## Generic (Binary Download) Support
+
+When running on an unsupported distribution (or when `--distro generic` is specified), setup-k8s downloads Kubernetes, containerd, runc, CNI plugins, and CRI-O binaries directly from official release URLs instead of using a package manager. OS-level dependencies (socat, conntrack, ipset, kmod) are still installed via the system package manager when available.
+
+### How It Works
+
+- **K8s binaries** (kubeadm, kubelet, kubectl) are downloaded from `dl.k8s.io` with SHA-256 checksum verification
+- **containerd** and **runc** are downloaded from GitHub Releases with checksum verification
+- **CNI plugins** are downloaded from GitHub Releases with checksum verification
+- **CRI-O** is downloaded as a tarball from `storage.googleapis.com` (bundles crio, conmon, runc, crun, crictl, and CNI plugins)
+- Binaries are installed to `/usr/local/bin/` (separate from package manager paths)
+- CNI plugins are installed to `/opt/cni/bin/`
+
+### Init System Support
+
+The script auto-detects the init system (systemd or OpenRC) and generates the appropriate service files:
+
+- **systemd**: Unit files are placed in `/etc/systemd/system/` with a kubeadm drop-in for kubelet
+- **OpenRC**: Init scripts are placed in `/etc/init.d/`
+
+When running on OpenRC, `--ignore-preflight-errors=SystemVerification` is automatically added to kubeadm commands.
+
+### Default Versions
+
+Component versions are pinned by default and can be overridden via environment variables:
+
+| Component | Default | Environment Variable |
+|-----------|---------|---------------------|
+| containerd | 2.0.4 | `CONTAINERD_VERSION` |
+| runc | 1.2.5 | `RUNC_VERSION` |
+| CNI plugins | 1.6.2 | `CNI_PLUGINS_VERSION` |
+| CRI-O | 1.32.0 | `CRIO_VERSION` |
+
+### Architecture Support
+
+Supported architectures: `amd64` (x86_64), `arm64` (aarch64).
+
+### Usage
+
+```bash
+# Force generic mode on any distribution
+sudo ./setup-k8s.sh init --distro generic --kubernetes-version 1.32
+
+# Override component versions
+sudo CONTAINERD_VERSION=2.0.4 RUNC_VERSION=1.2.5 ./setup-k8s.sh init --distro generic
+```
+
+### Cleanup
+
+The `cleanup-k8s.sh` script removes only the binaries, configs, and service files placed by the script. System packages (socat, conntrack, etc.) installed via the package manager are intentionally preserved.
+
 ## CNI Setup
 Install a Container Network Interface (CNI) plugin:
 ```bash

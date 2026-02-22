@@ -1,54 +1,83 @@
 #!/bin/bash
 
-# Detect available package manager (also defined in dependencies.sh)
-_detect_generic_pkg_mgr() {
-    if command -v apt-get &>/dev/null; then echo "apt-get"
-    elif command -v dnf &>/dev/null; then echo "dnf"
-    elif command -v yum &>/dev/null; then echo "yum"
-    elif command -v zypper &>/dev/null; then echo "zypper"
-    elif command -v pacman &>/dev/null; then echo "pacman"
-    fi
-}
+# Generic cleanup: remove binaries, configs, and service files placed by the script.
+# System packages installed via dependencies.sh are intentionally preserved.
 
-# Generic cleanup for unsupported distributions
 cleanup_generic() {
-    log_warn "Using generic cleanup method for unsupported distribution."
+    log_info "Performing generic distro cleanup..."
 
-    local pkg_mgr
-    pkg_mgr=$(_detect_generic_pkg_mgr)
+    # Remove Kubernetes binaries
+    local k8s_bins=(kubeadm kubectl kubelet)
+    for bin in "${k8s_bins[@]}"; do
+        if [ -f "/usr/local/bin/$bin" ]; then
+            rm -f "/usr/local/bin/$bin"
+            log_info "Removed /usr/local/bin/$bin"
+        fi
+    done
 
-    if [ -z "$pkg_mgr" ]; then
-        log_warn "No supported package manager found. Please remove Kubernetes packages manually."
-        return 0
+    # Remove containerd/runc binaries
+    local cri_bins=(containerd containerd-shim-runc-v2 ctr runc)
+    for bin in "${cri_bins[@]}"; do
+        if [ -f "/usr/local/bin/$bin" ]; then
+            rm -f "/usr/local/bin/$bin"
+            log_info "Removed /usr/local/bin/$bin"
+        fi
+    done
+
+    # Remove CRI-O related binaries
+    local crio_bins=(crio conmon conmonrs crun crictl)
+    for bin in "${crio_bins[@]}"; do
+        if [ -f "/usr/local/bin/$bin" ]; then
+            rm -f "/usr/local/bin/$bin"
+            log_info "Removed /usr/local/bin/$bin"
+        fi
+    done
+
+    # Remove CNI plugins (unless --preserve-cni)
+    if [ "${PRESERVE_CNI:-false}" = false ]; then
+        if [ -d /opt/cni/bin ]; then
+            rm -rf /opt/cni/bin
+            log_info "Removed /opt/cni/bin/"
+        fi
+    else
+        log_info "Preserving CNI plugins as requested."
     fi
 
-    log_info "Attempting to remove packages with $pkg_mgr..."
-    case "$pkg_mgr" in
-        apt-get)
-            apt-get purge -y kubeadm kubectl kubelet kubernetes-cni ||
-                log_warn "Package purge had errors"
-            apt-get purge -y cri-o cri-o-runc ||
-                log_warn "CRI-O removal had errors (may not be installed)"
-            apt-get autoremove -y || true
+    # Remove CRI-O configuration directories
+    for dir in /etc/crio /etc/containers; do
+        if [ -d "$dir" ]; then
+            rm -rf "$dir"
+            log_info "Removed $dir/"
+        fi
+    done
+
+    # Remove service files based on init system
+    case "$(_detect_init_system)" in
+        systemd)
+            local units=(kubelet.service containerd.service crio.service)
+            for unit in "${units[@]}"; do
+                if [ -f "/etc/systemd/system/$unit" ]; then
+                    rm -f "/etc/systemd/system/$unit"
+                    log_info "Removed /etc/systemd/system/$unit"
+                fi
+            done
+            if [ -d /etc/systemd/system/kubelet.service.d ]; then
+                rm -rf /etc/systemd/system/kubelet.service.d
+                log_info "Removed /etc/systemd/system/kubelet.service.d/"
+            fi
+            _service_reload
             ;;
-        dnf|yum)
-            $pkg_mgr remove -y kubeadm kubectl kubelet kubernetes-cni ||
-                log_warn "Package removal had errors"
-            $pkg_mgr remove -y cri-o ||
-                log_warn "CRI-O removal had errors (may not be installed)"
-            $pkg_mgr autoremove -y || true
-            ;;
-        zypper)
-            zypper --non-interactive remove -y kubeadm kubectl kubelet kubernetes-cni ||
-                log_warn "Package removal had errors"
-            zypper --non-interactive remove -y cri-o ||
-                log_warn "CRI-O removal had errors (may not be installed)"
-            ;;
-        pacman)
-            pacman -Rns --noconfirm kubeadm kubectl kubelet ||
-                log_warn "Package removal had errors"
-            pacman -Rns --noconfirm cri-o ||
-                log_warn "CRI-O removal had errors (may not be installed)"
+        openrc)
+            local initscripts=(kubelet containerd crio)
+            for svc in "${initscripts[@]}"; do
+                rc-update del "$svc" default 2>/dev/null || true
+                if [ -f "/etc/init.d/$svc" ]; then
+                    rm -f "/etc/init.d/$svc"
+                    log_info "Removed /etc/init.d/$svc"
+                fi
+            done
             ;;
     esac
+
+    log_info "Generic distro cleanup complete."
 }

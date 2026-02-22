@@ -101,7 +101,11 @@ upgrade_node_local() {
     # 2. Run kubeadm upgrade
     if [ "$role" = "first-control-plane" ]; then
         log_info "Step 2: Running kubeadm upgrade apply v${UPGRADE_TARGET_VERSION}..."
-        kubeadm upgrade apply "v${UPGRADE_TARGET_VERSION}" --yes --ignore-preflight-errors=ControlPlaneNodesReady,CreateJob
+        local _preflight_errors="ControlPlaneNodesReady,CreateJob"
+        if [ "$(_detect_init_system)" != "systemd" ]; then
+            _preflight_errors="${_preflight_errors},SystemVerification"
+        fi
+        kubeadm upgrade apply "v${UPGRADE_TARGET_VERSION}" --yes --ignore-preflight-errors="${_preflight_errors}"
     else
         log_info "Step 2: Running kubeadm upgrade node..."
         # On workers, the default kubelet kubeconfig may lack permissions to read
@@ -113,8 +117,8 @@ upgrade_node_local() {
         elif [ -n "${UPGRADE_ADMIN_CONF:-}" ] && [ -f "${UPGRADE_ADMIN_CONF}" ]; then
             _kubeconfig_arg="--kubeconfig ${UPGRADE_ADMIN_CONF}"
         fi
-        # shellcheck disable=SC2086 # intentional word splitting on _kubeconfig_arg
-        kubeadm upgrade node $_kubeconfig_arg
+        # shellcheck disable=SC2086,SC2046 # intentional word splitting
+        kubeadm upgrade node $_kubeconfig_arg $(_kubeadm_preflight_ignore_args)
     fi
 
     # 3. Upgrade kubelet + kubectl packages
@@ -123,8 +127,8 @@ upgrade_node_local() {
 
     # 4. Restart kubelet
     log_info "Step 4: Restarting kubelet..."
-    systemctl daemon-reload
-    if ! systemctl restart kubelet; then
+    _service_reload
+    if ! _service_restart kubelet; then
         log_warn "kubelet restart returned non-zero. It may take a moment to stabilize."
     fi
 
@@ -448,6 +452,17 @@ upgrade_cluster() {
         if [ $i -eq 0 ]; then
             upgrade_cmd+=" --first-control-plane"
         fi
+        # Forward extra passthrough args (e.g. --distro)
+        local _pt_skip_next=false
+        local _pt_idx
+        for ((_pt_idx=0; _pt_idx<${#UPGRADE_PASSTHROUGH_ARGS[@]}; _pt_idx++)); do
+            if [ "$_pt_skip_next" = true ]; then _pt_skip_next=false; continue; fi
+            case "${UPGRADE_PASSTHROUGH_ARGS[$_pt_idx]}" in
+                --kubernetes-version) _pt_skip_next=true ;; # skip flag + value
+                --skip-drain) ;;
+                *) upgrade_cmd+=" $(printf '%q' "${UPGRADE_PASSTHROUGH_ARGS[$_pt_idx]}")" ;;
+            esac
+        done
 
         if ! _deploy_exec_remote "$node_user" "$node_host" "upgrade control-plane" "$upgrade_cmd"; then
             log_error "Upgrade failed for ${node_host}. Node may be in cordoned state."
@@ -515,6 +530,17 @@ upgrade_cluster() {
             # on the worker can use the admin kubeconfig for API access.
             local upgrade_cmd
             upgrade_cmd="${node_sudo}env UPGRADE_ADMIN_CONF=${remote_admin_conf} bash ${node_bundle} upgrade --kubernetes-version $(printf '%q' "$UPGRADE_TARGET_VERSION")"
+            # Forward extra passthrough args (e.g. --distro)
+            local _pt_skip_next=false
+            local _pt_idx
+            for ((_pt_idx=0; _pt_idx<${#UPGRADE_PASSTHROUGH_ARGS[@]}; _pt_idx++)); do
+                if [ "$_pt_skip_next" = true ]; then _pt_skip_next=false; continue; fi
+                case "${UPGRADE_PASSTHROUGH_ARGS[$_pt_idx]}" in
+                    --kubernetes-version) _pt_skip_next=true ;;
+                    --skip-drain) ;;
+                    *) upgrade_cmd+=" $(printf '%q' "${UPGRADE_PASSTHROUGH_ARGS[$_pt_idx]}")" ;;
+                esac
+            done
 
             if ! _deploy_exec_remote "$node_user" "$node_host" "upgrade worker" "$upgrade_cmd"; then
                 log_error "Upgrade failed for ${node_host}. Node may be in cordoned state."
