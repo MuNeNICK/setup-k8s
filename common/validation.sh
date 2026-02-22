@@ -1,5 +1,19 @@
 #!/bin/bash
 
+# Parse and validate --distro argument, set DISTRO_OVERRIDE.
+# Usage: _parse_distro_arg "$2"
+_parse_distro_arg() {
+    case "$1" in
+        debian|rhel|suse|arch|alpine|generic)
+            DISTRO_OVERRIDE="$1"
+            ;;
+        *)
+            log_error "--distro must be one of: debian, rhel, suse, arch, alpine, generic (got '$1')"
+            exit 1
+            ;;
+    esac
+}
+
 # Check required arguments for join
 validate_join_args() {
     if [[ "$ACTION" == "join" ]]; then
@@ -552,15 +566,7 @@ parse_setup_args() {
                 ;;
             --distro)
                 _require_value $# "$1" "${2:-}"
-                case "$2" in
-                    debian|rhel|suse|arch|alpine|generic)
-                        DISTRO_OVERRIDE="$2"
-                        ;;
-                    *)
-                        log_error "--distro must be one of: debian, rhel, suse, arch, alpine, generic (got '$2')"
-                        exit 1
-                        ;;
-                esac
+                _parse_distro_arg "$2"
                 shift 2
                 ;;
             *)
@@ -800,15 +806,7 @@ parse_upgrade_local_args() {
                 ;;
             --distro)
                 _require_value $# "$1" "${2:-}"
-                case "$2" in
-                    debian|rhel|suse|arch|alpine|generic)
-                        DISTRO_OVERRIDE="$2"
-                        ;;
-                    *)
-                        log_error "--distro must be one of: debian, rhel, suse, arch, alpine, generic (got '$2')"
-                        exit 1
-                        ;;
-                esac
+                _parse_distro_arg "$2"
                 shift 2
                 ;;
             *)
@@ -924,16 +922,7 @@ parse_cleanup_args() {
                 ;;
             --distro)
                 _require_value $# "$1" "${2:-}"
-                case "$2" in
-                    debian|rhel|suse|arch|alpine|generic)
-                        # shellcheck disable=SC2034 # used by detection.sh after sourcing
-                        DISTRO_OVERRIDE="$2"
-                        ;;
-                    *)
-                        log_error "--distro must be one of: debian, rhel, suse, arch, alpine, generic (got '$2')"
-                        exit 1
-                        ;;
-                esac
+                _parse_distro_arg "$2"
                 shift 2
                 ;;
             *)
@@ -1045,15 +1034,7 @@ parse_backup_local_args() {
                 ;;
             --distro)
                 _require_value $# "$1" "${2:-}"
-                case "$2" in
-                    debian|rhel|suse|arch|alpine|generic)
-                        DISTRO_OVERRIDE="$2"
-                        ;;
-                    *)
-                        log_error "--distro must be one of: debian, rhel, suse, arch, alpine, generic (got '$2')"
-                        exit 1
-                        ;;
-                esac
+                _parse_distro_arg "$2"
                 shift 2
                 ;;
             *)
@@ -1120,15 +1101,7 @@ parse_restore_local_args() {
                 ;;
             --distro)
                 _require_value $# "$1" "${2:-}"
-                case "$2" in
-                    debian|rhel|suse|arch|alpine|generic)
-                        DISTRO_OVERRIDE="$2"
-                        ;;
-                    *)
-                        log_error "--distro must be one of: debian, rhel, suse, arch, alpine, generic (got '$2')"
-                        exit 1
-                        ;;
-                esac
+                _parse_distro_arg "$2"
                 shift 2
                 ;;
             *)

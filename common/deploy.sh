@@ -50,73 +50,54 @@ _deploy_ssh() {
     fi
 }
 
-# SCP file to a remote node
-# Usage: _deploy_scp <local_path> <user> <host> <remote_path>
-_deploy_scp() {
-    local local_path="$1" user="$2" host="$3" remote_path="$4"
+# Build SCP options array and bracketed host from SSH opts.
+# Sets: _SCP_OPTS (array), _SCP_HOST (string)
+_build_scp_args() {
+    local host="$1"
     local -a ssh_opts
     _build_deploy_ssh_opts ssh_opts
-    # scp uses -P (uppercase) for port, replace -p with -P
-    local -a scp_opts=()
+
+    _SCP_OPTS=()
     local i=0
     while [ $i -lt ${#ssh_opts[@]} ]; do
         if [ "${ssh_opts[$i]}" = "-p" ]; then
-            scp_opts+=("-P" "${ssh_opts[$((i+1))]}")
+            _SCP_OPTS+=("-P" "${ssh_opts[$((i+1))]}")
             ((i+=2))
         else
-            scp_opts+=("${ssh_opts[$i]}")
+            _SCP_OPTS+=("${ssh_opts[$i]}")
             ((i+=1))
         fi
     done
 
-    # Bracket IPv6 addresses for SCP target format
-    local scp_host="$host"
-    if [[ "$host" =~ ^\[.*\]$ ]]; then
-        # Already bracketed, use as-is for SCP
-        scp_host="$host"
-    elif [[ "$host" == *:* ]]; then
-        scp_host="[$host]"
+    _SCP_HOST="$host"
+    if [[ "$host" == *:* ]] && [[ ! "$host" =~ ^\[.*\]$ ]]; then
+        _SCP_HOST="[$host]"
     fi
+}
 
+# Run scp with optional sshpass
+_run_scp() {
     if [ -n "$DEPLOY_SSH_PASSWORD" ]; then
-        SSHPASS="$DEPLOY_SSH_PASSWORD" sshpass -e scp "${scp_opts[@]}" "$local_path" "${user}@${scp_host}:${remote_path}"
+        SSHPASS="$DEPLOY_SSH_PASSWORD" sshpass -e scp "$@"
     else
-        scp "${scp_opts[@]}" "$local_path" "${user}@${scp_host}:${remote_path}"
+        scp "$@"
     fi
+}
+
+# SCP file to a remote node
+# Usage: _deploy_scp <local_path> <user> <host> <remote_path>
+_deploy_scp() {
+    local local_path="$1" user="$2" host="$3" remote_path="$4"
+    _build_scp_args "$host"
+    _run_scp "${_SCP_OPTS[@]}" "$local_path" "${user}@${_SCP_HOST}:${remote_path}"
 }
 
 # SCP file from a remote node to local
 # Usage: _deploy_scp_from <user> <host> <remote_path> <local_path>
 _deploy_scp_from() {
     local user="$1" host="$2" remote_path="$3" local_path="$4"
-    local -a ssh_opts
-    _build_deploy_ssh_opts ssh_opts
-    # scp uses -P (uppercase) for port, replace -p with -P
-    local -a scp_opts=()
-    local i=0
-    while [ $i -lt ${#ssh_opts[@]} ]; do
-        if [ "${ssh_opts[$i]}" = "-p" ]; then
-            scp_opts+=("-P" "${ssh_opts[$((i+1))]}")
-            ((i+=2))
-        else
-            scp_opts+=("${ssh_opts[$i]}")
-            ((i+=1))
-        fi
-    done
-
-    # Bracket IPv6 addresses for SCP target format
-    local scp_host="$host"
-    if [[ "$host" =~ ^\[.*\]$ ]]; then
-        scp_host="$host"
-    elif [[ "$host" == *:* ]]; then
-        scp_host="[$host]"
-    fi
-
-    if [ -n "$DEPLOY_SSH_PASSWORD" ]; then
-        SSHPASS="$DEPLOY_SSH_PASSWORD" sshpass -e scp "${scp_opts[@]}" "${user}@${scp_host}:${remote_path}" "$local_path"
-    else
-        scp "${scp_opts[@]}" "${user}@${scp_host}:${remote_path}" "$local_path"
-    fi
+    _build_scp_args "$host"
+    _run_scp "${_SCP_OPTS[@]}" "${user}@${_SCP_HOST}:${remote_path}" "$local_path"
 }
 
 # Parse node address: "user@ip" or "ip" → sets _NODE_USER, _NODE_HOST

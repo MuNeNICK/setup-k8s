@@ -291,6 +291,14 @@ restore_etcd_local() {
 
 # --- Dry-run ---
 
+_log_ssh_settings() {
+    log_info "SSH Settings:"
+    log_info "  Default user: $DEPLOY_SSH_USER"
+    log_info "  Port: $DEPLOY_SSH_PORT"
+    [ -n "$DEPLOY_SSH_KEY" ] && log_info "  Key: $DEPLOY_SSH_KEY"
+    [ -n "$DEPLOY_SSH_PASSWORD" ] && log_info "  Auth: password (sshpass)"
+}
+
 backup_dry_run() {
     log_info "=== Backup Dry-Run Plan ==="
     log_info ""
@@ -299,11 +307,7 @@ backup_dry_run() {
         log_info "Mode: Remote"
         log_info "Target Node: $ETCD_CONTROL_PLANE"
         log_info ""
-        log_info "SSH Settings:"
-        log_info "  Default user: $DEPLOY_SSH_USER"
-        log_info "  Port: $DEPLOY_SSH_PORT"
-        [ -n "$DEPLOY_SSH_KEY" ] && log_info "  Key: $DEPLOY_SSH_KEY"
-        [ -n "$DEPLOY_SSH_PASSWORD" ] && log_info "  Auth: password (sshpass)"
+        _log_ssh_settings
         log_info ""
         log_info "Orchestration Plan:"
         log_info "  1. Check SSH connectivity"
@@ -333,11 +337,7 @@ restore_dry_run() {
         log_info "Target Node: $ETCD_CONTROL_PLANE"
         log_info "Snapshot: $ETCD_SNAPSHOT_PATH"
         log_info ""
-        log_info "SSH Settings:"
-        log_info "  Default user: $DEPLOY_SSH_USER"
-        log_info "  Port: $DEPLOY_SSH_PORT"
-        [ -n "$DEPLOY_SSH_KEY" ] && log_info "  Key: $DEPLOY_SSH_KEY"
-        [ -n "$DEPLOY_SSH_PASSWORD" ] && log_info "  Auth: password (sshpass)"
+        _log_ssh_settings
         log_info ""
         log_info "Orchestration Plan:"
         log_info "  1. Check SSH connectivity"
@@ -429,13 +429,8 @@ _teardown_etcd_remote() {
     _ETCD_REMOTE_DIR=""
 }
 
-backup_etcd_remote() {
-    log_info "Remote etcd backup from ${ETCD_CONTROL_PLANE}..."
-
-    _setup_etcd_remote || return 1
-
-    # Generate and transfer bundle
-    log_info "Step 2: Generating and transferring bundle..."
+# Generate bundle and transfer to remote node
+_transfer_etcd_bundle() {
     local bundle_path
     bundle_path=$(mktemp -t setup-k8s-etcd-XXXXXX.sh)
     chmod 600 "$bundle_path"
@@ -447,25 +442,44 @@ backup_etcd_remote() {
         return 1
     fi
     rm -f "$bundle_path"
+}
 
-    # Execute backup on remote
-    log_info "Step 3: Executing backup on remote node..."
+# Build and execute a remote etcd subcommand
+# Usage: _exec_etcd_remote <subcommand> <label> <extra_args...>
+_exec_etcd_remote() {
+    local subcmd="$1" label="$2"; shift 2
     local sudo_pfx=""
     [ "$_ETCD_REMOTE_USER" != "root" ] && sudo_pfx="sudo -n "
-    local remote_snapshot="${_ETCD_REMOTE_DIR}/etcd-snapshot.db"
-    local backup_cmd="${sudo_pfx}bash ${_ETCD_REMOTE_DIR}/setup-k8s.sh backup --snapshot-path ${remote_snapshot}"
+    local cmd="${sudo_pfx}bash ${_ETCD_REMOTE_DIR}/setup-k8s.sh ${subcmd}"
+    for arg in "$@"; do
+        cmd+=" $(printf '%q' "$arg")"
+    done
     for arg in "${ETCD_PASSTHROUGH_ARGS[@]}"; do
-        backup_cmd+=" $(printf '%q' "$arg")"
+        cmd+=" $(printf '%q' "$arg")"
     done
 
-    if ! _deploy_exec_remote "$_ETCD_REMOTE_USER" "$_ETCD_REMOTE_HOST" "etcd backup" "$backup_cmd"; then
-        log_error "Remote backup failed"
+    if ! _deploy_exec_remote "$_ETCD_REMOTE_USER" "$_ETCD_REMOTE_HOST" "$label" "$cmd"; then
+        log_error "Remote ${subcmd} failed"
         return 1
     fi
+}
+
+backup_etcd_remote() {
+    log_info "Remote etcd backup from ${ETCD_CONTROL_PLANE}..."
+
+    _setup_etcd_remote || return 1
+
+    log_info "Step 2: Generating and transferring bundle..."
+    _transfer_etcd_bundle || return 1
+
+    log_info "Step 3: Executing backup on remote node..."
+    local remote_snapshot="${_ETCD_REMOTE_DIR}/etcd-snapshot.db"
+    _exec_etcd_remote "backup" "etcd backup" --snapshot-path "$remote_snapshot" || return 1
 
     # Download snapshot
     log_info "Step 4: Downloading snapshot to $ETCD_SNAPSHOT_PATH..."
     if [ "$_ETCD_REMOTE_USER" != "root" ]; then
+        local sudo_pfx="sudo -n "
         _deploy_ssh "$_ETCD_REMOTE_USER" "$_ETCD_REMOTE_HOST" "${sudo_pfx}chmod 644 '${remote_snapshot}'" >/dev/null 2>&1 || true
     fi
     if ! _deploy_scp_from "$_ETCD_REMOTE_USER" "$_ETCD_REMOTE_HOST" "$remote_snapshot" "$ETCD_SNAPSHOT_PATH"; then
@@ -497,33 +511,11 @@ restore_etcd_remote() {
         return 1
     fi
 
-    # Generate and transfer bundle
     log_info "Step 3: Generating and transferring bundle..."
-    local bundle_path
-    bundle_path=$(mktemp -t setup-k8s-etcd-XXXXXX.sh)
-    chmod 600 "$bundle_path"
-    generate_deploy_bundle "$bundle_path"
+    _transfer_etcd_bundle || return 1
 
-    if ! _deploy_scp "$bundle_path" "$_ETCD_REMOTE_USER" "$_ETCD_REMOTE_HOST" "${_ETCD_REMOTE_DIR}/setup-k8s.sh"; then
-        log_error "Failed to transfer bundle"
-        rm -f "$bundle_path"
-        return 1
-    fi
-    rm -f "$bundle_path"
-
-    # Execute restore on remote
     log_info "Step 4: Executing restore on remote node..."
-    local sudo_pfx=""
-    [ "$_ETCD_REMOTE_USER" != "root" ] && sudo_pfx="sudo -n "
-    local restore_cmd="${sudo_pfx}bash ${_ETCD_REMOTE_DIR}/setup-k8s.sh restore --snapshot-path ${remote_snapshot}"
-    for arg in "${ETCD_PASSTHROUGH_ARGS[@]}"; do
-        restore_cmd+=" $(printf '%q' "$arg")"
-    done
-
-    if ! _deploy_exec_remote "$_ETCD_REMOTE_USER" "$_ETCD_REMOTE_HOST" "etcd restore" "$restore_cmd"; then
-        log_error "Remote restore failed"
-        return 1
-    fi
+    _exec_etcd_remote "restore" "etcd restore" --snapshot-path "$remote_snapshot" || return 1
 
     _teardown_etcd_remote
     log_info "Remote etcd restore complete!"
