@@ -25,10 +25,11 @@ setup_crio_arch() {
     mkdir -p /etc/cni/net.d
 
     # Enable and start CRI-O
-    systemctl daemon-reload
-    systemctl enable --now crio || {
+    _service_reload
+    _service_enable crio
+    _service_start crio || {
         log_error "Failed to start CRI-O service"
-        systemctl status crio --no-pager || true
+        systemctl status crio --no-pager 2>/dev/null || true
         return 1
     }
 

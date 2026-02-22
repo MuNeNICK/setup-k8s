@@ -19,9 +19,10 @@ setup_crio_suse() {
         log_error "CRI-O installation failed. It may require specific repositories on your SUSE version."
         return 1
     fi
-    systemctl daemon-reload
-    if ! systemctl enable --now crio; then
-        log_error "Failed to enable and start CRI-O service."
+    _service_reload
+    _service_enable crio
+    if ! _service_start crio; then
+        log_error "Failed to start CRI-O service."
         return 1
     fi
     configure_crictl

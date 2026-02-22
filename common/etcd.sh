@@ -136,7 +136,7 @@ backup_etcd_local() {
     fi
 
     # Save snapshot inside the container
-    local container_snapshot="/var/lib/etcd/snapshot-tmp.db"
+    local container_snapshot="/var/lib/etcd/snapshot-tmp-$$.db"
     log_info "Creating etcd snapshot..."
     if ! _etcdctl_exec "$cid" snapshot save "$container_snapshot"; then
         log_error "etcdctl snapshot save failed"
@@ -189,10 +189,10 @@ restore_etcd_local() {
 
     # Find etcd container and extract binaries before stopping
     local cid
-    local etcd_bin_dir="/tmp/etcd-restore-bin"
-    mkdir -p "$etcd_bin_dir"
-    cid=$(_find_etcd_container) || return 1
-    _extract_etcd_binaries "$cid" "$etcd_bin_dir" || return 1
+    local etcd_bin_dir
+    etcd_bin_dir=$(mktemp -d -t etcd-restore-bin-XXXXXX)
+    cid=$(_find_etcd_container) || { rm -rf "$etcd_bin_dir"; return 1; }
+    _extract_etcd_binaries "$cid" "$etcd_bin_dir" || { rm -rf "$etcd_bin_dir"; return 1; }
 
     # Move etcd static pod manifest to stop the etcd container
     if [ ! -f "$_ETCD_MANIFEST_PATH" ]; then
@@ -225,7 +225,8 @@ restore_etcd_local() {
     # Backup existing data directory
     local etcd_data_dir="/var/lib/etcd"
     if [ -d "$etcd_data_dir" ]; then
-        local backup_dir="${etcd_data_dir}.bak.$(date +%Y%m%d-%H%M%S)"
+        local backup_dir
+        backup_dir="${etcd_data_dir}.bak.$(date +%Y%m%d-%H%M%S)"
         log_info "Backing up existing etcd data to $backup_dir..."
         mv "$etcd_data_dir" "$backup_dir"
     fi
@@ -252,6 +253,13 @@ restore_etcd_local() {
 
     if [ "$restore_ok" = false ]; then
         log_error "Snapshot restore failed"
+        # Restore original data directory if backup exists
+        if [ -n "${backup_dir:-}" ] && [ -d "$backup_dir" ]; then
+            log_warn "Restoring original etcd data from $backup_dir..."
+            rm -rf "$etcd_data_dir" 2>/dev/null || true
+            mv "$backup_dir" "$etcd_data_dir"
+        fi
+        rm -rf "$etcd_bin_dir"
         return 1
     fi
     log_info "Snapshot restored to $etcd_data_dir"
@@ -454,9 +462,11 @@ _exec_etcd_remote() {
     for arg in "$@"; do
         cmd+=" $(printf '%q' "$arg")"
     done
-    for arg in "${ETCD_PASSTHROUGH_ARGS[@]}"; do
-        cmd+=" $(printf '%q' "$arg")"
-    done
+    if [ ${#ETCD_PASSTHROUGH_ARGS[@]} -gt 0 ]; then
+        for arg in "${ETCD_PASSTHROUGH_ARGS[@]}"; do
+            cmd+=" $(printf '%q' "$arg")"
+        done
+    fi
 
     if ! _deploy_exec_remote "$_ETCD_REMOTE_USER" "$_ETCD_REMOTE_HOST" "$label" "$cmd"; then
         log_error "Remote ${subcmd} failed"
@@ -489,6 +499,10 @@ backup_etcd_remote() {
 
     local snapshot_size
     snapshot_size=$(wc -c < "$ETCD_SNAPSHOT_PATH")
+    if [ "$snapshot_size" -lt 100 ]; then
+        log_error "Downloaded snapshot is too small ($snapshot_size bytes), backup may have failed"
+        return 1
+    fi
     log_info "Snapshot downloaded: $ETCD_SNAPSHOT_PATH ($snapshot_size bytes)"
 
     _teardown_etcd_remote

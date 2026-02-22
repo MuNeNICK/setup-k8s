@@ -31,9 +31,11 @@ _run_cleanup_handlers() {
         ${_EXIT_CLEANUP_HANDLERS[$i]} || echo "Warning: cleanup handler '${_EXIT_CLEANUP_HANDLERS[$i]}' failed" >&2
     done
     # Clean up temporary directories
-    for dir in "${_EXIT_CLEANUP_DIRS[@]}"; do
-        rm -rf "$dir"
-    done
+    if [ ${#_EXIT_CLEANUP_DIRS[@]} -gt 0 ]; then
+        for dir in "${_EXIT_CLEANUP_DIRS[@]}"; do
+            rm -rf "$dir"
+        done
+    fi
 }
 trap _run_cleanup_handlers EXIT
 
@@ -76,7 +78,7 @@ _dispatch() {
         "$func_name" "$@"
     else
         echo "Error: Required function '$func_name' not found." >&2
-        exit 1
+        return 1
     fi
 }
 

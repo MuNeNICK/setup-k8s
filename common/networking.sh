@@ -81,61 +81,44 @@ EOF
     sysctl -p /etc/sysctl.d/k8s.conf
 }
 
+# Reset K8s-related chains for a single iptables family (iptables or ip6tables)
+_reset_iptables_family() {
+    local cmd="$1"
+    local k8s_chain_prefixes="KUBE- FLANNEL- CNI- CILIUM_ WEAVE-"
+    for table in filter nat mangle; do
+        local rules
+        if ! rules=$("$cmd" -t "$table" -S 2>&1); then
+            log_warn "Could not read $cmd table '$table': $rules"
+            continue
+        fi
+        for prefix in $k8s_chain_prefixes; do
+            echo "$rules" | sed -n "s/.*-j \(${prefix}[^ ]*\).*/\1/p" | sort -u | while read -r chain; do
+                "$cmd" -t "$table" -D FORWARD -j "$chain" 2>/dev/null || true
+                "$cmd" -t "$table" -D INPUT -j "$chain" 2>/dev/null || true
+                "$cmd" -t "$table" -D OUTPUT -j "$chain" 2>/dev/null || true
+                "$cmd" -t "$table" -D PREROUTING -j "$chain" 2>/dev/null || true
+                "$cmd" -t "$table" -D POSTROUTING -j "$chain" 2>/dev/null || true
+            done
+            echo "$rules" | awk "/^-N ${prefix}/"'{print $2}' | while read -r chain; do
+                "$cmd" -t "$table" -F "$chain" 2>/dev/null || true
+                "$cmd" -t "$table" -X "$chain" 2>/dev/null || true
+            done
+        done
+    done
+}
+
 # Reset K8s-related iptables rules (selective cleanup to avoid flushing unrelated rules)
 reset_iptables() {
     log_info "Resetting K8s-related iptables rules..."
     if command -v iptables &> /dev/null; then
-        # Delete K8s-related chains selectively instead of flushing all rules
-        local k8s_chain_prefixes="KUBE- FLANNEL- CNI- CILIUM_ WEAVE-"
-        for table in filter nat mangle; do
-            # Cache iptables rules once per table (avoids repeated expensive calls)
-            local rules
-            if ! rules=$(iptables -t "$table" -S 2>&1); then
-                log_warn "Could not read iptables table '$table': $rules"
-                continue
-            fi
-            for prefix in $k8s_chain_prefixes; do
-                echo "$rules" | sed -n "s/.*-j \(${prefix}[^ ]*\).*/\1/p" | sort -u | while read -r chain; do
-                    iptables -t "$table" -D FORWARD -j "$chain" 2>/dev/null || true
-                    iptables -t "$table" -D INPUT -j "$chain" 2>/dev/null || true
-                    iptables -t "$table" -D OUTPUT -j "$chain" 2>/dev/null || true
-                    iptables -t "$table" -D PREROUTING -j "$chain" 2>/dev/null || true
-                    iptables -t "$table" -D POSTROUTING -j "$chain" 2>/dev/null || true
-                done
-                echo "$rules" | awk "/^-N ${prefix}/"'{print $2}' | while read -r chain; do
-                    iptables -t "$table" -F "$chain" 2>/dev/null || true
-                    iptables -t "$table" -X "$chain" 2>/dev/null || true
-                done
-            done
-        done
+        _reset_iptables_family iptables
     else
         log_warn "iptables command not found, skipping iptables reset"
     fi
 
-    # Reset K8s-related ip6tables rules
     if command -v ip6tables &> /dev/null; then
         log_info "Resetting K8s-related ip6tables rules..."
-        local k8s_chain_prefixes_v6="KUBE- FLANNEL- CNI- CILIUM_ WEAVE-"
-        for table in filter nat mangle; do
-            local rules_v6
-            if ! rules_v6=$(ip6tables -t "$table" -S 2>&1); then
-                log_warn "Could not read ip6tables table '$table': $rules_v6"
-                continue
-            fi
-            for prefix in $k8s_chain_prefixes_v6; do
-                echo "$rules_v6" | sed -n "s/.*-j \(${prefix}[^ ]*\).*/\1/p" | sort -u | while read -r chain; do
-                    ip6tables -t "$table" -D FORWARD -j "$chain" 2>/dev/null || true
-                    ip6tables -t "$table" -D INPUT -j "$chain" 2>/dev/null || true
-                    ip6tables -t "$table" -D OUTPUT -j "$chain" 2>/dev/null || true
-                    ip6tables -t "$table" -D PREROUTING -j "$chain" 2>/dev/null || true
-                    ip6tables -t "$table" -D POSTROUTING -j "$chain" 2>/dev/null || true
-                done
-                echo "$rules_v6" | awk "/^-N ${prefix}/"'{print $2}' | while read -r chain; do
-                    ip6tables -t "$table" -F "$chain" 2>/dev/null || true
-                    ip6tables -t "$table" -X "$chain" 2>/dev/null || true
-                done
-            done
-        done
+        _reset_iptables_family ip6tables
     fi
 
     # Reset IPVS rules if ipvsadm is available

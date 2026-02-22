@@ -20,6 +20,18 @@ _get_current_k8s_version() {
 # - Target must differ from current
 _validate_upgrade_version() {
     local current="$1" target="$2"
+
+    # Validate MAJOR.MINOR.PATCH format
+    local semver_re='^[0-9]+\.[0-9]+\.[0-9]+$'
+    if [[ ! "$current" =~ $semver_re ]]; then
+        log_error "Invalid current version format: '${current}' (expected MAJOR.MINOR.PATCH)"
+        return 1
+    fi
+    if [[ ! "$target" =~ $semver_re ]]; then
+        log_error "Invalid target version format: '${target}' (expected MAJOR.MINOR.PATCH)"
+        return 1
+    fi
+
     local cur_major cur_minor cur_patch tar_major tar_minor tar_patch
     cur_major=$(echo "$current" | cut -d. -f1)
     cur_minor=$(echo "$current" | cut -d. -f2)
@@ -252,28 +264,8 @@ upgrade_cluster() {
 
     # --- Step 2: SSH connectivity check ---
     log_info "Step $((_step+=1)): Checking SSH connectivity to all nodes..."
-    local ssh_failed=false
     _DEPLOY_ALL_NODES=("${cp_nodes[@]}" "${w_nodes[@]}")
-    for node in "${_DEPLOY_ALL_NODES[@]}"; do
-        _parse_node_address "$node"
-        local _ssh_err
-        if _ssh_err=$(_deploy_ssh "$_NODE_USER" "$_NODE_HOST" "echo ok" 2>&1 >/dev/null); then
-            log_info "  [${_NODE_HOST}] SSH OK"
-            if [ "$_NODE_USER" != "root" ]; then
-                local _sudo_err
-                if ! _sudo_err=$(_deploy_ssh "$_NODE_USER" "$_NODE_HOST" "sudo -n true" 2>&1); then
-                    log_error "  [${_NODE_HOST}] sudo -n failed -- NOPASSWD sudo required for ${_NODE_USER}"
-                    [ -n "$_sudo_err" ] && log_error "  [${_NODE_HOST}] ${_sudo_err}"
-                    ssh_failed=true
-                fi
-            fi
-        else
-            log_error "  [${_NODE_HOST}] SSH connection failed (${_NODE_USER}@${_NODE_HOST}:${DEPLOY_SSH_PORT})"
-            [ -n "$_ssh_err" ] && log_error "  [${_NODE_HOST}] ${_ssh_err}"
-            ssh_failed=true
-        fi
-    done
-    if [ "$ssh_failed" = true ]; then
+    if ! _check_ssh_connectivity "${_DEPLOY_ALL_NODES[@]}"; then
         log_error "SSH connectivity check failed. Aborting upgrade."
         rm -f "$bundle_path"
         return 1
@@ -518,10 +510,26 @@ upgrade_cluster() {
 
             # Transfer admin.conf from CP to worker (workers lack admin kubeconfig,
             # and kubelet's kubeconfig may be denied by NodeRestriction)
-            local remote_admin_conf="/tmp/upgrade-admin.conf"
+            local remote_admin_conf
+            remote_admin_conf=$(_deploy_ssh "$node_user" "$node_host" "${node_sudo}mktemp /tmp/upgrade-admin-XXXXXX")
+            remote_admin_conf=$(echo "$remote_admin_conf" | tr -d '[:space:]')
             local tmp_admin_conf
             tmp_admin_conf=$(mktemp -t admin-conf-XXXXXX)
-            _deploy_ssh "$cp1_user" "$cp1_host" "${sudo_pfx}cat /etc/kubernetes/admin.conf" > "$tmp_admin_conf" 2>/dev/null
+            chmod 600 "$tmp_admin_conf"
+            if ! _deploy_ssh "$cp1_user" "$cp1_host" "${sudo_pfx}cat /etc/kubernetes/admin.conf" > "$tmp_admin_conf" 2>/dev/null; then
+                log_error "  [${node_host}] Failed to download admin.conf from control-plane ${cp1_host}"
+                rm -f "$tmp_admin_conf"
+                _deploy_ssh "$node_user" "$node_host" "${node_sudo}rm -f '$remote_admin_conf'" >/dev/null 2>&1 || true
+                upgrade_failed=true
+                break
+            fi
+            if [ ! -s "$tmp_admin_conf" ]; then
+                log_error "  [${node_host}] Downloaded admin.conf is empty"
+                rm -f "$tmp_admin_conf"
+                _deploy_ssh "$node_user" "$node_host" "${node_sudo}rm -f '$remote_admin_conf'" >/dev/null 2>&1 || true
+                upgrade_failed=true
+                break
+            fi
             _deploy_scp "$tmp_admin_conf" "$node_user" "$node_host" "$remote_admin_conf" >/dev/null 2>&1
             _deploy_ssh "$node_user" "$node_host" "${node_sudo}chmod 600 '$remote_admin_conf'" >/dev/null 2>&1
             rm -f "$tmp_admin_conf"

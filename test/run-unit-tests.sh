@@ -1166,6 +1166,178 @@ test_help_contains_backup_restore() {
     )
 }
 
+# ============================================================
+# Test: validate_join_args
+# ============================================================
+test_validate_join_args() {
+    echo "=== Test: validate_join_args ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        # Valid join args should pass
+        ACTION="join"
+        JOIN_TOKEN="abcdef.1234567890abcdef"
+        JOIN_ADDRESS="10.0.0.1:6443"
+        DISCOVERY_TOKEN_HASH="sha256:$(printf '%064d' 0)"
+        validate_join_args
+        _assert_eq "valid join args pass" "join" "$ACTION"
+
+        # Missing token should fail
+        local exit_code=0
+        (
+            ACTION="join"
+            JOIN_TOKEN=""
+            JOIN_ADDRESS="10.0.0.1:6443"
+            DISCOVERY_TOKEN_HASH="sha256:$(printf '%064d' 0)"
+            validate_join_args
+        ) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "missing token rejected" "0" "$exit_code"
+
+        # Bad token format should fail
+        exit_code=0
+        (
+            ACTION="join"
+            JOIN_TOKEN="bad-token"
+            JOIN_ADDRESS="10.0.0.1:6443"
+            DISCOVERY_TOKEN_HASH="sha256:$(printf '%064d' 0)"
+            validate_join_args
+        ) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "bad token format rejected" "0" "$exit_code"
+
+        # Address without port should fail
+        exit_code=0
+        (
+            ACTION="join"
+            JOIN_TOKEN="abcdef.1234567890abcdef"
+            JOIN_ADDRESS="10.0.0.1"
+            DISCOVERY_TOKEN_HASH="sha256:$(printf '%064d' 0)"
+            validate_join_args
+        ) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "address without port rejected" "0" "$exit_code"
+
+        # init action should skip validation
+        ACTION="init"
+        JOIN_TOKEN=""
+        JOIN_ADDRESS=""
+        # shellcheck disable=SC2034 # used by validate_join_args
+        DISCOVERY_TOKEN_HASH=""
+        validate_join_args
+        _assert_eq "init action skips validation" "init" "$ACTION"
+    )
+}
+
+# ============================================================
+# Test: validate_cri
+# ============================================================
+test_validate_cri() {
+    echo "=== Test: validate_cri ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        CRI="containerd"
+        validate_cri
+        _assert_eq "containerd passes" "containerd" "$CRI"
+
+        CRI="crio"
+        validate_cri
+        _assert_eq "crio passes" "crio" "$CRI"
+
+        local exit_code=0
+        (CRI="docker"; validate_cri) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "docker rejected" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: _normalize_node_list
+# ============================================================
+test_normalize_node_list() {
+    echo "=== Test: _normalize_node_list ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        local result
+        result=$(_normalize_node_list " node1 , node2,,node3 ")
+        _assert_eq "trims and deduplicates empty tokens" "node1,node2,node3" "$result"
+
+        result=$(_normalize_node_list "single")
+        _assert_eq "single node unchanged" "single" "$result"
+
+        result=$(_normalize_node_list ",,")
+        _assert_eq "all empty tokens gives empty" "" "$result"
+    )
+}
+
+# ============================================================
+# Test: _validate_node_addresses
+# ============================================================
+test_validate_node_addresses() {
+    echo "=== Test: _validate_node_addresses ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        # Valid addresses should pass
+        local exit_code=0
+        (_validate_node_addresses "10.0.0.1,admin@10.0.0.2") >/dev/null 2>&1 || exit_code=$?
+        _assert_eq "valid addresses pass" "0" "$exit_code"
+
+        # Duplicate address should fail
+        exit_code=0
+        (_validate_node_addresses "10.0.0.1,10.0.0.1") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "duplicate address rejected" "0" "$exit_code"
+
+        # Bare IPv6 without brackets should fail
+        exit_code=0
+        (_validate_node_addresses "fd00::1") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "bare IPv6 rejected" "0" "$exit_code"
+
+        # Bracketed IPv6 should pass
+        exit_code=0
+        (_validate_node_addresses "[fd00::1]") >/dev/null 2>&1 || exit_code=$?
+        _assert_eq "bracketed IPv6 passes" "0" "$exit_code"
+
+        # Username starting with - should fail
+        exit_code=0
+        (_validate_node_addresses "-evil@10.0.0.1") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "dash username rejected" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: _validate_upgrade_version format validation
+# ============================================================
+test_validate_upgrade_version_format() {
+    echo "=== Test: _validate_upgrade_version format validation ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/upgrade.sh"
+
+        # Invalid format should be rejected
+        local exit_code=0
+        (_validate_upgrade_version "1.32" "1.33.0") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "MAJOR.MINOR current rejected" "0" "$exit_code"
+
+        exit_code=0
+        (_validate_upgrade_version "1.32.0" "latest") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "non-numeric target rejected" "0" "$exit_code"
+
+        exit_code=0
+        (_validate_upgrade_version "" "1.33.0") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "empty current rejected" "0" "$exit_code"
+    )
+}
+
+test_validate_join_args
+test_validate_cri
+test_normalize_node_list
+test_validate_node_addresses
+test_validate_upgrade_version_format
+
 test_etcd_variables_defaults
 test_parse_backup_local_args
 test_parse_backup_local_args_default_path

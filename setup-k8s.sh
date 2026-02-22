@@ -73,7 +73,7 @@ Options (init/join):
   --ha-vip ADDRESS        VIP address (required when --ha; also for join --control-plane)
   --ha-interface IFACE    Network interface for VIP (auto-detected if omitted)
   --swap-enabled          Keep swap enabled (K8s 1.28+, NodeSwap LimitedSwap)
-  --distro FAMILY         Override distro family detection (debian, rhel, suse, arch, generic)
+  --distro FAMILY         Override distro family detection (debian, rhel, suse, arch, alpine, generic)
   --enable-completion BOOL  Enable shell completion setup (default: true)
   --completion-shells LIST  Shells to configure (auto, bash, zsh, fish, or comma-separated)
   --install-helm BOOL     Install Helm package manager (default: false)
@@ -165,6 +165,10 @@ HELPEOF
                         ((i += 1))
                         continue
                         ;;
+                    *)
+                        echo "Error: Unknown subcommand '$arg'. Valid subcommands: init, join, deploy, upgrade, backup, restore" >&2
+                        exit 1
+                        ;;
                 esac
             fi
             cli_args+=("$arg")
@@ -226,9 +230,9 @@ _setup_dry_run() {
 main() {
     # Deploy subcommand: orchestrator runs locally, no root / distro detection needed
     if [ "$ACTION" = "deploy" ]; then
-        # Deploy uses associative arrays (declare -A) which require Bash 4.3+
-        if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3) )); then
-            echo "Error: Deploy mode requires Bash 4.3+ (current: $BASH_VERSION)" >&2
+        # Deploy uses associative arrays and empty-array expansion under set -u (Bash 4.4+)
+        if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4) )); then
+            echo "Error: Deploy mode requires Bash 4.4+ (current: $BASH_VERSION)" >&2
             exit 1
         fi
 
@@ -253,7 +257,7 @@ main() {
             SCRIPT_DIR="$DEPLOY_MODULES_DIR"
         fi
 
-        parse_deploy_args "${cli_args[@]}"
+        parse_deploy_args ${cli_args[@]+"${cli_args[@]}"}
         validate_deploy_args
 
         if [ "$DRY_RUN" = true ]; then
@@ -269,7 +273,7 @@ main() {
     if [ "$ACTION" = "upgrade" ]; then
         # Detect mode: --control-planes present → remote mode, otherwise → local mode
         local _upgrade_remote=false
-        for _uarg in "${cli_args[@]}"; do
+        for _uarg in ${cli_args[@]+"${cli_args[@]}"}; do
             if [ "$_uarg" = "--control-planes" ]; then
                 _upgrade_remote=true
                 break
@@ -278,8 +282,8 @@ main() {
 
         if [ "$_upgrade_remote" = true ]; then
             # Remote mode: orchestrate upgrade via SSH (no root required locally)
-            if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3) )); then
-                echo "Error: Upgrade remote mode requires Bash 4.3+ (current: $BASH_VERSION)" >&2
+            if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4) )); then
+                echo "Error: Upgrade remote mode requires Bash 4.4+ (current: $BASH_VERSION)" >&2
                 exit 1
             fi
 
@@ -301,7 +305,7 @@ main() {
                 SCRIPT_DIR="$DEPLOY_MODULES_DIR"
             fi
 
-            parse_upgrade_deploy_args "${cli_args[@]}"
+            parse_upgrade_deploy_args ${cli_args[@]+"${cli_args[@]}"}
             validate_upgrade_deploy_args
 
             if [ "$DRY_RUN" = true ]; then
@@ -314,7 +318,7 @@ main() {
         else
             # Local mode: upgrade this node (root required)
             # Handle --help before root check (allow non-root users to see help)
-            for _uarg in "${cli_args[@]}"; do
+            for _uarg in ${cli_args[@]+"${cli_args[@]}"}; do
                 if [ "$_uarg" = "--help" ] || [ "$_uarg" = "-h" ]; then
                     source "$SCRIPT_DIR/common/variables.sh" 2>/dev/null || true
                     source "$SCRIPT_DIR/common/logging.sh" 2>/dev/null || true
@@ -348,7 +352,7 @@ main() {
                 fi
             fi
 
-            parse_upgrade_local_args "${cli_args[@]}"
+            parse_upgrade_local_args ${cli_args[@]+"${cli_args[@]}"}
 
             # Detect distribution (if not already detected)
             if [ -z "${DISTRO_FAMILY:-}" ]; then
@@ -364,7 +368,7 @@ main() {
     if [ "$ACTION" = "backup" ] || [ "$ACTION" = "restore" ]; then
         # Detect mode: --control-plane present → remote mode, otherwise → local mode
         local _etcd_remote=false
-        for _earg in "${cli_args[@]}"; do
+        for _earg in ${cli_args[@]+"${cli_args[@]}"}; do
             if [ "$_earg" = "--control-plane" ]; then
                 _etcd_remote=true; break
             fi
@@ -372,8 +376,8 @@ main() {
 
         if [ "$_etcd_remote" = true ]; then
             # Remote mode: orchestrate via SSH (no root required locally)
-            if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3) )); then
-                echo "Error: Backup/restore remote mode requires Bash 4.3+ (current: $BASH_VERSION)" >&2
+            if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4) )); then
+                echo "Error: Backup/restore remote mode requires Bash 4.4+ (current: $BASH_VERSION)" >&2
                 exit 1
             fi
 
@@ -396,7 +400,7 @@ main() {
             fi
 
             if [ "$ACTION" = "backup" ]; then
-                parse_backup_remote_args "${cli_args[@]}"
+                parse_backup_remote_args ${cli_args[@]+"${cli_args[@]}"}
                 validate_backup_remote_args
                 if [ "$DRY_RUN" = true ]; then
                     backup_dry_run
@@ -404,7 +408,7 @@ main() {
                 fi
                 backup_etcd_remote
             else
-                parse_restore_remote_args "${cli_args[@]}"
+                parse_restore_remote_args ${cli_args[@]+"${cli_args[@]}"}
                 validate_restore_remote_args
                 if [ "$DRY_RUN" = true ]; then
                     restore_dry_run
@@ -416,7 +420,7 @@ main() {
         else
             # Local mode: run on control-plane node (root required)
             # Handle --help before root check
-            for _earg in "${cli_args[@]}"; do
+            for _earg in ${cli_args[@]+"${cli_args[@]}"}; do
                 if [ "$_earg" = "--help" ] || [ "$_earg" = "-h" ]; then
                     source "$SCRIPT_DIR/common/variables.sh" 2>/dev/null || true
                     source "$SCRIPT_DIR/common/logging.sh" 2>/dev/null || true
@@ -455,14 +459,14 @@ main() {
             fi
 
             if [ "$ACTION" = "backup" ]; then
-                parse_backup_local_args "${cli_args[@]}"
+                parse_backup_local_args ${cli_args[@]+"${cli_args[@]}"}
                 if [ "$DRY_RUN" = true ]; then
                     backup_dry_run
                     exit 0
                 fi
                 backup_etcd_local
             else
-                parse_restore_local_args "${cli_args[@]}"
+                parse_restore_local_args ${cli_args[@]+"${cli_args[@]}"}
                 if [ "$DRY_RUN" = true ]; then
                     restore_dry_run
                     exit 0
@@ -473,15 +477,16 @@ main() {
         fi
     fi
 
-    # Check root privileges early (before loading modules)
-    if [ "$(id -u)" -ne 0 ]; then
-        echo "Error: This script must be run as root" >&2
+    # Validate action early (deploy/upgrade/backup/restore already handled above)
+    if [ -z "$ACTION" ]; then
+        echo "Error: Missing subcommand. Valid subcommands: init, join, deploy, upgrade, backup, restore" >&2
+        echo "Run with --help for usage information" >&2
         exit 1
     fi
 
-    # Validate action early to avoid unnecessary module loading
-    if [[ "$ACTION" != "init" && "$ACTION" != "join" ]]; then
-        echo "Error: First argument must be 'init' or 'join' subcommand" >&2
+    # Check root privileges early (before loading modules)
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "Error: This script must be run as root" >&2
         exit 1
     fi
 
@@ -496,7 +501,7 @@ main() {
     fi
 
     # Parse command line arguments
-    parse_setup_args "${cli_args[@]}"
+    parse_setup_args ${cli_args[@]+"${cli_args[@]}"}
 
     # Validate inputs
     validate_join_args

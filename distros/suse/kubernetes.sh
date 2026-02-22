@@ -37,7 +37,8 @@ setup_kubernetes_suse() {
     zypper addlock kubelet kubeadm kubectl || log_warn "zypper addlock failed, packages are not pinned"
 
     # Enable and start kubelet
-    systemctl enable --now kubelet
+    _service_enable kubelet
+    _service_start kubelet
 }
 
 # Upgrade kubeadm to a specific MAJOR.MINOR.PATCH version

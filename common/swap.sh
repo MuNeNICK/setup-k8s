@@ -57,30 +57,32 @@ disable_zram_swap() {
         log_info "zram swap detected or Fedora/Arch system, disabling..."
         local k8s_zram_marker="/var/lib/setup-k8s-zram-masked"
         : > "$k8s_zram_marker"
-        # Stop, disable, and mask all potential zram swap services
-        for service in zram-swap.service systemd-zram-setup@zram0.service dev-zram0.swap; do
-            if [ "$(systemctl is-active "$service" 2>/dev/null)" = "active" ]; then
-                log_info "Stopping and disabling $service..."
-                systemctl stop "$service"
-                systemctl disable "$service"
-            fi
-            if [ "$(systemctl is-enabled "$service" 2>/dev/null)" != "masked" ]; then
-                log_info "Masking $service to prevent automatic activation..."
-                if systemctl mask "$service" 2>/dev/null; then
-                    echo "$service" >> "$k8s_zram_marker"
+        # Stop, disable, and mask all potential zram swap services (systemd-only)
+        if [ "$(_detect_init_system)" = "systemd" ]; then
+            for service in zram-swap.service systemd-zram-setup@zram0.service dev-zram0.swap; do
+                if [ "$(systemctl is-active "$service" 2>/dev/null)" = "active" ]; then
+                    log_info "Stopping and disabling $service..."
+                    systemctl stop "$service"
+                    systemctl disable "$service"
                 fi
-            fi
-        done
+                if [ "$(systemctl is-enabled "$service" 2>/dev/null)" != "masked" ]; then
+                    log_info "Masking $service to prevent automatic activation..."
+                    if systemctl mask "$service" 2>/dev/null; then
+                        echo "$service" >> "$k8s_zram_marker"
+                    fi
+                fi
+            done
 
-        # Handle zram-generator configuration
-        if [ -f /usr/lib/systemd/zram-generator.conf ] || [ -d /etc/systemd/zram-generator.conf.d ]; then
-            log_info "Disabling zram swap configuration..."
-            mkdir -p /etc/systemd/zram-generator.conf.d
-            cat > /etc/systemd/zram-generator.conf.d/k8s-disable-zram.conf <<EOF
+            # Handle zram-generator configuration
+            if [ -f /usr/lib/systemd/zram-generator.conf ] || [ -d /etc/systemd/zram-generator.conf.d ]; then
+                log_info "Disabling zram swap configuration..."
+                mkdir -p /etc/systemd/zram-generator.conf.d
+                cat > /etc/systemd/zram-generator.conf.d/k8s-disable-zram.conf <<EOF
 [zram0]
 zram-fraction=0
 max-zram-size=0
 EOF
+            fi
         fi
 
         # Unload zram kernel module if loaded
@@ -111,29 +113,31 @@ restore_zram_swap() {
         log_info "Restoring zram swap services..."
 
         # Unmask services that were masked by this tool
-        if [ -f "$k8s_zram_marker" ]; then
+        if [ -f "$k8s_zram_marker" ] && [ "$(_detect_init_system)" = "systemd" ]; then
             while IFS= read -r service; do
                 [ -z "$service" ] && continue
                 log_info "Unmasking $service (masked by setup-k8s)..."
                 systemctl unmask "$service" 2>/dev/null || true
             done < "$k8s_zram_marker"
-            rm -f "$k8s_zram_marker"
         fi
+        rm -f "$k8s_zram_marker"
 
         # Remove the k8s-specific disable configuration we created
         rm -f /etc/systemd/zram-generator.conf.d/k8s-disable-zram.conf
 
-        # Reload systemd to pick up changes
-        systemctl daemon-reload
+        if [ "$(_detect_init_system)" = "systemd" ]; then
+            # Reload systemd to pick up changes
+            systemctl daemon-reload
 
-        # Re-enable and start zram services
-        for service in zram-swap.service systemd-zram-setup@zram0.service; do
-            if systemctl list-unit-files | grep -q "^$service"; then
-                log_info "Enabling and starting $service..."
-                systemctl enable "$service" 2>/dev/null || true
-                systemctl start "$service" 2>/dev/null || true
-            fi
-        done
+            # Re-enable and start zram services
+            for service in zram-swap.service systemd-zram-setup@zram0.service; do
+                if systemctl list-unit-files | grep -q "^$service"; then
+                    log_info "Enabling and starting $service..."
+                    systemctl enable "$service" 2>/dev/null || true
+                    systemctl start "$service" 2>/dev/null || true
+                fi
+            done
+        fi
 
         # Load zram module if it's not loaded
         if ! lsmod | grep -q zram; then
@@ -142,7 +146,9 @@ restore_zram_swap() {
         fi
 
         # Trigger systemd-managed swap units
-        systemctl start swap.target 2>/dev/null || true
+        if [ "$(_detect_init_system)" = "systemd" ]; then
+            systemctl start swap.target 2>/dev/null || true
+        fi
 
         log_info "zram swap restoration completed."
     fi

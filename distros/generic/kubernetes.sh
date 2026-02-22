@@ -25,7 +25,8 @@ _install_cni_plugins_generic() {
     arch=$(_detect_arch)
     local url="https://github.com/containernetworking/plugins/releases/download/v${version}/cni-plugins-linux-${arch}-v${version}.tgz"
     local checksum_url="${url}.sha256"
-    local tmp="/tmp/cni-plugins.tgz"
+    local tmp
+    tmp=$(mktemp /tmp/cni-plugins-XXXXXX.tgz)
     _download_with_checksum "$url" "$tmp" "$checksum_url"
     mkdir -p /opt/cni/bin
     tar -xzf "$tmp" -C /opt/cni/bin/

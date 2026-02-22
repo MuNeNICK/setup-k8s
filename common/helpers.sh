@@ -57,24 +57,6 @@ _download_with_checksum() {
     fi
 }
 
-# GitHub API: resolve latest release version (without "v" prefix)
-_resolve_github_latest_version() {
-    local repo="$1"
-    local auth_args=()
-    if [ -n "${GITHUB_TOKEN:-}" ]; then
-        auth_args=(-H "Authorization: token ${GITHUB_TOKEN}")
-    fi
-    local tag
-    tag=$(curl -fsSL --retry 3 --retry-delay 2 "${auth_args[@]}" \
-        "https://api.github.com/repos/${repo}/releases/latest" \
-        | awk -F'"' '/"tag_name"/{print $4; exit}')
-    if [ -z "$tag" ]; then
-        log_error "Failed to resolve latest version for ${repo}"
-        return 1
-    fi
-    echo "${tag#v}"
-}
-
 # === Service Abstraction (systemd / OpenRC) ===
 
 _service_enable() {

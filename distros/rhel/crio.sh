@@ -36,10 +36,11 @@ EOF
     }
 
     # Ensure CRI-O runs and configure crictl
-    systemctl daemon-reload
-    systemctl enable --now crio || {
-        log_error "Failed to enable and start CRI-O service"
-        systemctl status crio --no-pager || true
+    _service_reload
+    _service_enable crio
+    _service_start crio || {
+        log_error "Failed to start CRI-O service"
+        systemctl status crio --no-pager 2>/dev/null || true
         return 1
     }
     configure_crictl

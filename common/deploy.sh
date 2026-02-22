@@ -112,6 +112,33 @@ _parse_node_address() {
     fi
 }
 
+# Check SSH connectivity and sudo for a list of nodes
+# Usage: _check_ssh_connectivity <node1> [node2] ...
+_check_ssh_connectivity() {
+    local ssh_failed=false
+    for node in "$@"; do
+        _parse_node_address "$node"
+        local _ssh_err
+        if _ssh_err=$(_deploy_ssh "$_NODE_USER" "$_NODE_HOST" "echo ok" 2>&1 >/dev/null); then
+            log_info "  [${_NODE_HOST}] SSH OK"
+            if [ "$_NODE_USER" != "root" ]; then
+                local _sudo_err
+                if ! _sudo_err=$(_deploy_ssh "$_NODE_USER" "$_NODE_HOST" "sudo -n true" 2>&1); then
+                    log_error "  [${_NODE_HOST}] sudo -n failed — NOPASSWD sudo required for ${_NODE_USER}"
+                    [ -n "$_sudo_err" ] && log_error "  [${_NODE_HOST}] ${_sudo_err}"
+                    ssh_failed=true
+                fi
+            fi
+        else
+            log_error "  [${_NODE_HOST}] SSH connection failed (${_NODE_USER}@${_NODE_HOST}:${DEPLOY_SSH_PORT})"
+            [ -n "$_ssh_err" ] && log_error "  [${_NODE_HOST}] ${_ssh_err}"
+            ssh_failed=true
+        fi
+    done
+    [ "$ssh_failed" = true ] && return 1
+    return 0
+}
+
 # --- Bundle Generation ---
 
 # Generate a self-contained bundle script for remote execution
@@ -425,29 +452,8 @@ deploy_cluster() {
 
     # --- Step 2: SSH connectivity check ---
     log_info "Step $((_step+=1))/${total_steps}: Checking SSH connectivity to all nodes..."
-    local ssh_failed=false
     _DEPLOY_ALL_NODES=("${cp_nodes[@]}" "${w_nodes[@]}")
-    for node in "${_DEPLOY_ALL_NODES[@]}"; do
-        _parse_node_address "$node"
-        local _ssh_err
-        if _ssh_err=$(_deploy_ssh "$_NODE_USER" "$_NODE_HOST" "echo ok" 2>&1 >/dev/null); then
-            log_info "  [${_NODE_HOST}] SSH OK"
-            # Pre-check sudo -n for non-root users to fail fast before work starts
-            if [ "$_NODE_USER" != "root" ]; then
-                local _sudo_err
-                if ! _sudo_err=$(_deploy_ssh "$_NODE_USER" "$_NODE_HOST" "sudo -n true" 2>&1); then
-                    log_error "  [${_NODE_HOST}] sudo -n failed — NOPASSWD sudo required for ${_NODE_USER}"
-                    [ -n "$_sudo_err" ] && log_error "  [${_NODE_HOST}] ${_sudo_err}"
-                    ssh_failed=true
-                fi
-            fi
-        else
-            log_error "  [${_NODE_HOST}] SSH connection failed (${_NODE_USER}@${_NODE_HOST}:${DEPLOY_SSH_PORT})"
-            [ -n "$_ssh_err" ] && log_error "  [${_NODE_HOST}] ${_ssh_err}"
-            ssh_failed=true
-        fi
-    done
-    if [ "$ssh_failed" = true ]; then
+    if ! _check_ssh_connectivity "${_DEPLOY_ALL_NODES[@]}"; then
         log_error "SSH connectivity check failed. Aborting deployment."
         rm -f "$bundle_path"
         return 1

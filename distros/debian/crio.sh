@@ -51,11 +51,12 @@ pause_image = "registry.k8s.io/pause:${PAUSE_IMAGE_VERSION}"
 CRIOCONF
 
     # Reload and start CRI-O
-    systemctl daemon-reload
-    systemctl enable --now crio || {
-        log_error "Failed to enable and start CRI-O service"
-        systemctl status crio --no-pager || true
-        journalctl -u crio -n 100 --no-pager || true
+    _service_reload
+    _service_enable crio
+    _service_start crio || {
+        log_error "Failed to start CRI-O service"
+        systemctl status crio --no-pager 2>/dev/null || true
+        journalctl -u crio -n 100 --no-pager 2>/dev/null || true
         return 1
     }
 

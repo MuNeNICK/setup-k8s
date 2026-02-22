@@ -41,6 +41,7 @@ Options:
   --force                 Skip confirmation prompt
   --preserve-cni          Preserve CNI configurations
   --remove-helm           Remove Helm binary and configuration
+  --distro FAMILY         Override distro family detection (debian, rhel, suse, arch, alpine, generic)
   --verbose               Enable debug logging
   --quiet                 Suppress informational messages (errors only)
   --help, -h              Display this help message
@@ -94,7 +95,7 @@ main() {
         load_modules "cleanup-k8s" cleanup
     fi
 
-    parse_cleanup_args "${cli_args[@]}"
+    parse_cleanup_args ${cli_args[@]+"${cli_args[@]}"}
 
     # Confirmation prompt
     confirm_cleanup

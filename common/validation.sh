@@ -5,6 +5,7 @@
 _parse_distro_arg() {
     case "$1" in
         debian|rhel|suse|arch|alpine|generic)
+            # shellcheck disable=SC2034 # used by detection.sh after sourcing
             DISTRO_OVERRIDE="$1"
             ;;
         *)
@@ -259,7 +260,7 @@ validate_ha_args() {
                     [ -n "$_iproute_out" ] && log_error "  ip route error: $_iproute_out"
                     exit 1
                 fi
-                HA_VIP_INTERFACE=$(echo "$_iproute_out" | awk '{print $5; exit}')
+                HA_VIP_INTERFACE=$(echo "$_iproute_out" | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1); exit}')
             fi
             if [ -z "$HA_VIP_INTERFACE" ]; then
                 log_error "Could not auto-detect network interface. Please specify --ha-interface"
@@ -601,6 +602,9 @@ show_deploy_help() {
     echo "  --proxy-mode MODE       Kube-proxy mode (iptables, ipvs, or nftables)"
     echo "  --distro FAMILY         Override distro family detection"
     echo "  --swap-enabled          Keep swap enabled (K8s 1.28+)"
+    echo "  --enable-completion BOOL  Enable shell completion setup (default: true)"
+    echo "  --install-helm BOOL     Install Helm package manager (default: false)"
+    echo "  --completion-shells LIST  Shells to configure (auto, bash, zsh, fish, or comma-separated)"
     echo "  --kubernetes-version VER Kubernetes version (e.g., 1.32)"
     echo "  --pod-network-cidr CIDR Pod network CIDR"
     echo "  --service-cidr CIDR     Service CIDR"

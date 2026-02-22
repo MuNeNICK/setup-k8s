@@ -43,7 +43,8 @@ EOF
     fi
 
     # Enable and start kubelet
-    systemctl enable --now kubelet
+    _service_enable kubelet
+    _service_start kubelet
 }
 
 # Upgrade kubeadm to a specific MAJOR.MINOR.PATCH version
