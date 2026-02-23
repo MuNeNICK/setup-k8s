@@ -38,12 +38,12 @@ while [ $# -gt 0 ]; do
     # shellcheck disable=SC2034 # LOG_LEVEL used by logging module
     case "$arg" in
         --help|-h)
-            # Deploy/upgrade/backup/restore --help is deferred to their parsers
-            if [ "$_action_detected" = true ] && { [ "$ACTION" = "deploy" ] || [ "$ACTION" = "upgrade" ] || [ "$ACTION" = "backup" ] || [ "$ACTION" = "restore" ]; }; then
+            # Deploy/upgrade/backup/restore/status --help is deferred to their parsers
+            if [ "$_action_detected" = true ] && { [ "$ACTION" = "deploy" ] || [ "$ACTION" = "upgrade" ] || [ "$ACTION" = "backup" ] || [ "$ACTION" = "restore" ] || [ "$ACTION" = "status" ]; }; then
                 _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$arg"
             else
                 cat <<'HELPEOF'
-Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore> [options]
+Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore|status> [options]
 
 Subcommands:
   init                    Initialize a new Kubernetes cluster
@@ -52,6 +52,7 @@ Subcommands:
   upgrade                 Upgrade cluster Kubernetes version
   backup                  Create an etcd snapshot backup
   restore                 Restore an etcd snapshot
+  status                  Show cluster and node status
 
 Options (init/join):
   --cri RUNTIME           Container runtime (containerd or crio). Default: containerd
@@ -112,6 +113,11 @@ Options (restore):
   --control-plane IP      Remote mode: target control-plane node (user@ip or ip)
 
   Run 'setup-k8s.sh restore --help' for details.
+
+Options (status):
+  --output FORMAT         Output format: text (default) or wide
+
+  Run 'setup-k8s.sh status --help' for details.
 HELPEOF
                 exit 0
             fi
@@ -158,14 +164,14 @@ HELPEOF
             # First non-flag positional argument is the subcommand (strip it from cli_args)
             if [ "$_action_detected" = false ]; then
                 case "$arg" in
-                    init|join|deploy|upgrade|backup|restore)
+                    init|join|deploy|upgrade|backup|restore|status)
                         ACTION="$arg"
                         _action_detected=true
                         shift
                         continue
                         ;;
                     *)
-                        echo "Error: Unknown subcommand '$arg'. Valid subcommands: init, join, deploy, upgrade, backup, restore" >&2
+                        echo "Error: Unknown subcommand '$arg'. Valid subcommands: init, join, deploy, upgrade, backup, restore, status" >&2
                         exit 1
                         ;;
                 esac
@@ -475,9 +481,49 @@ main() {
         fi
     fi
 
-    # Validate action early (deploy/upgrade/backup/restore already handled above)
+    # Status subcommand: local mode only, no root required
+    if [ "$ACTION" = "status" ]; then
+        local status_modules="variables logging validation helpers status"
+        if { [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; } || [ "$BUNDLED_MODE" = "true" ]; then
+            if [ "$BUNDLED_MODE" != "true" ]; then
+                for module in $status_modules; do
+                    if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
+                        . "$SCRIPT_DIR/common/${module}.sh"
+                    else
+                        echo "Error: Required module common/${module}.sh not found in $SCRIPT_DIR" >&2
+                        exit 1
+                    fi
+                done
+            fi
+        else
+            # Standalone or curl | sh: download required modules
+            local _status_tmp_dir
+            _status_tmp_dir=$(mktemp -d /tmp/setup-k8s-status-XXXXXX)
+            _append_exit_trap "$_status_tmp_dir"
+            for module in $status_modules; do
+                if ! curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/${module}.sh" > "$_status_tmp_dir/${module}.sh"; then
+                    echo "Error: Failed to download common/${module}.sh" >&2
+                    exit 1
+                fi
+                . "$_status_tmp_dir/${module}.sh"
+            done
+        fi
+
+        eval "$_RESTORE_CLI_ARGS"
+        parse_status_args "$@"
+
+        if [ "$DRY_RUN" = true ]; then
+            status_dry_run
+            exit 0
+        fi
+
+        status_local
+        exit $?
+    fi
+
+    # Validate action early (deploy/upgrade/backup/restore/status already handled above)
     if [ -z "$ACTION" ]; then
-        echo "Error: Missing subcommand. Valid subcommands: init, join, deploy, upgrade, backup, restore" >&2
+        echo "Error: Missing subcommand. Valid subcommands: init, join, deploy, upgrade, backup, restore, status" >&2
         echo "Run with --help for usage information" >&2
         exit 1
     fi

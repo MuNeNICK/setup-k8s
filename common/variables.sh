@@ -65,6 +65,9 @@ ETCD_SNAPSHOT_PATH=""         # snapshot file path (backup: output, restore: inp
 ETCD_CONTROL_PLANE=""         # remote mode: target control-plane node (user@ip or ip)
 ETCD_PASSTHROUGH_ARGS=""      # arguments to forward to remote nodes
 
+# Status subcommand
+STATUS_OUTPUT_FORMAT="text"   # output format: text or wide
+
 # Version constants (overridable via environment)
 KUBE_VIP_VERSION="${KUBE_VIP_VERSION:-v0.8.9}"
 PAUSE_IMAGE_VERSION="${PAUSE_IMAGE_VERSION:-3.10}"

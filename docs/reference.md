@@ -3,7 +3,7 @@
 ## setup-k8s.sh
 
 ```
-Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore> [options]
+Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore|status> [options]
 ```
 
 ### Subcommands
@@ -16,6 +16,7 @@ Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore> [options]
 | `upgrade` | Upgrade cluster Kubernetes version |
 | `backup` | Create an etcd snapshot |
 | `restore` | Restore etcd from a snapshot |
+| `status` | Show cluster and node status |
 
 ### Options
 
@@ -150,6 +151,22 @@ Options for the `restore` subcommand when orchestrating remotely via SSH. SSH op
 | `--ssh-known-hosts FILE` | Pre-seeded known_hosts file | — | `--ssh-known-hosts ~/.ssh/known_hosts` |
 | `--ssh-host-key-check MODE` | SSH host key policy (`yes`, `no`, or `accept-new`) | `yes` | `--ssh-host-key-check accept-new` |
 | `--dry-run` | Show restore plan and exit | — | `--dry-run` |
+
+### Status Options
+
+Options for the `status` subcommand. Runs locally without root privileges (read-only operations only). Gracefully skips kubectl-based checks if kubectl is not configured.
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `--output FORMAT` | Output format (`text` or `wide`) | `text` | `--output wide` |
+| `--dry-run` | Show what checks would be performed | — | `--dry-run` |
+| `--verbose` | Enable debug logging | — | `--verbose` |
+| `--quiet` | Suppress informational messages | — | `--quiet` |
+| `--help` | Display help message | — | `--help` |
+
+**text mode** displays: node role, service status (kubelet, containerd, crio), installed versions, `kubectl get nodes`, and `kubectl get pods -n kube-system`.
+
+**wide mode** additionally displays: API server endpoint, Pod/Service CIDR, and etcd endpoint health.
 
 ## cleanup-k8s.sh
 

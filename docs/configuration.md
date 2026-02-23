@@ -37,12 +37,14 @@ In clusters with 5000-10000 services:
 
 IPVS mode:
 ```bash
-./setup-k8s.sh init --proxy-mode ipvs
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  init --proxy-mode ipvs
 ```
 
 nftables mode (requires K8s 1.29+):
 ```bash
-./setup-k8s.sh init --proxy-mode nftables --kubernetes-version 1.31
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  init --proxy-mode nftables --kubernetes-version 1.31
 ```
 
 **Note**: If prerequisites are not met, the script will exit with an error. Ensure all required packages and kernel modules are available before selecting IPVS or nftables mode.
@@ -65,10 +67,12 @@ With `LimitedSwap`, Kubernetes limits swap usage to pods that have memory limits
 
 ```bash
 # Initialize a cluster with swap enabled
-sudo ./setup-k8s.sh init --swap-enabled --kubernetes-version 1.32
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  init --swap-enabled --kubernetes-version 1.32
 
 # Deploy across nodes with swap enabled
-./setup-k8s.sh deploy --control-planes 10.0.0.1 --workers 10.0.0.2 --swap-enabled
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sh -s -- \
+  deploy --control-planes 10.0.0.1 --workers 10.0.0.2 --swap-enabled
 ```
 
 ### Requirements
@@ -99,7 +103,8 @@ The script supports deploying a highly available control plane using [kube-vip](
 
 ```bash
 # On the first control-plane node
-sudo ./setup-k8s.sh init \
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  init \
   --ha \
   --ha-vip 192.168.1.100 \
   --pod-network-cidr 192.168.0.0/16
@@ -111,7 +116,8 @@ The script will output the certificate key and join command for additional contr
 
 ```bash
 # On each additional control-plane node
-sudo ./setup-k8s.sh join \
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  join \
   --control-plane \
   --certificate-key <certificate-key> \
   --ha-vip 192.168.1.100 \
@@ -126,7 +132,8 @@ sudo ./setup-k8s.sh join \
 
 ```bash
 # On each worker node
-sudo ./setup-k8s.sh join \
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  join \
   --join-token <token> \
   --join-address 192.168.1.100:6443 \
   --discovery-token-hash <hash>
@@ -155,16 +162,19 @@ Run directly on each node with `sudo`. Useful for manual, node-by-node upgrades.
 
 ```bash
 # First control-plane node (runs kubeadm upgrade apply)
-sudo ./setup-k8s.sh upgrade --kubernetes-version 1.33.2 --first-control-plane
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  upgrade --kubernetes-version 1.33.2 --first-control-plane
 
 # Additional control-plane nodes and workers (runs kubeadm upgrade node)
-sudo ./setup-k8s.sh upgrade --kubernetes-version 1.33.2
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  upgrade --kubernetes-version 1.33.2
 ```
 
 For single-node clusters, use `--skip-drain` to avoid draining the only node:
 
 ```bash
-sudo ./setup-k8s.sh upgrade --kubernetes-version 1.33.2 --first-control-plane --skip-drain
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  upgrade --kubernetes-version 1.33.2 --first-control-plane --skip-drain
 ```
 
 ### Remote Mode
@@ -172,7 +182,8 @@ sudo ./setup-k8s.sh upgrade --kubernetes-version 1.33.2 --first-control-plane --
 Orchestrate the entire cluster upgrade from a local machine via SSH. The script handles drain, upgrade, and uncordon for each node sequentially.
 
 ```bash
-./setup-k8s.sh upgrade \
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sh -s -- \
+  upgrade \
   --control-planes 10.0.0.1,10.0.0.2 \
   --workers 10.0.0.3,10.0.0.4 \
   --kubernetes-version 1.33.2 \
@@ -224,13 +235,15 @@ Run directly on a control-plane node with `sudo`.
 
 ```bash
 # Backup
-sudo ./setup-k8s.sh backup --snapshot-path /path/to/snapshot.db
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  backup --snapshot-path /path/to/snapshot.db
 
 # Backup with auto-generated path (default: /var/lib/etcd-backup/snapshot-YYYYMMDD-HHMMSS.db)
-sudo ./setup-k8s.sh backup
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- backup
 
 # Restore
-sudo ./setup-k8s.sh restore --snapshot-path /path/to/snapshot.db
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  restore --snapshot-path /path/to/snapshot.db
 ```
 
 ### Remote Mode
@@ -239,13 +252,15 @@ Orchestrate backup/restore from a local machine via SSH. The script generates a 
 
 ```bash
 # Backup (downloads snapshot to local machine)
-./setup-k8s.sh backup \
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sh -s -- \
+  backup \
   --control-plane root@192.168.1.10 \
   --ssh-key ~/.ssh/id_rsa \
   --snapshot-path ./etcd-snapshot.db
 
 # Restore (uploads snapshot and restores on remote node)
-./setup-k8s.sh restore \
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sh -s -- \
+  restore \
   --control-plane root@192.168.1.10 \
   --ssh-key ~/.ssh/id_rsa \
   --snapshot-path ./etcd-snapshot.db
@@ -298,7 +313,8 @@ Kubernetes 1.23+ supports IPv6 single-stack and IPv4/IPv6 dual-stack networking 
 Pass comma-separated CIDRs (one IPv4, one IPv6) to enable dual-stack:
 
 ```bash
-sudo ./setup-k8s.sh init \
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  init \
   --pod-network-cidr 10.244.0.0/16,fd00:10:244::/48 \
   --service-cidr 10.96.0.0/12,fd00:20::/108
 ```
@@ -308,7 +324,8 @@ sudo ./setup-k8s.sh init \
 Pass IPv6 CIDRs only:
 
 ```bash
-sudo ./setup-k8s.sh init \
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  init \
   --pod-network-cidr fd00:10:244::/48 \
   --service-cidr fd00:20::/108
 ```
@@ -318,7 +335,8 @@ sudo ./setup-k8s.sh init \
 IPv6 addresses are supported for `--ha-vip`. The control-plane endpoint is automatically formatted with brackets (`[addr]:6443`):
 
 ```bash
-sudo ./setup-k8s.sh init \
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  init \
   --ha --ha-vip fd00::100 \
   --pod-network-cidr fd00:10:244::/48
 ```
@@ -376,15 +394,54 @@ Supported architectures: `amd64` (x86_64), `arm64` (aarch64).
 
 ```bash
 # Force generic mode on any distribution
-sudo ./setup-k8s.sh init --distro generic --kubernetes-version 1.32
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  init --distro generic --kubernetes-version 1.32
 
 # Override component versions
-sudo CONTAINERD_VERSION=2.0.4 RUNC_VERSION=1.2.5 ./setup-k8s.sh init --distro generic
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | \
+  sudo CONTAINERD_VERSION=2.0.4 RUNC_VERSION=1.2.5 sh -s -- init --distro generic
 ```
 
 ### Cleanup
 
 The `cleanup-k8s.sh` script removes only the binaries, configs, and service files placed by the script. System packages (socat, conntrack, etc.) installed via the package manager are intentionally preserved.
+
+## Cluster Status
+
+The `status` subcommand shows the current state of the Kubernetes node and cluster. Unlike other subcommands, `status` performs read-only checks only and does not require root privileges (`sudo` is not needed).
+
+### Usage
+
+```bash
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sh -s -- status
+```
+
+The `--output wide` flag adds cluster-level information (API server endpoint, CIDR ranges, etcd health):
+
+```bash
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sh -s -- status --output wide
+```
+
+### What It Checks
+
+**text mode** (default):
+
+1. **Node role** — control-plane or worker (detected by the presence of `/etc/kubernetes/manifests/kube-apiserver.yaml`)
+2. **Service status** — kubelet, containerd, crio (active / inactive)
+3. **Installed versions** — kubelet, kubeadm, kubectl
+4. **Cluster state** — `kubectl get nodes` and `kubectl get pods -n kube-system`
+
+**wide mode** (additionally):
+
+5. **Cluster info** — API server endpoint, Pod CIDR, Service CIDR
+6. **etcd health** — endpoint health check via `etcdctl` inside the etcd container
+
+If kubectl is not configured or the cluster is unreachable, cluster queries are gracefully skipped with a warning. The command still reports service and version information.
+
+### Limitations
+
+- Local mode only (remote SSH mode is not yet supported)
+- etcd health in wide mode requires access to the etcd container (typically available only on control-plane nodes running as root)
 
 ## CNI Setup
 Install a Container Network Interface (CNI) plugin:

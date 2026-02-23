@@ -1338,6 +1338,81 @@ test_normalize_node_list
 test_validate_node_addresses
 test_validate_upgrade_version_format
 
+# ============================================================
+# Test: STATUS_OUTPUT_FORMAT default
+# ============================================================
+test_status_output_format_default() {
+    echo "=== Test: STATUS_OUTPUT_FORMAT default ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        _assert_eq "STATUS_OUTPUT_FORMAT default" "text" "$STATUS_OUTPUT_FORMAT"
+    )
+}
+
+# ============================================================
+# Test: parse_status_args
+# ============================================================
+test_parse_status_args() {
+    echo "=== Test: parse_status_args ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+        source "$PROJECT_ROOT/common/status.sh"
+
+        parse_status_args --output wide
+        _assert_eq "STATUS_OUTPUT_FORMAT parsed" "wide" "$STATUS_OUTPUT_FORMAT"
+    )
+}
+
+# ============================================================
+# Test: parse_status_args rejects invalid --output
+# ============================================================
+test_parse_status_args_invalid_output() {
+    echo "=== Test: parse_status_args rejects invalid --output ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+        source "$PROJECT_ROOT/common/status.sh"
+
+        local exit_code=0
+        (parse_status_args --output json) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "invalid --output rejected" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: parse_status_args rejects unknown option
+# ============================================================
+test_parse_status_unknown_option() {
+    echo "=== Test: parse_status_args unknown option ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+        source "$PROJECT_ROOT/common/status.sh"
+
+        local exit_code=0
+        (parse_status_args --bogus-flag) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "unknown option rejected" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: status --help exits 0
+# ============================================================
+test_status_help_exit() {
+    echo "=== Test: status --help exits 0 ==="
+    _assert_exit_code "setup-k8s.sh status --help exits 0" 0 bash "$PROJECT_ROOT/setup-k8s.sh" status --help
+}
+
+test_status_output_format_default
+test_parse_status_args
+test_parse_status_args_invalid_output
+test_parse_status_unknown_option
+test_status_help_exit
+
 test_etcd_variables_defaults
 test_parse_backup_local_args
 test_parse_backup_local_args_default_path
