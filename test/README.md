@@ -158,7 +158,7 @@ docker pull ghcr.io/munenick/docker-vm-runner:latest
 
 1. **Load configuration**: Validate the requested distribution against the built-in supported list.
 2. **Prepare docker-vm-runner**: Pull the container image and create the shared data/cache directories.
-3. **Prepare scripts**: In offline (bundled) mode, bundle `setup-k8s.sh`/`cleanup-k8s.sh` with all modules into self-contained scripts. In online mode, run `curl | bash` from GitHub inside the VM to test the production flow.
+3. **Prepare scripts**: In offline (bundled) mode, bundle `setup-k8s.sh` with all modules into a self-contained script. In online mode, run `curl | bash` from GitHub inside the VM to test the production flow.
 4. **Launch VM container**: Run docker-vm-runner with `/dev/kvm`, mount caches, and inject an SSH key via cloud-init.
 5. **Execute tests via SSH**: Transfer scripts, run setup/cleanup, and poll for completion.
 6. **Collect results**: Save structured JSON output plus log files under `results/`.

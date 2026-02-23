@@ -98,7 +98,7 @@ cleanup_orphaned_containers() {
 
 # Generate a self-contained bundle script for bundled test execution.
 # Usage: _generate_bundle <entry_script> <bundle_path> [include_mode]
-#   entry_script:  path to the entry script (setup-k8s.sh or cleanup-k8s.sh)
+#   entry_script:  path to the entry script (setup-k8s.sh)
 #   bundle_path:   output file path
 #   include_mode:  "true"/"all" to include all distro modules, "cleanup" for cleanup-only
 _generate_bundle() {

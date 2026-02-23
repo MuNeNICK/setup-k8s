@@ -954,6 +954,127 @@ validate_upgrade_deploy_args() {
     _validate_node_addresses "$all_addrs"
 }
 
+# Help message for remove
+show_remove_help() {
+    echo "Usage: $0 remove [options]"
+    echo ""
+    echo "Remove nodes from a Kubernetes cluster (drain, delete, reset)."
+    echo ""
+    echo "Required:"
+    echo "  --control-plane IP        Control-plane node to run drain/delete from (user@ip or ip)"
+    echo "  --nodes IPs               Comma-separated list of nodes to remove (user@ip or ip)"
+    echo ""
+    echo "Optional:"
+    echo "  --force                   Skip confirmation prompt"
+    echo "  --ssh-user USER           Default SSH user (default: root)"
+    echo "  --ssh-port PORT           SSH port (default: 22)"
+    echo "  --ssh-key PATH            Path to SSH private key"
+    echo "  --ssh-password PASS       SSH password (requires sshpass; prefer DEPLOY_SSH_PASSWORD env var)"
+    echo "  --ssh-known-hosts FILE    Pre-seeded known_hosts for host key verification"
+    echo "  --ssh-host-key-check MODE SSH host key policy: yes, no, or accept-new (default: yes)"
+    echo "  --dry-run                 Show removal plan and exit"
+    echo "  --verbose                 Enable debug logging"
+    echo "  --quiet                   Suppress informational messages"
+    echo "  --help                    Display this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $0 remove --control-plane root@10.0.0.1 --nodes root@10.0.0.2,root@10.0.0.3"
+    echo "  $0 remove --control-plane 10.0.0.1 --nodes 10.0.0.2 --force --ssh-key ~/.ssh/id_rsa"
+    exit "${1:-0}"
+}
+
+# Parse command line arguments for remove
+parse_remove_args() {
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --help|-h)
+                show_remove_help
+                ;;
+            --control-plane)
+                _require_value $# "$1" "${2:-}"
+                REMOVE_CONTROL_PLANE="$2"
+                shift 2
+                ;;
+            --nodes)
+                _require_value $# "$1" "${2:-}"
+                REMOVE_NODES="$2"
+                shift 2
+                ;;
+            --force)
+                FORCE=true
+                shift
+                ;;
+            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-known-hosts|--ssh-host-key-check)
+                _parse_common_ssh_args $# "$1" "${2:-}"
+                shift "$_SSH_SHIFT"
+                ;;
+            *)
+                log_error "Unknown remove option: $1"
+                show_remove_help 1
+                ;;
+        esac
+    done
+}
+
+# Validate remove arguments
+validate_remove_args() {
+    # --control-plane is required
+    if [ -z "$REMOVE_CONTROL_PLANE" ]; then
+        log_error "--control-plane is required for remove"
+        exit 1
+    fi
+
+    # --nodes is required
+    if [ -z "$REMOVE_NODES" ]; then
+        log_error "--nodes is required for remove"
+        exit 1
+    fi
+
+    # Normalize node list
+    REMOVE_NODES=$(_normalize_node_list "$REMOVE_NODES")
+    if [ -z "$REMOVE_NODES" ]; then
+        log_error "--nodes contains no valid node addresses"
+        exit 1
+    fi
+
+    _validate_common_ssh_args
+
+    # Validate all addresses (CP + nodes)
+    local all_addrs="${REMOVE_CONTROL_PLANE},${REMOVE_NODES}"
+    _validate_node_addresses "$all_addrs"
+
+    # Safety: prevent removing the CP node itself
+    local cp_host="${REMOVE_CONTROL_PLANE#*@}"
+    _old_ifs="$IFS"; IFS=','
+    for node in $REMOVE_NODES; do
+        IFS="$_old_ifs"
+        local node_host="${node#*@}"
+        if [ "$node_host" = "$cp_host" ]; then
+            log_error "Cannot remove the control-plane node itself (${cp_host}). Use 'cleanup' on the node instead."
+            exit 1
+        fi
+        IFS=','
+    done
+    IFS="$_old_ifs"
+}
+
+# Help message for cleanup
+show_cleanup_help() {
+    echo "Usage: sudo $0 cleanup [options]"
+    echo ""
+    echo "Clean up Kubernetes installation from this node."
+    echo ""
+    echo "Options:"
+    echo "  --force                 Skip confirmation prompt"
+    echo "  --preserve-cni          Preserve CNI configurations"
+    echo "  --remove-helm           Remove Helm binary and configuration"
+    echo "  --distro FAMILY         Override distro family detection (debian, rhel, suse, arch, alpine, generic)"
+    echo "  --verbose               Enable debug logging"
+    echo "  --quiet                 Suppress informational messages"
+    echo "  --help, -h              Display this help message"
+    exit "${1:-0}"
+}
+
 # Parse command line arguments for cleanup
 parse_cleanup_args() {
     while [ $# -gt 0 ]; do
@@ -968,7 +1089,7 @@ parse_cleanup_args() {
                 shift
                 ;;
             --remove-helm)
-                # shellcheck disable=SC2034 # used by cleanup-k8s.sh after sourcing
+                # shellcheck disable=SC2034 # used by setup-k8s.sh cleanup subcommand
                 REMOVE_HELM=true
                 shift
                 ;;

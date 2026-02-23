@@ -8,7 +8,7 @@
 #   2. K8s binaries installed in /usr/local/bin/
 #   3. kubelet service is active
 #   4. API server responds to kubectl get nodes
-#   5. cleanup-k8s.sh --distro generic removes binaries and service files
+#   5. setup-k8s.sh cleanup --distro generic removes binaries and service files
 #   6. Binaries in /usr/local/bin/ are removed after cleanup
 #
 
@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/vm_harness.sh"
 
 SETUP_K8S_SCRIPT="$SCRIPT_DIR/../setup-k8s.sh"
-CLEANUP_K8S_SCRIPT="$SCRIPT_DIR/../cleanup-k8s.sh"
+# cleanup is now integrated into setup-k8s.sh as the 'cleanup' subcommand
 DOCKER_VM_RUNNER_IMAGE="${DOCKER_VM_RUNNER_IMAGE:-ghcr.io/munenick/docker-vm-runner:latest}"
 VM_DATA_DIR="${VM_DATA_DIR:-$SCRIPT_DIR/data}"
 
@@ -46,7 +46,6 @@ SSH_OPTS=("${SSH_BASE_OPTS[@]}")
 _VM_CONTAINER_NAME=""
 _WATCHDOG_PID=""
 _SETUP_BUNDLE=""
-_CLEANUP_BUNDLE=""
 _CLOUD_INIT_USER_DATA=""
 
 _generic_cleanup() {
@@ -58,7 +57,7 @@ _generic_cleanup() {
         docker stop "$_VM_CONTAINER_NAME" >/dev/null 2>&1 || true
     fi
     cleanup_ssh_key
-    rm -f "$_SETUP_BUNDLE" "$_CLEANUP_BUNDLE" "$_CLOUD_INIT_USER_DATA"
+    rm -f "$_SETUP_BUNDLE" "$_CLOUD_INIT_USER_DATA"
     _WATCHDOG_PID=""
     _VM_CONTAINER_NAME=""
 }
@@ -212,19 +211,15 @@ CIEOF
     # Save K8S_VERSION: _generate_bundle sources variables.sh which resets it
     local _saved_k8s_version="$K8S_VERSION"
     _SETUP_BUNDLE=$(mktemp /tmp/setup-k8s-generic-bundle.XXXXXX.sh)
-    _CLEANUP_BUNDLE=$(mktemp /tmp/cleanup-k8s-generic-bundle.XXXXXX.sh)
-    log_info "Generating bundled scripts..."
+    log_info "Generating bundled script..."
     _generate_bundle "$SETUP_K8S_SCRIPT" "$_SETUP_BUNDLE" "all"
-    _generate_bundle "$CLEANUP_K8S_SCRIPT" "$_CLEANUP_BUNDLE" "cleanup"
     K8S_VERSION="$_saved_k8s_version"
-    log_info "Transferring bundled scripts to VM..."
+    log_info "Transferring bundled script to VM..."
     vm_scp "$_SETUP_BUNDLE" "/tmp/setup-k8s.sh"
-    vm_scp "$_CLEANUP_BUNDLE" "/tmp/cleanup-k8s.sh"
-    vm_ssh "chmod +x /tmp/setup-k8s.sh /tmp/cleanup-k8s.sh" >/dev/null 2>&1
-    rm -f "$_SETUP_BUNDLE" "$_CLEANUP_BUNDLE"
+    vm_ssh "chmod +x /tmp/setup-k8s.sh" >/dev/null 2>&1
+    rm -f "$_SETUP_BUNDLE"
     _SETUP_BUNDLE=""
-    _CLEANUP_BUNDLE=""
-    log_success "Bundled scripts deployed to VM"
+    log_success "Bundled script deployed to VM"
 
     # === Phase 1: Setup with --distro generic ===
     log_info "Phase 1: Running setup-k8s.sh init --distro generic ..."
@@ -351,8 +346,8 @@ CIEOF
     fi
 
     # === Phase 3: Cleanup with --distro generic ===
-    log_info "Phase 3: Running cleanup-k8s.sh --force --distro generic ..."
-    local cleanup_cmd="bash /tmp/cleanup-k8s.sh --force --distro generic > /tmp/cleanup-k8s.log 2>&1; echo \$? > /tmp/cleanup-exit-code"
+    log_info "Phase 3: Running setup-k8s.sh cleanup --force --distro generic ..."
+    local cleanup_cmd="bash /tmp/setup-k8s.sh cleanup --force --distro generic > /tmp/cleanup-k8s.log 2>&1; echo \$? > /tmp/cleanup-exit-code"
     vm_ssh "nohup bash -c '${cleanup_cmd}' </dev/null >/dev/null 2>&1 &"
 
     if ! poll_vm_command vm_ssh "$container_name" /tmp/cleanup-exit-code /tmp/cleanup-k8s.log "$TIMEOUT_TOTAL"; then

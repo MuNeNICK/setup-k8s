@@ -5,13 +5,19 @@
 #
 # Scenario: Single CP + Single Worker (key-based SSH)
 #
-# Tests:
+# Tests (Phase 1: Deploy Verification):
 #   1. setup-k8s.sh deploy completes successfully (exit 0)
 #   2. CP: kubelet is active
 #   3. CP: /etc/kubernetes/admin.conf exists
 #   4. CP: kubectl get nodes responds
 #   5. Total node count = 2 (1 CP + 1 Worker)
 #   6. Worker: kubelet is active
+#
+# Tests (Phase 2: Remove Verification):
+#   7. setup-k8s.sh remove completes successfully (exit 0)
+#   8. Total node count = 1 (Worker removed)
+#   9. Worker: kubelet is inactive (kubeadm reset)
+#  10. CP: kubelet is still active
 #
 # Test matrix (combine with --cri / --proxy-mode flags):
 #   ./run-deploy-test.sh                                    # default (containerd + iptables)
@@ -254,9 +260,9 @@ run_deploy_test() {
     fi
 
     # ===================================================================
-    # Verification
+    # Phase 1: Deploy Verification
     # ===================================================================
-    log_info "=== Verification ==="
+    log_info "=== Phase 1: Deploy Verification ==="
 
     local all_pass=true
 
@@ -318,18 +324,115 @@ run_deploy_test() {
     log_info "Node status:"
     vm_ssh_root "$_CP_SSH_PORT" "kubectl get nodes -o wide --kubeconfig=/etc/kubernetes/admin.conf" 2>/dev/null || true
 
+    # If deploy verification failed, skip Phase 2
+    if [ "$all_pass" != true ]; then
+        echo ""
+        log_error "=== DEPLOY VERIFICATION FAILED — skipping Phase 2 ==="
+        log_info "Log file: $log_file"
+        log_info "=== DIAGNOSTICS ==="
+        log_info "CP container logs (last 20 lines):"
+        docker logs "$cp_container" 2>&1 | tail -20 || true
+        log_info "Worker container logs (last 20 lines):"
+        docker logs "$worker_container" 2>&1 | tail -20 || true
+        log_info "CP listening ports:"
+        vm_ssh_root "$_CP_SSH_PORT" "ss -tlnp | grep -E '6443|10250'" 2>/dev/null || true
+        log_info "Worker listening ports:"
+        vm_ssh_root "$_WORKER_SSH_PORT" "ss -tlnp | grep -E '6443|10250'" 2>/dev/null || true
+        log_info "=== END DIAGNOSTICS ==="
+        _cleanup_all
+        trap - EXIT INT TERM HUP
+        return 1
+    fi
+
+    # ===================================================================
+    # Phase 2: Remove
+    # ===================================================================
+    log_info "=== Phase 2: Remove ==="
+
+    local remove_log_file
+    remove_log_file="results/logs/remove-${DISTRO}-$(date +%Y%m%d-%H%M%S).log"
+
+    local remove_cmd=(
+        bash "$SETUP_K8S_SCRIPT" remove
+        --control-plane "root@${CP_DOCKER_IP}"
+        --nodes "root@${WORKER_DOCKER_IP}"
+        --force
+        --ssh-port 2222
+        --ssh-key "$SSH_KEY_DIR/id_test"
+        --ssh-host-key-check accept-new
+    )
+    log_info "Command: ${remove_cmd[*]}"
+
+    local remove_exit_code=0
+    if timeout "$TIMEOUT_TOTAL" "${remove_cmd[@]}" 2>&1 | tee "$remove_log_file"; then
+        remove_exit_code=0
+    else
+        remove_exit_code=$?
+        if [ "$remove_exit_code" -eq 124 ]; then
+            log_error "Remove command timed out after ${TIMEOUT_TOTAL}s"
+        fi
+    fi
+
+    # ===================================================================
+    # Phase 2: Remove Verification
+    # ===================================================================
+    log_info "=== Phase 2: Remove Verification ==="
+
+    # Check 7: remove exit code = 0
+    if [ "$remove_exit_code" -eq 0 ]; then
+        log_success "CHECK 7: remove exit code = 0"
+    else
+        log_error "CHECK 7: remove exit code = $remove_exit_code"
+        all_pass=false
+    fi
+
+    # Check 8: Node count = 1 (Worker removed)
+    local post_remove_node_count
+    post_remove_node_count=$(vm_ssh_root "$_CP_SSH_PORT" "kubectl get nodes --no-headers --kubeconfig=/etc/kubernetes/admin.conf 2>/dev/null | wc -l" 2>/dev/null | tr -d '[:space:]') || post_remove_node_count="unknown"
+    if [ "$post_remove_node_count" -eq 1 ] 2>/dev/null; then
+        log_success "CHECK 8: Node count = $post_remove_node_count (expected 1)"
+    else
+        log_error "CHECK 8: Node count = $post_remove_node_count (expected 1)"
+        all_pass=false
+    fi
+
+    # Check 9: Worker kubelet is inactive (kubeadm reset)
+    local worker_kubelet_post
+    worker_kubelet_post=$(vm_ssh_root "$_WORKER_SSH_PORT" "systemctl is-active kubelet" 2>/dev/null | tr -d '[:space:]') || worker_kubelet_post="inactive"
+    if [ "$worker_kubelet_post" = "inactive" ]; then
+        log_success "CHECK 9: Worker kubelet is inactive (reset confirmed)"
+    else
+        log_error "CHECK 9: Worker kubelet is $worker_kubelet_post (expected inactive)"
+        all_pass=false
+    fi
+
+    # Check 10: CP kubelet is still active
+    local cp_kubelet_post
+    cp_kubelet_post=$(vm_ssh_root "$_CP_SSH_PORT" "systemctl is-active kubelet" 2>/dev/null | tr -d '[:space:]') || cp_kubelet_post="inactive"
+    if [ "$cp_kubelet_post" = "active" ]; then
+        log_success "CHECK 10: CP kubelet is still active"
+    else
+        log_error "CHECK 10: CP kubelet is $cp_kubelet_post (expected active)"
+        all_pass=false
+    fi
+
+    # Show node list for debugging
+    log_info "Node status after remove:"
+    vm_ssh_root "$_CP_SSH_PORT" "kubectl get nodes -o wide --kubeconfig=/etc/kubernetes/admin.conf" 2>/dev/null || true
+
     # ===================================================================
     # Result
     # ===================================================================
     echo ""
-    log_info "Log file: $log_file"
+    log_info "Deploy log: $log_file"
+    log_info "Remove log: $remove_log_file"
     if [ "$all_pass" = true ]; then
-        log_success "=== DEPLOY TEST PASSED ==="
+        log_success "=== DEPLOY + REMOVE TEST PASSED ==="
         _cleanup_all
         trap - EXIT INT TERM HUP
         return 0
     else
-        log_error "=== DEPLOY TEST FAILED ==="
+        log_error "=== DEPLOY + REMOVE TEST FAILED ==="
         log_info "=== DIAGNOSTICS ==="
         log_info "CP container logs (last 20 lines):"
         docker logs "$cp_container" 2>&1 | tail -20 || true

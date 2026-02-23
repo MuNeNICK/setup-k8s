@@ -334,7 +334,6 @@ test_unknown_option_exit_code() {
 test_help_early_exit() {
     echo "=== Test: --help early exit ==="
     _assert_exit_code "setup-k8s.sh --help exits 0" 0 bash "$PROJECT_ROOT/setup-k8s.sh" --help
-    _assert_exit_code "cleanup-k8s.sh --help exits 0" 0 bash "$PROJECT_ROOT/cleanup-k8s.sh" --help
 }
 
 # ============================================================
@@ -1560,6 +1559,139 @@ test_preflight_help_exit
 test_help_contains_preflight
 test_preflight_check_cpu
 test_preflight_check_memory
+
+# ============================================================
+# Test: REMOVE_* variable defaults
+# ============================================================
+test_remove_variables_defaults() {
+    echo "=== Test: REMOVE_* variable defaults ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        _assert_eq "REMOVE_CONTROL_PLANE default" "" "$REMOVE_CONTROL_PLANE"
+        _assert_eq "REMOVE_NODES default" "" "$REMOVE_NODES"
+        _assert_eq "REMOVE_PASSTHROUGH_ARGS default" "" "$REMOVE_PASSTHROUGH_ARGS"
+    )
+}
+
+# ============================================================
+# Test: parse_remove_args
+# ============================================================
+test_parse_remove_args() {
+    echo "=== Test: parse_remove_args ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        parse_remove_args --control-plane root@10.0.0.1 --nodes root@10.0.0.2,root@10.0.0.3 --force --ssh-port 2222
+        _assert_eq "REMOVE_CONTROL_PLANE parsed" "root@10.0.0.1" "$REMOVE_CONTROL_PLANE"
+        _assert_eq "REMOVE_NODES parsed" "root@10.0.0.2,root@10.0.0.3" "$REMOVE_NODES"
+        _assert_eq "FORCE parsed" "true" "$FORCE"
+        _assert_eq "DEPLOY_SSH_PORT parsed" "2222" "$DEPLOY_SSH_PORT"
+    )
+}
+
+# ============================================================
+# Test: parse_remove_args rejects unknown option
+# ============================================================
+test_parse_remove_unknown_option() {
+    echo "=== Test: parse_remove_args unknown option ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        local exit_code=0
+        (parse_remove_args --bogus-flag) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "unknown option rejected" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: validate_remove_args requires --control-plane and --nodes
+# ============================================================
+test_validate_remove_args_required() {
+    echo "=== Test: validate_remove_args requires args ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        # Missing --control-plane
+        local exit_code=0
+        REMOVE_NODES="10.0.0.2"
+        (validate_remove_args) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "missing --control-plane rejected" "0" "$exit_code"
+
+        # Missing --nodes
+        exit_code=0
+        REMOVE_CONTROL_PLANE="10.0.0.1"
+        REMOVE_NODES=""
+        (validate_remove_args) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "missing --nodes rejected" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: validate_remove_args prevents removing CP itself
+# ============================================================
+test_validate_remove_args_cp_safety() {
+    echo "=== Test: validate_remove_args CP safety ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        REMOVE_CONTROL_PLANE="root@10.0.0.1"
+        REMOVE_NODES="root@10.0.0.1"
+        local exit_code=0
+        (validate_remove_args) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "removing CP node itself rejected" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: remove --help exits 0
+# ============================================================
+test_remove_help_exit() {
+    echo "=== Test: remove --help exits 0 ==="
+    _assert_exit_code "setup-k8s.sh remove --help exits 0" 0 bash "$PROJECT_ROOT/setup-k8s.sh" remove --help
+}
+
+# ============================================================
+# Test: cleanup --help exits 0
+# ============================================================
+test_cleanup_help_exit() {
+    echo "=== Test: cleanup --help exits 0 ==="
+    _assert_exit_code "setup-k8s.sh cleanup --help exits 0" 0 bash "$PROJECT_ROOT/setup-k8s.sh" cleanup --help
+}
+
+# ============================================================
+# Test: help text contains 'remove' and 'cleanup'
+# ============================================================
+test_help_contains_remove_cleanup() {
+    echo "=== Test: help text contains remove/cleanup ==="
+    (
+        local help_out
+        help_out=$(bash "$PROJECT_ROOT/setup-k8s.sh" --help 2>&1)
+        local has_remove="false"
+        if echo "$help_out" | grep -q 'remove'; then has_remove="true"; fi
+        _assert_eq "help contains remove" "true" "$has_remove"
+
+        local has_cleanup="false"
+        if echo "$help_out" | grep -q 'cleanup'; then has_cleanup="true"; fi
+        _assert_eq "help contains cleanup" "true" "$has_cleanup"
+    )
+}
+
+test_remove_variables_defaults
+test_parse_remove_args
+test_parse_remove_unknown_option
+test_validate_remove_args_required
+test_validate_remove_args_cp_safety
+test_remove_help_exit
+test_cleanup_help_exit
+test_help_contains_remove_cleanup
 
 echo ""
 TESTS_RUN=$(wc -l < "$_RESULTS_FILE")

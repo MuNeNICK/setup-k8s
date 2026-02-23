@@ -1,12 +1,12 @@
 #!/bin/sh
 
-# Shared bootstrap logic for setup-k8s.sh and cleanup-k8s.sh
+# Shared bootstrap logic for setup-k8s.sh
 # Provides: exit trap management, module validation, _dispatch
 
 # Canonical list of common modules (single source of truth).
 # Used by load_modules, run_local, and bundle generation.
 # bootstrap is listed for bundling but excluded from runtime loading (already sourced).
-_COMMON_MODULES="variables logging detection validation helpers networking swap completion helm upgrade etcd status preflight"
+_COMMON_MODULES="variables logging detection validation helpers networking swap completion helm upgrade remove etcd status preflight"
 _DISTRO_FAMILIES="alpine arch debian generic rhel suse"
 _DISTRO_MODULES="cleanup containerd crio dependencies kubernetes"
 
@@ -103,7 +103,7 @@ _dispatch() {
 
 # Parameterized module loader for online mode (curl | sh).
 # Usage: load_modules <temp_prefix> <distro_module> [<distro_module> ...]
-#   temp_prefix:     prefix for the temp directory name (e.g. "setup-k8s" or "cleanup-k8s")
+#   temp_prefix:     prefix for the temp directory name (e.g. "setup-k8s")
 #   distro_modules:  list of distro-specific module names to download (e.g. "dependencies containerd crio kubernetes cleanup")
 load_modules() {
     local temp_prefix="$1"; shift
@@ -273,7 +273,7 @@ load_deploy_modules() {
 # Generate a self-contained bundle script for standalone execution.
 # Usage: _generate_bundle_core <bundle_path> <entry_script> [include_mode] [script_dir]
 #   bundle_path:   output file path
-#   entry_script:  path to the entry script (setup-k8s.sh or cleanup-k8s.sh)
+#   entry_script:  path to the entry script (setup-k8s.sh)
 #   include_mode:  "all" (default), "cleanup" (cleanup modules only)
 #   script_dir:    project root (default: derived from entry_script location)
 _generate_bundle_core() {

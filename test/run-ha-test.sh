@@ -9,7 +9,7 @@
 #   3. kubeadm init succeeded with --control-plane-endpoint
 #   4. kubelet is active, API server is responsive
 #   5. Certificate key and control-plane join info is displayed
-#   6. cleanup-k8s.sh --force succeeds
+#   6. setup-k8s.sh cleanup --force succeeds
 #
 
 set -euo pipefail
@@ -20,7 +20,7 @@ source "$SCRIPT_DIR/lib/vm_harness.sh"
 
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SETUP_K8S_SCRIPT="$PROJECT_ROOT/setup-k8s.sh"
-CLEANUP_K8S_SCRIPT="$PROJECT_ROOT/cleanup-k8s.sh"
+# cleanup is now integrated into setup-k8s.sh as the 'cleanup' subcommand
 DOCKER_VM_RUNNER_IMAGE="${DOCKER_VM_RUNNER_IMAGE:-ghcr.io/munenick/docker-vm-runner:latest}"
 VM_DATA_DIR="${VM_DATA_DIR:-$SCRIPT_DIR/data}"
 
@@ -127,19 +127,16 @@ run_ha_test() {
     log_info "VM IP: $vm_ip, interface: $vm_iface"
 
     # --- Deploy bundled scripts ---
-    local setup_bundle cleanup_bundle
+    local setup_bundle
     setup_bundle=$(mktemp /tmp/setup-k8s-ha-bundle.XXXXXX.sh)
-    cleanup_bundle=$(mktemp /tmp/cleanup-k8s-ha-bundle.XXXXXX.sh)
-    log_info "Generating bundled scripts..."
+    log_info "Generating bundled script..."
     _generate_bundle "$SETUP_K8S_SCRIPT" "$setup_bundle" "all"
-    _generate_bundle "$CLEANUP_K8S_SCRIPT" "$cleanup_bundle" "cleanup"
 
-    log_info "Transferring scripts to VM..."
+    log_info "Transferring script to VM..."
     vm_scp "$setup_bundle" "/tmp/setup-k8s.sh"
-    vm_scp "$cleanup_bundle" "/tmp/cleanup-k8s.sh"
-    vm_ssh "chmod +x /tmp/setup-k8s.sh /tmp/cleanup-k8s.sh" >/dev/null 2>&1
-    rm -f "$setup_bundle" "$cleanup_bundle"
-    log_success "Scripts deployed"
+    vm_ssh "chmod +x /tmp/setup-k8s.sh" >/dev/null 2>&1
+    rm -f "$setup_bundle"
+    log_success "Script deployed"
 
     # --- Resolve K8s version if not specified ---
     local k8s_version_flag="" k8s_version_val=""
@@ -295,7 +292,7 @@ run_ha_test() {
     # Phase 3: Cleanup
     # ===================================================================
     log_info "=== Phase 3: Cleanup ==="
-    vm_ssh "nohup bash -c 'bash /tmp/cleanup-k8s.sh --force > /tmp/cleanup-k8s.log 2>&1; echo \$? > /tmp/cleanup-exit-code' </dev/null >/dev/null 2>&1 &"
+    vm_ssh "nohup bash -c 'bash /tmp/setup-k8s.sh cleanup --force > /tmp/cleanup-k8s.log 2>&1; echo \$? > /tmp/cleanup-exit-code' </dev/null >/dev/null 2>&1 &"
 
     local cleanup_exit_code
     if ! poll_vm_command vm_ssh "$container_name" /tmp/cleanup-exit-code /tmp/cleanup-k8s.log "$TIMEOUT_TOTAL"; then

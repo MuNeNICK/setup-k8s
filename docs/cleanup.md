@@ -2,9 +2,9 @@
 
 ## Quick Start
 
-Execute the cleanup script:
+Execute the cleanup subcommand:
 ```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/cleanup-k8s.sh | sudo sh -s -- [options]
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- cleanup [options]
 ```
 
 ## Worker Node Cleanup
@@ -17,7 +17,7 @@ kubectl delete node <worker-node-name>
 
 2. Run cleanup on the worker:
 ```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/cleanup-k8s.sh | sudo sh -s -- --force
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- cleanup --force
 ```
 
 ## Control-Plane Node Cleanup
@@ -27,9 +27,9 @@ curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/cleanup-k8s.sh | sudo 
 1. Ensure all worker nodes are removed first
 2. Run cleanup:
 ```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/cleanup-k8s.sh | sudo sh -s -- --force
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- cleanup --force
 ```
 
 ## Options
 
-See [reference.md](reference.md) for the full list of cleanup-k8s.sh options.
+See [reference.md](reference.md) for the full list of cleanup options.

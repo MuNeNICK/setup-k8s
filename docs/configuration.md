@@ -404,7 +404,7 @@ curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | \
 
 ### Cleanup
 
-The `cleanup-k8s.sh` script removes only the binaries, configs, and service files placed by the script. System packages (socat, conntrack, etc.) installed via the package manager are intentionally preserved.
+The `setup-k8s.sh cleanup` subcommand removes only the binaries, configs, and service files placed by the script. System packages (socat, conntrack, etc.) installed via the package manager are intentionally preserved.
 
 ## Cluster Status
 

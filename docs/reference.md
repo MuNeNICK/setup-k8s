@@ -185,10 +185,10 @@ Options for the `preflight` subcommand. Runs locally with root privileges to ver
 
 Checks performed: CPU count (>= 2), memory (>= 1700 MB), disk space, required port availability, kernel modules, IPv4 forwarding, CRI installation, swap state, cgroups v2, existing cluster detection (init only), and network connectivity.
 
-## cleanup-k8s.sh
+## setup-k8s.sh cleanup
 
 ```
-Usage: cleanup-k8s.sh [options]
+Usage: setup-k8s.sh cleanup [options]
 ```
 
 | Option | Description | Default | Example |

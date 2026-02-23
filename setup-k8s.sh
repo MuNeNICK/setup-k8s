@@ -39,19 +39,21 @@ while [ $# -gt 0 ]; do
     case "$arg" in
         --help|-h)
             # Deploy/upgrade/backup/restore/status --help is deferred to their parsers
-            if [ "$_action_detected" = true ] && { [ "$ACTION" = "deploy" ] || [ "$ACTION" = "upgrade" ] || [ "$ACTION" = "backup" ] || [ "$ACTION" = "restore" ] || [ "$ACTION" = "status" ] || [ "$ACTION" = "preflight" ]; }; then
+            if [ "$_action_detected" = true ] && { [ "$ACTION" = "deploy" ] || [ "$ACTION" = "upgrade" ] || [ "$ACTION" = "remove" ] || [ "$ACTION" = "backup" ] || [ "$ACTION" = "restore" ] || [ "$ACTION" = "cleanup" ] || [ "$ACTION" = "status" ] || [ "$ACTION" = "preflight" ]; }; then
                 _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$arg"
             else
                 cat <<'HELPEOF'
-Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore|status|preflight> [options]
+Usage: setup-k8s.sh <init|join|deploy|upgrade|remove|backup|restore|cleanup|status|preflight> [options]
 
 Subcommands:
   init                    Initialize a new Kubernetes cluster
   join                    Join an existing cluster as a worker or control-plane node
   deploy                  Deploy a cluster across remote nodes via SSH
   upgrade                 Upgrade cluster Kubernetes version
+  remove                  Remove nodes from the cluster (drain, delete, reset)
   backup                  Create an etcd snapshot backup
   restore                 Restore an etcd snapshot
+  cleanup                 Clean up Kubernetes installation from this node
   status                  Show cluster and node status
   preflight               Run preflight checks before init/join
 
@@ -103,6 +105,20 @@ Options (upgrade):
 
   Run 'setup-k8s.sh upgrade --help' for upgrade-specific details.
 
+Options (remove):
+  --control-plane IP        Control-plane node (user@ip or ip)
+  --nodes IPs               Comma-separated nodes to remove (user@ip or ip)
+  --force                   Skip confirmation prompt
+
+  Run 'setup-k8s.sh remove --help' for details.
+
+Options (cleanup):
+  --force                 Skip confirmation prompt
+  --preserve-cni          Preserve CNI configurations
+  --remove-helm           Remove Helm binary and configuration
+
+  Run 'setup-k8s.sh cleanup --help' for details.
+
 Options (backup):
   --snapshot-path PATH    Output snapshot path (default: auto-generated)
   --control-plane IP      Remote mode: target control-plane node (user@ip or ip)
@@ -153,7 +169,7 @@ HELPEOF
             _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$2"
             shift 2
             ;;
-        --ha|--control-plane|--swap-enabled|--first-control-plane|--skip-drain)
+        --ha|--control-plane|--swap-enabled|--first-control-plane|--skip-drain|--force|--preserve-cni|--remove-helm)
             _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$arg"
             shift
             ;;
@@ -172,14 +188,14 @@ HELPEOF
             # First non-flag positional argument is the subcommand (strip it from cli_args)
             if [ "$_action_detected" = false ]; then
                 case "$arg" in
-                    init|join|deploy|upgrade|backup|restore|status|preflight)
+                    init|join|deploy|upgrade|remove|backup|restore|cleanup|status|preflight)
                         ACTION="$arg"
                         _action_detected=true
                         shift
                         continue
                         ;;
                     *)
-                        echo "Error: Unknown subcommand '$arg'. Valid subcommands: init, join, deploy, upgrade, backup, restore, status, preflight" >&2
+                        echo "Error: Unknown subcommand '$arg'. Valid subcommands: init, join, deploy, upgrade, remove, backup, restore, cleanup, status, preflight" >&2
                         exit 1
                         ;;
                 esac
@@ -375,6 +391,102 @@ main() {
             upgrade_node_local
             exit $?
         fi
+    fi
+
+    # Remove subcommand: remote mode only (orchestrate node removal via SSH)
+    if [ "$ACTION" = "remove" ]; then
+        local remove_deploy_modules="variables logging validation deploy upgrade remove"
+        if [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; then
+            for module in $remove_deploy_modules; do
+                if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
+                    . "$SCRIPT_DIR/common/${module}.sh"
+                else
+                    echo "Error: Required module common/${module}.sh not found in $SCRIPT_DIR" >&2
+                    exit 1
+                fi
+            done
+        else
+            load_deploy_modules
+            for module in $remove_deploy_modules; do
+                . "$DEPLOY_MODULES_DIR/common/${module}.sh"
+            done
+            SCRIPT_DIR="$DEPLOY_MODULES_DIR"
+        fi
+
+        eval "$_RESTORE_CLI_ARGS"
+        parse_remove_args "$@"
+        validate_remove_args
+
+        if [ "$DRY_RUN" = true ]; then
+            remove_dry_run
+            exit 0
+        fi
+
+        remove_cluster
+        exit $?
+    fi
+
+    # Cleanup subcommand: local mode only (replaces cleanup-k8s.sh)
+    if [ "$ACTION" = "cleanup" ]; then
+        # Handle --help before root check
+        eval "$_RESTORE_CLI_ARGS"
+        for _carg in "$@"; do
+            if [ "$_carg" = "--help" ] || [ "$_carg" = "-h" ]; then
+                . "$SCRIPT_DIR/common/variables.sh" 2>/dev/null || true
+                . "$SCRIPT_DIR/common/logging.sh" 2>/dev/null || true
+                . "$SCRIPT_DIR/common/validation.sh" 2>/dev/null || true
+                show_cleanup_help
+            fi
+        done
+        if [ "$(id -u)" -ne 0 ]; then
+            echo "Error: Cleanup must be run as root" >&2
+            exit 1
+        fi
+
+        if { [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; } || [ "$BUNDLED_MODE" = "true" ]; then
+            run_local "parse_cleanup_args" cleanup
+        else
+            load_modules "setup-k8s" cleanup
+        fi
+
+        eval "$_RESTORE_CLI_ARGS"
+        parse_cleanup_args "$@"
+        confirm_cleanup
+
+        CLEANUP_ERRORS=0
+        log_info "Starting Kubernetes cleanup..."
+
+        if [ -z "${DISTRO_FAMILY:-}" ]; then
+            detect_distribution
+        fi
+
+        check_docker_warning
+        stop_kubernetes_services || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+        stop_cri_services || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+        reset_kubernetes_cluster || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+        remove_kubernetes_configs || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+        restore_fstab_swap || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+        restore_zram_swap || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+        cleanup_cni_conditionally || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+        cleanup_network_configs || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+        cleanup_kube_configs || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+        cleanup_crictl_config || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+        reset_iptables || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+        reset_containerd_config || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+        _service_reload || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+        _dispatch "cleanup_${DISTRO_FAMILY}" || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+        cleanup_kubernetes_completions || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+        if [ "${REMOVE_HELM:-false}" = true ]; then
+            cleanup_helm || CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
+        fi
+
+        if [ "$CLEANUP_ERRORS" -gt 0 ]; then
+            log_error "Cleanup finished with $CLEANUP_ERRORS error(s). Check the output above for details."
+            exit 1
+        fi
+
+        log_info "Cleanup complete! Please reboot the system for all changes to take effect."
+        exit 0
     fi
 
     # Backup/Restore subcommand: local or remote mode
@@ -584,7 +696,7 @@ main() {
 
     # Validate action early (deploy/upgrade/backup/restore/status already handled above)
     if [ -z "$ACTION" ]; then
-        echo "Error: Missing subcommand. Valid subcommands: init, join, deploy, upgrade, backup, restore, status, preflight" >&2
+        echo "Error: Missing subcommand. Valid subcommands: init, join, deploy, upgrade, remove, backup, restore, cleanup, status, preflight" >&2
         echo "Run with --help for usage information" >&2
         exit 1
     fi

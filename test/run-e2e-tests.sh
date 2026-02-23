@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/vm_harness.sh"
 
 SETUP_K8S_SCRIPT="$SCRIPT_DIR/../setup-k8s.sh"
-CLEANUP_K8S_SCRIPT="$SCRIPT_DIR/../cleanup-k8s.sh"
+# cleanup is now integrated into setup-k8s.sh as the 'cleanup' subcommand
 DOCKER_VM_RUNNER_IMAGE="${DOCKER_VM_RUNNER_IMAGE:-ghcr.io/munenick/docker-vm-runner:latest}"
 GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main}"
 VM_DATA_DIR="${VM_DATA_DIR:-$SCRIPT_DIR/data}"
@@ -142,19 +142,16 @@ load_config() {
     return 0
 }
 
-# Global paths for generated bundles (set by generate_bundled_scripts)
+# Global path for generated bundle (set by generate_bundled_scripts)
 _SETUP_BUNDLE=""
-_CLEANUP_BUNDLE=""
 
-# Generate bundled scripts for offline mode
+# Generate bundled script for offline mode
 generate_bundled_scripts() {
     _SETUP_BUNDLE=$(mktemp /tmp/setup-k8s-bundle.XXXXXX.sh)
-    _CLEANUP_BUNDLE=$(mktemp /tmp/cleanup-k8s-bundle.XXXXXX.sh)
 
-    log_info "Generating bundled scripts..."
+    log_info "Generating bundled script..."
     _generate_bundle "$SETUP_K8S_SCRIPT" "$_SETUP_BUNDLE" "all"
-    _generate_bundle "$CLEANUP_K8S_SCRIPT" "$_CLEANUP_BUNDLE" "cleanup"
-    log_info "Bundled scripts generated successfully"
+    log_info "Bundled script generated successfully"
 }
 
 # Execute and monitor VM via SSH
@@ -251,12 +248,11 @@ CIEOF
         log_info "Online mode: testing curl | bash from ${GITHUB_BASE_URL}"
     else
         generate_bundled_scripts
-        log_info "Transferring bundled scripts to VM..."
+        log_info "Transferring bundled script to VM..."
         vm_scp "$_SETUP_BUNDLE" "/tmp/setup-k8s.sh"
-        vm_scp "$_CLEANUP_BUNDLE" "/tmp/cleanup-k8s.sh"
-        vm_ssh "chmod +x /tmp/setup-k8s.sh /tmp/cleanup-k8s.sh" >/dev/null 2>&1
-        rm -f "$_SETUP_BUNDLE" "$_CLEANUP_BUNDLE"
-        log_success "Bundled scripts deployed to VM"
+        vm_ssh "chmod +x /tmp/setup-k8s.sh" >/dev/null 2>&1
+        rm -f "$_SETUP_BUNDLE"
+        log_success "Bundled script deployed to VM"
     fi
 
     # --- Phase 1: Run setup-k8s.sh ---
@@ -336,9 +332,9 @@ CIEOF
         log_info "Starting Kubernetes cleanup..."
         local cleanup_cmd
         if [ "$TEST_MODE" = "online" ]; then
-            cleanup_cmd="curl -fsSL ${GITHUB_BASE_URL}/cleanup-k8s.sh | bash -s -- --force"
+            cleanup_cmd="curl -fsSL ${GITHUB_BASE_URL}/setup-k8s.sh | bash -s -- cleanup --force"
         else
-            cleanup_cmd="bash /tmp/cleanup-k8s.sh --force"
+            cleanup_cmd="bash /tmp/setup-k8s.sh cleanup --force"
         fi
         vm_ssh "nohup bash -c '${cleanup_cmd} > /tmp/cleanup-k8s.log 2>&1; echo \$? > /tmp/cleanup-exit-code' </dev/null >/dev/null 2>&1 &"
 

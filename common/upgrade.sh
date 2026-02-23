@@ -147,6 +147,70 @@ upgrade_node_local() {
     log_info "Node upgrade complete (role: $role)!"
 }
 
+# --- Shared Node Name Resolution ---
+
+# Resolve a node's Kubernetes node name from its host IP/hostname via kubectl.
+# Tries: 1) match by InternalIP address, 2) match by Hostname, 3) SSH to target and get its hostname
+# Usage: _get_node_name <cp_user> <cp_host> <target_host>
+# Requires: _deploy_ssh, _parse_node_address, _DEPLOY_ALL_NODES, _csv_count, _csv_get
+_get_node_name() {
+    local user="$1" host="$2" target_host="$3"
+    local pfx=""
+    [ "$user" != "root" ] && pfx="sudo -n "
+    local node_name=""
+    local stripped="${target_host#[}"
+    stripped="${stripped%]}"
+
+    # Try matching by InternalIP or Hostname address
+    local nodes_info
+    nodes_info=$(_deploy_ssh "$user" "$host" "${pfx}kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes -o jsonpath='{range .items[*]}{.metadata.name}{\" \"}{range .status.addresses[*]}{.address}{\" \"}{end}{\"\\n\"}{end}'" 2>/dev/null) || true
+    if [ -n "$nodes_info" ]; then
+        node_name=$(echo "$nodes_info" | while read -r name addrs; do
+            for addr in $addrs; do
+                if [ "$addr" = "$stripped" ] || [ "$addr" = "$target_host" ]; then
+                    echo "$name"
+                    return 0
+                fi
+            done
+        done)
+    fi
+
+    # Fallback: SSH to the target node and get its hostname, then match against node names
+    if [ -z "$node_name" ]; then
+        _parse_node_address "$target_host"
+        local target_user="$_NODE_USER" target_actual_host="$_NODE_HOST"
+        # For bare IPs passed as target_host, re-parse with the original node address
+        # Find the matching node from _DEPLOY_ALL_NODES
+        local _all_cnt _ni
+        _all_cnt=$(_csv_count "$_DEPLOY_ALL_NODES")
+        _ni=0
+        while [ "$_ni" -lt "$_all_cnt" ]; do
+            local _node_entry
+            _node_entry=$(_csv_get "$_DEPLOY_ALL_NODES" "$_ni")
+            local _check_host="${_node_entry#*@}"
+            if [ "$_check_host" = "$target_host" ] || [ "$_check_host" = "$stripped" ]; then
+                _parse_node_address "$_node_entry"
+                target_user="$_NODE_USER"
+                target_actual_host="$_NODE_HOST"
+                break
+            fi
+            _ni=$((_ni + 1))
+        done
+        local remote_hostname
+        remote_hostname=$(_deploy_ssh "$target_user" "$target_actual_host" "hostname" 2>/dev/null | tr -d '[:space:]') || true
+        if [ -n "$remote_hostname" ] && [ -n "$nodes_info" ]; then
+            node_name=$(echo "$nodes_info" | while read -r name _addrs; do
+                if [ "$name" = "$remote_hostname" ]; then
+                    echo "$name"
+                    return 0
+                fi
+            done)
+        fi
+    fi
+
+    echo "$node_name"
+}
+
 # --- Remote Orchestration ---
 
 # Show dry-run upgrade plan
@@ -415,66 +479,6 @@ upgrade_cluster() {
     local plan_output
     plan_output=$(_deploy_ssh "$cp1_user" "$cp1_host" "${sudo_pfx}kubeadm upgrade plan" 2>&1) || true
     log_info "$plan_output"
-
-    # Helper: get node name from host IP/hostname via kubectl
-    # Tries: 1) match by InternalIP address, 2) match by hostname, 3) SSH to target and get its hostname
-    _get_node_name() {
-        local user="$1" host="$2" target_host="$3"
-        local pfx=""
-        [ "$user" != "root" ] && pfx="sudo -n "
-        local node_name=""
-        local stripped="${target_host#[}"
-        stripped="${stripped%]}"
-
-        # Try matching by InternalIP or Hostname address
-        local nodes_info
-        nodes_info=$(_deploy_ssh "$user" "$host" "${pfx}kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes -o jsonpath='{range .items[*]}{.metadata.name}{\" \"}{range .status.addresses[*]}{.address}{\" \"}{end}{\"\\n\"}{end}'" 2>/dev/null) || true
-        if [ -n "$nodes_info" ]; then
-            node_name=$(echo "$nodes_info" | while read -r name addrs; do
-                for addr in $addrs; do
-                    if [ "$addr" = "$stripped" ] || [ "$addr" = "$target_host" ]; then
-                        echo "$name"
-                        return 0
-                    fi
-                done
-            done)
-        fi
-
-        # Fallback: SSH to the target node and get its hostname, then match against node names
-        if [ -z "$node_name" ]; then
-            _parse_node_address "$target_host"
-            local target_user="$_NODE_USER" target_actual_host="$_NODE_HOST"
-            # For bare IPs passed as target_host, re-parse with the original node address
-            # Find the matching node from _DEPLOY_ALL_NODES
-            local _all_cnt _ni
-            _all_cnt=$(_csv_count "$_DEPLOY_ALL_NODES")
-            _ni=0
-            while [ "$_ni" -lt "$_all_cnt" ]; do
-                local _node_entry
-                _node_entry=$(_csv_get "$_DEPLOY_ALL_NODES" "$_ni")
-                local _check_host="${_node_entry#*@}"
-                if [ "$_check_host" = "$target_host" ] || [ "$_check_host" = "$stripped" ]; then
-                    _parse_node_address "$_node_entry"
-                    target_user="$_NODE_USER"
-                    target_actual_host="$_NODE_HOST"
-                    break
-                fi
-                _ni=$((_ni + 1))
-            done
-            local remote_hostname
-            remote_hostname=$(_deploy_ssh "$target_user" "$target_actual_host" "hostname" 2>/dev/null | tr -d '[:space:]') || true
-            if [ -n "$remote_hostname" ] && [ -n "$nodes_info" ]; then
-                node_name=$(echo "$nodes_info" | while read -r name _addrs; do
-                    if [ "$name" = "$remote_hostname" ]; then
-                        echo "$name"
-                        return 0
-                    fi
-                done)
-            fi
-        fi
-
-        echo "$node_name"
-    }
 
     # Helper: drain a node
     _upgrade_drain_node() {
