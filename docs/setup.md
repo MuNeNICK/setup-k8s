@@ -110,6 +110,19 @@ Preview what checks will be performed:
 curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- preflight --dry-run
 ```
 
+## Certificate Renewal
+
+Renew kubeadm-managed certificates before they expire (default: 1 year). See [Configuration - Certificate Renewal](configuration.md#certificate-renewal) for detailed usage.
+
+```bash
+# Check certificate expiration
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  renew --check-only
+
+# Renew all certificates
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- renew
+```
+
 ## Prerequisites
 
 ### System Requirements

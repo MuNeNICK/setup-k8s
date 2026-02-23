@@ -6,7 +6,7 @@
 # Canonical list of common modules (single source of truth).
 # Used by load_modules, run_local, and bundle generation.
 # bootstrap is listed for bundling but excluded from runtime loading (already sourced).
-_COMMON_MODULES="variables logging detection validation helpers networking swap completion helm upgrade remove etcd status preflight"
+_COMMON_MODULES="variables logging detection validation helpers networking swap completion helm upgrade remove etcd renew status preflight"
 _DISTRO_FAMILIES="alpine arch debian generic rhel suse"
 _DISTRO_MODULES="cleanup containerd crio dependencies kubernetes"
 

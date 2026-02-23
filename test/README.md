@@ -18,6 +18,7 @@ Docker + QEMU test framework that validates `setup-k8s.sh` across multiple Linux
 | `run-ha-test.sh` | HA (kube-vip) test: init with `--ha --ha-vip` on a single VM |
 | `run-deploy-test.sh` | Deploy subcommand test: multi-node cluster (1 CP + 1 Worker) via SSH |
 | `run-backup-test.sh` | Backup/restore subcommand test: deploy + backup + restore on single CP |
+| `run-renew-test.sh` | Certificate renewal test: deploy + check-only + renew all + renew specific on single CP |
 | `run-unit-tests.sh` | Unit tests for shell modules |
 
 ## Supported Distributions
@@ -171,6 +172,7 @@ test/
 ├── run-ha-test.sh           # HA (kube-vip) integration test
 ├── run-deploy-test.sh       # Deploy subcommand E2E test (multi-VM)
 ├── run-backup-test.sh       # Backup/restore subcommand E2E test
+├── run-renew-test.sh        # Certificate renewal E2E test
 ├── run-unit-tests.sh        # Unit tests for shell modules
 ├── data/                    # Cloud image cache (base/, vms/, state/)
 └── results/                 # Test artifacts

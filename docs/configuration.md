@@ -293,6 +293,80 @@ The script automatically detects the available tools and uses `etcdutl` when ava
 - SSH access with passwordless sudo (for remote mode)
 - Sufficient disk space for the snapshot file and the etcd data backup
 
+## Certificate Renewal
+
+The `renew` subcommand manages kubeadm-managed certificate renewal and expiration checks. Kubeadm certificates expire after 1 year by default; expired certificates will prevent the cluster from functioning. Both local execution (on a control-plane node) and remote orchestration (from a local machine via SSH) are supported, following the same pattern as the `upgrade` subcommand.
+
+### How It Works
+
+**Check-only mode** runs `kubeadm certs check-expiration` to display current certificate expiration dates without making any changes.
+
+**Renewal mode** renews certificates via `kubeadm certs renew`, then restarts control-plane static pod components (kube-apiserver, kube-controller-manager, kube-scheduler, and etcd if etcd certificates were renewed) using `crictl stop`. Kubelet automatically restarts the stopped containers. The script waits for the API server to become ready (up to 120 seconds).
+
+### Local Mode
+
+Run directly on a control-plane node with `sudo`.
+
+```bash
+# Check certificate expiration (no changes)
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  renew --check-only
+
+# Renew all certificates
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- renew
+
+# Renew specific certificates only
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  renew --certs apiserver,front-proxy-client
+```
+
+### Remote Mode
+
+Orchestrate certificate renewal across multiple control-plane nodes from a local machine via SSH. Nodes are processed sequentially to avoid all API servers restarting simultaneously.
+
+```bash
+# Check expiration on all control-plane nodes
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sh -s -- \
+  renew \
+  --control-planes root@192.168.1.10,root@192.168.1.11 \
+  --ssh-key ~/.ssh/id_rsa \
+  --check-only
+
+# Renew certificates on all control-plane nodes
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sh -s -- \
+  renew \
+  --control-planes root@192.168.1.10,root@192.168.1.11 \
+  --ssh-key ~/.ssh/id_rsa
+```
+
+Remote orchestration flow:
+1. Check SSH connectivity and sudo access to all nodes
+2. Generate and transfer a self-contained bundle
+3. Execute renewal on each node sequentially
+4. Display summary
+
+### Valid Certificate Names
+
+| Name | Description |
+|------|-------------|
+| `apiserver` | API server serving certificate |
+| `apiserver-kubelet-client` | API server → kubelet client certificate |
+| `front-proxy-client` | Front proxy client certificate |
+| `apiserver-etcd-client` | API server → etcd client certificate |
+| `etcd-healthcheck-client` | etcd health check client certificate |
+| `etcd-peer` | etcd peer certificate |
+| `etcd-server` | etcd serving certificate |
+| `admin.conf` | Admin kubeconfig embedded certificate |
+| `controller-manager.conf` | Controller manager kubeconfig certificate |
+| `scheduler.conf` | Scheduler kubeconfig certificate |
+| `super-admin.conf` | Super admin kubeconfig certificate |
+
+### Requirements
+
+- The target node must be a kubeadm control-plane node
+- `crictl` must be available for restarting control-plane components after renewal
+- SSH access with passwordless sudo (for remote mode)
+
 ## Remote Deployment via SSH
 
 For deploying to multiple nodes without manually running `init`/`join` on each, use the `deploy` subcommand. See [Reference - Deploy Options](reference.md#deploy-options) for full usage.

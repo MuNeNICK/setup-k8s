@@ -78,6 +78,11 @@ PREFLIGHT_MODE="init"
 PREFLIGHT_CRI="containerd"
 PREFLIGHT_PROXY_MODE="iptables"
 
+# Renew subcommand
+RENEW_CERTS="all"
+RENEW_CHECK_ONLY=false
+RENEW_PASSTHROUGH_ARGS=""
+
 # Version constants (overridable via environment)
 KUBE_VIP_VERSION="${KUBE_VIP_VERSION:-v0.8.9}"
 PAUSE_IMAGE_VERSION="${PAUSE_IMAGE_VERSION:-3.10}"

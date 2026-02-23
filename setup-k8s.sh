@@ -39,11 +39,11 @@ while [ $# -gt 0 ]; do
     case "$arg" in
         --help|-h)
             # Deploy/upgrade/backup/restore/status --help is deferred to their parsers
-            if [ "$_action_detected" = true ] && { [ "$ACTION" = "deploy" ] || [ "$ACTION" = "upgrade" ] || [ "$ACTION" = "remove" ] || [ "$ACTION" = "backup" ] || [ "$ACTION" = "restore" ] || [ "$ACTION" = "cleanup" ] || [ "$ACTION" = "status" ] || [ "$ACTION" = "preflight" ]; }; then
+            if [ "$_action_detected" = true ] && { [ "$ACTION" = "deploy" ] || [ "$ACTION" = "upgrade" ] || [ "$ACTION" = "remove" ] || [ "$ACTION" = "backup" ] || [ "$ACTION" = "restore" ] || [ "$ACTION" = "cleanup" ] || [ "$ACTION" = "status" ] || [ "$ACTION" = "preflight" ] || [ "$ACTION" = "renew" ]; }; then
                 _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$arg"
             else
                 cat <<'HELPEOF'
-Usage: setup-k8s.sh <init|join|deploy|upgrade|remove|backup|restore|cleanup|status|preflight> [options]
+Usage: setup-k8s.sh <init|join|deploy|upgrade|remove|backup|restore|cleanup|status|preflight|renew> [options]
 
 Subcommands:
   init                    Initialize a new Kubernetes cluster
@@ -56,6 +56,7 @@ Subcommands:
   cleanup                 Clean up Kubernetes installation from this node
   status                  Show cluster and node status
   preflight               Run preflight checks before init/join
+  renew                   Renew or check Kubernetes certificates
 
 Options (init/join):
   --cri RUNTIME           Container runtime (containerd or crio). Default: containerd
@@ -142,6 +143,13 @@ Options (preflight):
   --proxy-mode MODE       Proxy mode to check (default: iptables)
 
   Run 'setup-k8s.sh preflight --help' for details.
+
+Options (renew):
+  --certs CERTS           Certificates to renew: 'all' or comma-separated list (default: all)
+  --check-only            Only check certificate expiration (no renewal)
+  --control-planes IPs    Remote mode: comma-separated control-plane nodes
+
+  Run 'setup-k8s.sh renew --help' for details.
 HELPEOF
                 exit 0
             fi
@@ -169,7 +177,7 @@ HELPEOF
             _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$2"
             shift 2
             ;;
-        --ha|--control-plane|--swap-enabled|--first-control-plane|--skip-drain|--force|--preserve-cni|--remove-helm)
+        --ha|--control-plane|--swap-enabled|--first-control-plane|--skip-drain|--force|--preserve-cni|--remove-helm|--check-only)
             _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$arg"
             shift
             ;;
@@ -188,14 +196,14 @@ HELPEOF
             # First non-flag positional argument is the subcommand (strip it from cli_args)
             if [ "$_action_detected" = false ]; then
                 case "$arg" in
-                    init|join|deploy|upgrade|remove|backup|restore|cleanup|status|preflight)
+                    init|join|deploy|upgrade|remove|backup|restore|cleanup|status|preflight|renew)
                         ACTION="$arg"
                         _action_detected=true
                         shift
                         continue
                         ;;
                     *)
-                        echo "Error: Unknown subcommand '$arg'. Valid subcommands: init, join, deploy, upgrade, remove, backup, restore, cleanup, status, preflight" >&2
+                        echo "Error: Unknown subcommand '$arg'. Valid subcommands: init, join, deploy, upgrade, remove, backup, restore, cleanup, status, preflight, renew" >&2
                         exit 1
                         ;;
                 esac
@@ -654,6 +662,105 @@ main() {
         exit $?
     fi
 
+    # Renew subcommand: local or remote mode
+    if [ "$ACTION" = "renew" ]; then
+        # Detect mode: --control-planes present → remote mode, otherwise → local mode
+        local _renew_remote=false
+        eval "$_RESTORE_CLI_ARGS"
+        for _rarg in "$@"; do
+            if [ "$_rarg" = "--control-planes" ]; then
+                _renew_remote=true
+                break
+            fi
+        done
+
+        if [ "$_renew_remote" = true ]; then
+            # Remote mode: orchestrate renewal via SSH (no root required locally)
+            local renew_deploy_modules="variables logging validation deploy renew"
+            if [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; then
+                for module in $renew_deploy_modules; do
+                    if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
+                        . "$SCRIPT_DIR/common/${module}.sh"
+                    else
+                        echo "Error: Required module common/${module}.sh not found in $SCRIPT_DIR" >&2
+                        exit 1
+                    fi
+                done
+            else
+                load_deploy_modules
+                for module in $renew_deploy_modules; do
+                    . "$DEPLOY_MODULES_DIR/common/${module}.sh"
+                done
+                SCRIPT_DIR="$DEPLOY_MODULES_DIR"
+            fi
+
+            eval "$_RESTORE_CLI_ARGS"
+            parse_renew_deploy_args "$@"
+            validate_renew_deploy_args
+
+            if [ "$DRY_RUN" = true ]; then
+                renew_dry_run
+                exit 0
+            fi
+
+            renew_cluster
+            exit $?
+        else
+            # Local mode: renew on this node (root required)
+            # Handle --help before root check
+            eval "$_RESTORE_CLI_ARGS"
+            for _rarg in "$@"; do
+                if [ "$_rarg" = "--help" ] || [ "$_rarg" = "-h" ]; then
+                    . "$SCRIPT_DIR/common/variables.sh" 2>/dev/null || true
+                    . "$SCRIPT_DIR/common/logging.sh" 2>/dev/null || true
+                    . "$SCRIPT_DIR/common/validation.sh" 2>/dev/null || true
+                    show_renew_help
+                fi
+            done
+            if [ "$(id -u)" -ne 0 ]; then
+                echo "Error: Local certificate renewal must be run as root" >&2
+                exit 1
+            fi
+
+            local renew_local_modules="variables logging detection validation helpers renew"
+            if { [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; } || [ "$BUNDLED_MODE" = "true" ]; then
+                if [ "$BUNDLED_MODE" != "true" ]; then
+                    for module in $renew_local_modules; do
+                        if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
+                            . "$SCRIPT_DIR/common/${module}.sh"
+                        else
+                            echo "Error: Required module common/${module}.sh not found in $SCRIPT_DIR" >&2
+                            exit 1
+                        fi
+                    done
+                fi
+            else
+                # Standalone or curl | sh: download required modules
+                local _renew_tmp_dir
+                _renew_tmp_dir=$(mktemp -d /tmp/setup-k8s-renew-XXXXXX)
+                _append_exit_trap "$_renew_tmp_dir"
+                for module in $renew_local_modules; do
+                    if ! curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/${module}.sh" > "$_renew_tmp_dir/${module}.sh"; then
+                        echo "Error: Failed to download common/${module}.sh" >&2
+                        exit 1
+                    fi
+                    . "$_renew_tmp_dir/${module}.sh"
+                done
+            fi
+
+            eval "$_RESTORE_CLI_ARGS"
+            parse_renew_local_args "$@"
+
+            if [ "$DRY_RUN" = true ]; then
+                renew_dry_run
+                exit 0
+            fi
+
+            renew_certs_local
+            exit $?
+        fi
+    fi
+
     # Status subcommand: local mode only, no root required
     if [ "$ACTION" = "status" ]; then
         local status_modules="variables logging validation helpers status"
@@ -696,7 +803,7 @@ main() {
 
     # Validate action early (deploy/upgrade/backup/restore/status already handled above)
     if [ -z "$ACTION" ]; then
-        echo "Error: Missing subcommand. Valid subcommands: init, join, deploy, upgrade, remove, backup, restore, cleanup, status, preflight" >&2
+        echo "Error: Missing subcommand. Valid subcommands: init, join, deploy, upgrade, remove, backup, restore, cleanup, status, preflight, renew" >&2
         echo "Run with --help for usage information" >&2
         exit 1
     fi

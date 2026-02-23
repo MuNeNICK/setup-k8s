@@ -55,7 +55,7 @@ curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh
 |----------|-------------|
 | [Installation Guide](docs/setup.md) | Cluster init/join examples, CRI/proxy options, prerequisites |
 | [Cleanup Guide](docs/cleanup.md) | Cleanup procedures, node drain steps |
-| [Configuration](docs/configuration.md) | Proxy modes (iptables/IPVS/nftables), CNI setup, single-node config |
+| [Configuration](docs/configuration.md) | Proxy modes (iptables/IPVS/nftables), certificate renewal, CNI setup, single-node config |
 | [Option Reference](docs/reference.md) | All setup-k8s.sh options |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues, distribution-specific notes |
 

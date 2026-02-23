@@ -3,7 +3,7 @@
 ## setup-k8s.sh
 
 ```
-Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore|status|preflight> [options]
+Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore|renew|status|preflight> [options]
 ```
 
 ### Subcommands
@@ -16,6 +16,7 @@ Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore|status|preflight> [
 | `upgrade` | Upgrade cluster Kubernetes version |
 | `backup` | Create an etcd snapshot |
 | `restore` | Restore etcd from a snapshot |
+| `renew` | Renew or check kubeadm-managed certificates |
 | `status` | Show cluster and node status |
 | `preflight` | Run preflight checks before init/join |
 
@@ -152,6 +153,38 @@ Options for the `restore` subcommand when orchestrating remotely via SSH. SSH op
 | `--ssh-known-hosts FILE` | Pre-seeded known_hosts file | — | `--ssh-known-hosts ~/.ssh/known_hosts` |
 | `--ssh-host-key-check MODE` | SSH host key policy (`yes`, `no`, or `accept-new`) | `yes` | `--ssh-host-key-check accept-new` |
 | `--dry-run` | Show restore plan and exit | — | `--dry-run` |
+
+### Renew Options (local mode)
+
+Options for the `renew` subcommand when run locally on a control-plane node with `sudo`.
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `--certs CERTS` | Certificates to renew (`all` or comma-separated names) | `all` | `--certs apiserver,front-proxy-client` |
+| `--check-only` | Check certificate expiration only (no renewal) | — | `--check-only` |
+| `--dry-run` | Show renewal plan and exit | — | `--dry-run` |
+| `--verbose` | Enable debug logging | — | `--verbose` |
+| `--quiet` | Suppress informational messages | — | `--quiet` |
+| `--help` | Display help message | — | `--help` |
+
+Valid certificate names: `apiserver`, `apiserver-kubelet-client`, `front-proxy-client`, `apiserver-etcd-client`, `etcd-healthcheck-client`, `etcd-peer`, `etcd-server`, `admin.conf`, `controller-manager.conf`, `scheduler.conf`, `super-admin.conf`.
+
+### Renew Options (remote mode)
+
+Options for the `renew` subcommand when orchestrating remotely via SSH. SSH options (`--ssh-user`, `--ssh-port`, `--ssh-key`, `--ssh-password`, `--ssh-known-hosts`, `--ssh-host-key-check`) follow the same behavior as the `deploy` subcommand.
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `--control-planes IPs` | Comma-separated control-plane nodes (user@ip or ip) | — (required) | `--control-planes 10.0.0.1,10.0.0.2` |
+| `--certs CERTS` | Certificates to renew (`all` or comma-separated names) | `all` | `--certs apiserver,etcd-server` |
+| `--check-only` | Check certificate expiration only (no renewal) | — | `--check-only` |
+| `--ssh-user USER` | Default SSH user | `root` | `--ssh-user ubuntu` |
+| `--ssh-port PORT` | SSH port | `22` | `--ssh-port 2222` |
+| `--ssh-key PATH` | Path to SSH private key | — | `--ssh-key ~/.ssh/id_rsa` |
+| `--ssh-password PASS` | SSH password (requires sshpass) | — | `DEPLOY_SSH_PASSWORD=secret bash setup-k8s.sh renew ...` |
+| `--ssh-known-hosts FILE` | Pre-seeded known_hosts file | — | `--ssh-known-hosts ~/.ssh/known_hosts` |
+| `--ssh-host-key-check MODE` | SSH host key policy (`yes`, `no`, or `accept-new`) | `yes` | `--ssh-host-key-check accept-new` |
+| `--dry-run` | Show renewal plan and exit | — | `--dry-run` |
 
 ### Status Options
 

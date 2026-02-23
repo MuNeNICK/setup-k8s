@@ -1355,6 +1355,156 @@ validate_restore_remote_args() {
     _validate_node_addresses "$ETCD_CONTROL_PLANE"
 }
 
+# Help message for renew
+show_renew_help() {
+    echo "Usage: $0 renew [options]"
+    echo ""
+    echo "Renew or check Kubernetes certificates on control-plane nodes."
+    echo ""
+    echo "Local mode (run on a control-plane node with sudo):"
+    echo "  Optional:"
+    echo "    --certs CERTS             Certificates to renew: 'all' or comma-separated list. Default: all"
+    echo "    --check-only              Only check certificate expiration (no renewal)"
+    echo "    --distro FAMILY           Override distro family detection"
+    echo "    --dry-run                 Show renewal plan and exit"
+    echo "    --verbose                 Enable debug logging"
+    echo "    --quiet                   Suppress informational messages"
+    echo "    --help                    Display this help message"
+    echo ""
+    echo "Remote mode (from local machine via SSH):"
+    echo "  Required:"
+    echo "    --control-planes IPs      Comma-separated control-plane nodes (user@ip or ip)"
+    echo ""
+    echo "  Optional:"
+    echo "    --certs CERTS             Certificates to renew: 'all' or comma-separated list. Default: all"
+    echo "    --check-only              Only check certificate expiration (no renewal)"
+    echo "    --ssh-user USER           Default SSH user (default: root)"
+    echo "    --ssh-port PORT           SSH port (default: 22)"
+    echo "    --ssh-key PATH            Path to SSH private key"
+    echo "    --ssh-password PASS       SSH password (requires sshpass; prefer DEPLOY_SSH_PASSWORD env var)"
+    echo "    --ssh-known-hosts FILE    Pre-seeded known_hosts for host key verification"
+    echo "    --ssh-host-key-check MODE SSH host key policy: yes, no, or accept-new (default: yes)"
+    echo "    --dry-run                 Show renewal plan and exit"
+    echo "    --verbose                 Enable debug logging"
+    echo "    --quiet                   Suppress informational messages"
+    echo "    --help                    Display this help message"
+    echo ""
+    echo "Valid certificate names:"
+    echo "  apiserver, apiserver-kubelet-client, front-proxy-client,"
+    echo "  apiserver-etcd-client, etcd-healthcheck-client, etcd-peer,"
+    echo "  etcd-server, admin.conf, controller-manager.conf,"
+    echo "  scheduler.conf, super-admin.conf"
+    echo ""
+    echo "Examples:"
+    echo "  # Local: check expiration only"
+    echo "  sudo $0 renew --check-only"
+    echo ""
+    echo "  # Local: renew all certificates"
+    echo "  sudo $0 renew"
+    echo ""
+    echo "  # Local: renew specific certificates"
+    echo "  sudo $0 renew --certs apiserver,apiserver-kubelet-client"
+    echo ""
+    echo "  # Remote: renew all certificates on multiple control-plane nodes"
+    echo "  $0 renew --control-planes 10.0.0.1,10.0.0.2 --ssh-key ~/.ssh/id_rsa"
+    exit "${1:-0}"
+}
+
+# Parse command line arguments for renew (local mode)
+parse_renew_local_args() {
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --help|-h)
+                show_renew_help
+                ;;
+            --certs)
+                _require_value $# "$1" "${2:-}"
+                RENEW_CERTS="$2"
+                shift 2
+                ;;
+            --check-only)
+                RENEW_CHECK_ONLY=true
+                shift
+                ;;
+            --distro)
+                _require_value $# "$1" "${2:-}"
+                _parse_distro_arg "$2"
+                shift 2
+                ;;
+            *)
+                log_error "Unknown renew option: $1"
+                show_renew_help 1
+                ;;
+        esac
+    done
+}
+
+# Parse command line arguments for renew (remote/deploy mode)
+parse_renew_deploy_args() {
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --help|-h)
+                show_renew_help
+                ;;
+            --control-planes)
+                _require_value $# "$1" "${2:-}"
+                DEPLOY_CONTROL_PLANES="$2"
+                shift 2
+                ;;
+            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-known-hosts|--ssh-host-key-check)
+                _parse_common_ssh_args $# "$1" "${2:-}"
+                shift "$_SSH_SHIFT"
+                ;;
+            --certs)
+                _require_value $# "$1" "${2:-}"
+                RENEW_CERTS="$2"
+                RENEW_PASSTHROUGH_ARGS="${RENEW_PASSTHROUGH_ARGS}${RENEW_PASSTHROUGH_ARGS:+
+}$1
+$2"
+                shift 2
+                ;;
+            --check-only)
+                RENEW_CHECK_ONLY=true
+                RENEW_PASSTHROUGH_ARGS="${RENEW_PASSTHROUGH_ARGS}${RENEW_PASSTHROUGH_ARGS:+
+}$1"
+                shift
+                ;;
+            --distro)
+                _require_value $# "$1" "${2:-}"
+                RENEW_PASSTHROUGH_ARGS="${RENEW_PASSTHROUGH_ARGS}${RENEW_PASSTHROUGH_ARGS:+
+}$1
+$2"
+                shift 2
+                ;;
+            *)
+                log_error "Unknown renew option: $1"
+                show_renew_help 1
+                ;;
+        esac
+    done
+}
+
+# Validate renew deploy arguments
+validate_renew_deploy_args() {
+    # --control-planes is required
+    if [ -z "$DEPLOY_CONTROL_PLANES" ]; then
+        log_error "--control-planes is required for remote renew"
+        exit 1
+    fi
+
+    # Normalize node list
+    DEPLOY_CONTROL_PLANES=$(_normalize_node_list "$DEPLOY_CONTROL_PLANES")
+    if [ -z "$DEPLOY_CONTROL_PLANES" ]; then
+        log_error "--control-planes contains no valid node addresses"
+        exit 1
+    fi
+
+    _validate_common_ssh_args
+
+    # Validate node addresses
+    _validate_node_addresses "$DEPLOY_CONTROL_PLANES"
+}
+
 # Confirmation prompt for cleanup
 confirm_cleanup() {
     if [ "$FORCE" = false ]; then
