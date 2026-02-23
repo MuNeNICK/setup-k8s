@@ -23,7 +23,7 @@ jobs:
       - name: Run ShellCheck on distro modules
         run: shellcheck -s sh -S warning distros/**/*.sh
       - name: Run ShellCheck on test runners
-        run: shellcheck -s bash -S warning test/run-e2e-tests.sh test/run-ha-test.sh test/run-deploy-test.sh test/run-backup-test.sh test/run-unit-tests.sh
+        run: shellcheck -s bash -S warning test/run-e2e-tests.sh test/run-ha-test.sh test/run-deploy-test.sh test/run-backup-test.sh test/run-renew-test.sh test/run-unit-tests.sh
 
   unit-tests:
     runs-on: ubuntu-latest

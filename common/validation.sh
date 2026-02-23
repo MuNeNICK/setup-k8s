@@ -1457,6 +1457,7 @@ parse_renew_deploy_args() {
                 ;;
             --certs)
                 _require_value $# "$1" "${2:-}"
+                # shellcheck disable=SC2034 # used by common/renew.sh
                 RENEW_CERTS="$2"
                 RENEW_PASSTHROUGH_ARGS="${RENEW_PASSTHROUGH_ARGS}${RENEW_PASSTHROUGH_ARGS:+
 }$1
@@ -1464,6 +1465,7 @@ $2"
                 shift 2
                 ;;
             --check-only)
+                # shellcheck disable=SC2034 # used by common/renew.sh
                 RENEW_CHECK_ONLY=true
                 RENEW_PASSTHROUGH_ARGS="${RENEW_PASSTHROUGH_ARGS}${RENEW_PASSTHROUGH_ARGS:+
 }$1"
