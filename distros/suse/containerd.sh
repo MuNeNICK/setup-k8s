@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Setup containerd for SUSE
 setup_containerd_suse() {

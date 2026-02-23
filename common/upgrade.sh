@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Upgrade module: version helpers, local upgrade, and remote orchestration
 
@@ -22,12 +22,11 @@ _validate_upgrade_version() {
     local current="$1" target="$2"
 
     # Validate MAJOR.MINOR.PATCH format
-    local semver_re='^[0-9]+\.[0-9]+\.[0-9]+$'
-    if [[ ! "$current" =~ $semver_re ]]; then
+    if ! echo "$current" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
         log_error "Invalid current version format: '${current}' (expected MAJOR.MINOR.PATCH)"
         return 1
     fi
-    if [[ ! "$target" =~ $semver_re ]]; then
+    if ! echo "$target" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
         log_error "Invalid target version format: '${target}' (expected MAJOR.MINOR.PATCH)"
         return 1
     fi
@@ -157,20 +156,30 @@ upgrade_dry_run() {
     log_info "Target Version: ${UPGRADE_TARGET_VERSION}"
     log_info ""
 
-    IFS=',' read -ra cp_nodes <<< "$DEPLOY_CONTROL_PLANES"
-    log_info "Control-Plane Nodes (${#cp_nodes[@]}):"
-    for node in "${cp_nodes[@]}"; do
+    local cp_count
+    cp_count=$(_csv_count "$DEPLOY_CONTROL_PLANES")
+    log_info "Control-Plane Nodes (${cp_count}):"
+    local _i=0
+    while [ "$_i" -lt "$cp_count" ]; do
+        local node
+        node=$(_csv_get "$DEPLOY_CONTROL_PLANES" "$_i")
         _parse_node_address "$node"
         log_info "  - ${_NODE_USER}@${_NODE_HOST}"
+        _i=$((_i + 1))
     done
     log_info ""
 
     if [ -n "$DEPLOY_WORKERS" ]; then
-        IFS=',' read -ra w_nodes <<< "$DEPLOY_WORKERS"
-        log_info "Worker Nodes (${#w_nodes[@]}):"
-        for node in "${w_nodes[@]}"; do
+        local w_count
+        w_count=$(_csv_count "$DEPLOY_WORKERS")
+        log_info "Worker Nodes (${w_count}):"
+        _i=0
+        while [ "$_i" -lt "$w_count" ]; do
+            local node
+            node=$(_csv_get "$DEPLOY_WORKERS" "$_i")
             _parse_node_address "$node"
             log_info "  - ${_NODE_USER}@${_NODE_HOST}"
+            _i=$((_i + 1))
         done
     else
         log_info "Worker Nodes: (none)"
@@ -191,20 +200,32 @@ upgrade_dry_run() {
     log_info "  4. Get current version from first CP"
     log_info "  5. Run kubeadm upgrade plan (informational)"
     local step=5
-    log_info "  $((++step)). Upgrade control-planes (sequential):"
-    for ((i=0; i<${#cp_nodes[@]}; i++)); do
+    step=$((step + 1))
+    log_info "  ${step}. Upgrade control-planes (sequential):"
+    _i=0
+    while [ "$_i" -lt "$cp_count" ]; do
+        local node
+        node=$(_csv_get "$DEPLOY_CONTROL_PLANES" "$_i")
         if [ "$UPGRADE_SKIP_DRAIN" != true ]; then
-            log_info "     - drain ${cp_nodes[$i]}"
+            log_info "     - drain ${node}"
         fi
-        log_info "     - upgrade ${cp_nodes[$i]}$([ $i -eq 0 ] && echo ' (--first-control-plane)')"
+        local _suffix=""
+        [ "$_i" -eq 0 ] && _suffix=" (--first-control-plane)"
+        log_info "     - upgrade ${node}${_suffix}"
         if [ "$UPGRADE_SKIP_DRAIN" != true ]; then
-            log_info "     - uncordon ${cp_nodes[$i]}"
+            log_info "     - uncordon ${node}"
         fi
+        _i=$((_i + 1))
     done
     if [ -n "$DEPLOY_WORKERS" ]; then
-        IFS=',' read -ra w_nodes <<< "$DEPLOY_WORKERS"
-        log_info "  $((++step)). Upgrade workers (sequential):"
-        for node in "${w_nodes[@]}"; do
+        local w_count
+        w_count=$(_csv_count "$DEPLOY_WORKERS")
+        step=$((step + 1))
+        log_info "  ${step}. Upgrade workers (sequential):"
+        _i=0
+        while [ "$_i" -lt "$w_count" ]; do
+            local node
+            node=$(_csv_get "$DEPLOY_WORKERS" "$_i")
             if [ "$UPGRADE_SKIP_DRAIN" != true ]; then
                 log_info "     - drain $node"
             fi
@@ -212,23 +233,56 @@ upgrade_dry_run() {
             if [ "$UPGRADE_SKIP_DRAIN" != true ]; then
                 log_info "     - uncordon $node"
             fi
+            _i=$((_i + 1))
         done
     fi
-    log_info "  $((++step)). Verify: kubectl get nodes"
-    log_info "  $((++step)). Show summary"
+    step=$((step + 1))
+    log_info "  ${step}. Verify: kubectl get nodes"
+    step=$((step + 1))
+    log_info "  ${step}. Show summary"
     log_info ""
     log_info "=== End of dry-run (no changes made) ==="
 }
 
+# Append UPGRADE_PASSTHROUGH_ARGS (newline-delimited) to a command string,
+# skipping --kubernetes-version (+ its value) and --skip-drain.
+# Outputs modified command string to stdout.
+# Usage: cmd=$(_append_upgrade_passthrough "$cmd" "$UPGRADE_PASSTHROUGH_ARGS")
+_append_upgrade_passthrough() {
+    local _cmd="$1" _args_str="$2"
+    if [ -n "$_args_str" ]; then
+        local _pt_arg _skip_next=false
+        while IFS= read -r _pt_arg; do
+            if [ "$_skip_next" = true ]; then
+                _skip_next=false
+                continue
+            fi
+            case "$_pt_arg" in
+                --kubernetes-version) _skip_next=true; continue ;;
+                --skip-drain) continue ;;
+                *) _cmd="${_cmd} $(_posix_shell_quote "$_pt_arg")" ;;
+            esac
+        done <<EOF
+$_args_str
+EOF
+    fi
+    printf '%s' "$_cmd"
+}
+
 # Main upgrade orchestration (remote mode)
 upgrade_cluster() {
-    IFS=',' read -ra cp_nodes <<< "$DEPLOY_CONTROL_PLANES"
-    local -a w_nodes=()
-    if [ -n "$DEPLOY_WORKERS" ]; then
-        IFS=',' read -ra w_nodes <<< "$DEPLOY_WORKERS"
-    fi
+    local cp_count w_count
+    cp_count=$(_csv_count "$DEPLOY_CONTROL_PLANES")
+    w_count=0
+    [ -n "$DEPLOY_WORKERS" ] && w_count=$(_csv_count "$DEPLOY_WORKERS")
 
-    log_info "Upgrading Kubernetes cluster to v${UPGRADE_TARGET_VERSION}: ${#cp_nodes[@]} control-plane(s), ${#w_nodes[@]} worker(s)"
+    log_info "Upgrading Kubernetes cluster to v${UPGRADE_TARGET_VERSION}: ${cp_count} control-plane(s), ${w_count} worker(s)"
+
+    # Build combined node list (comma-separated)
+    _DEPLOY_ALL_NODES="$DEPLOY_CONTROL_PLANES"
+    [ -n "$DEPLOY_WORKERS" ] && _DEPLOY_ALL_NODES="${_DEPLOY_ALL_NODES},${DEPLOY_WORKERS}"
+    local all_count
+    all_count=$(_csv_count "$_DEPLOY_ALL_NODES")
 
     # Inform about SSH host key policy
     if [ "${DEPLOY_SSH_HOST_KEY_CHECK}" = "yes" ] && [ -z "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
@@ -242,11 +296,11 @@ upgrade_cluster() {
 
     # Create session-scoped known_hosts
     if [ -n "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ] && [ -f "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
-        _DEPLOY_KNOWN_HOSTS=$(mktemp -t upgrade-known-hosts-XXXXXX)
+        _DEPLOY_KNOWN_HOSTS=$(mktemp /tmp/upgrade-known-hosts-XXXXXX)
         chmod 600 "$_DEPLOY_KNOWN_HOSTS"
         cp "$DEPLOY_SSH_KNOWN_HOSTS_FILE" "$_DEPLOY_KNOWN_HOSTS"
     else
-        _DEPLOY_KNOWN_HOSTS=$(mktemp -t upgrade-known-hosts-XXXXXX)
+        _DEPLOY_KNOWN_HOSTS=$(mktemp /tmp/upgrade-known-hosts-XXXXXX)
         chmod 600 "$_DEPLOY_KNOWN_HOSTS"
     fi
     _cleanup_upgrade_known_hosts() { rm -f "$_DEPLOY_KNOWN_HOSTS"; }
@@ -255,59 +309,90 @@ upgrade_cluster() {
     local _step=0
 
     # --- Step 1: Generate bundle ---
-    log_info "Step $((_step+=1)): Generating upgrade bundle..."
+    _step=$((_step + 1))
+    log_info "Step ${_step}: Generating upgrade bundle..."
     local bundle_path
-    bundle_path=$(mktemp -t setup-k8s-upgrade-XXXXXX.sh)
+    bundle_path=$(mktemp /tmp/setup-k8s-upgrade-XXXXXX)
     chmod 600 "$bundle_path"
     generate_deploy_bundle "$bundle_path"
     log_info "Bundle generated: $(wc -c < "$bundle_path") bytes"
 
     # --- Step 2: SSH connectivity check ---
-    log_info "Step $((_step+=1)): Checking SSH connectivity to all nodes..."
-    _DEPLOY_ALL_NODES=("${cp_nodes[@]}" "${w_nodes[@]}")
-    if ! _check_ssh_connectivity "${_DEPLOY_ALL_NODES[@]}"; then
+    _step=$((_step + 1))
+    log_info "Step ${_step}: Checking SSH connectivity to all nodes..."
+    local _i=0 _conn_nodes=""
+    while [ "$_i" -lt "$all_count" ]; do
+        local _n
+        _n=$(_csv_get "$_DEPLOY_ALL_NODES" "$_i")
+        _conn_nodes="${_conn_nodes} ${_n}"
+        _i=$((_i + 1))
+    done
+    # shellcheck disable=SC2086 # intentional word splitting
+    if ! _check_ssh_connectivity $_conn_nodes; then
         log_error "SSH connectivity check failed. Aborting upgrade."
         rm -f "$bundle_path"
         return 1
     fi
 
     # --- Step 3: Transfer bundle to all nodes ---
-    log_info "Step $((_step+=1)): Transferring bundle to all nodes..."
-    _DEPLOY_NODE_BUNDLE_DIRS=()
+    _step=$((_step + 1))
+    log_info "Step ${_step}: Transferring bundle to all nodes..."
+    _DEPLOY_NODE_BUNDLE_DIRS=""
     _cleanup_upgrade_remote_dirs() {
-        for _cleanup_node in "${_DEPLOY_ALL_NODES[@]}"; do
+        local _all_cnt _ci _cleanup_node
+        [ -z "$_DEPLOY_ALL_NODES" ] && return 0
+        _all_cnt=$(_csv_count "$_DEPLOY_ALL_NODES")
+        _ci=0
+        while [ "$_ci" -lt "$_all_cnt" ]; do
+            _cleanup_node=$(_csv_get "$_DEPLOY_ALL_NODES" "$_ci")
             _parse_node_address "$_cleanup_node"
-            local _cdir="${_DEPLOY_NODE_BUNDLE_DIRS[$_NODE_HOST]:-}"
+            local _cdir
+            _cdir=$(_bundle_dir_lookup "$_NODE_HOST")
             [ -n "$_cdir" ] && _deploy_ssh "$_NODE_USER" "$_NODE_HOST" "rm -rf '$_cdir'" >/dev/null 2>&1 || true
+            _ci=$((_ci + 1))
         done
     }
     _push_cleanup _cleanup_upgrade_remote_dirs
 
-    for node in "${_DEPLOY_ALL_NODES[@]}"; do
+    _i=0
+    while [ "$_i" -lt "$all_count" ]; do
+        local node
+        node=$(_csv_get "$_DEPLOY_ALL_NODES" "$_i")
         _parse_node_address "$node"
         log_info "  [${_NODE_HOST}] Transferring bundle..."
         local rdir
         rdir=$(_deploy_ssh "$_NODE_USER" "$_NODE_HOST" "d=\$(mktemp -d) && chmod 700 \"\$d\" && echo \"\$d\"") || true
         rdir=$(echo "$rdir" | tr -d '[:space:]')
-        if [ -z "$rdir" ] || [[ "$rdir" != /* ]]; then
+        if [ -z "$rdir" ]; then
             log_error "  [${_NODE_HOST}] Failed to create remote temp directory (got: '${rdir}')"
             rm -f "$bundle_path"
             return 1
         fi
-        # shellcheck disable=SC2004 # associative array key, not arithmetic
-        _DEPLOY_NODE_BUNDLE_DIRS[${_NODE_HOST}]="$rdir"
+        case "$rdir" in
+            /*) ;;
+            *)
+                log_error "  [${_NODE_HOST}] Failed to create remote temp directory (got: '${rdir}')"
+                rm -f "$bundle_path"
+                return 1
+                ;;
+        esac
+        _bundle_dir_set "$_NODE_HOST" "$rdir"
         if ! _deploy_scp "$bundle_path" "$_NODE_USER" "$_NODE_HOST" "${rdir}/setup-k8s.sh"; then
             log_error "  [${_NODE_HOST}] Failed to transfer bundle"
             rm -f "$bundle_path"
             return 1
         fi
+        _i=$((_i + 1))
     done
     rm -f "$bundle_path"
     log_info "Bundle transferred to all nodes"
 
     # --- Step 4: Get current version from first CP ---
-    log_info "Step $((_step+=1)): Checking current cluster version..."
-    _parse_node_address "${cp_nodes[0]}"
+    _step=$((_step + 1))
+    log_info "Step ${_step}: Checking current cluster version..."
+    local cp0
+    cp0=$(_csv_get "$DEPLOY_CONTROL_PLANES" 0)
+    _parse_node_address "$cp0"
     local cp1_user="$_NODE_USER" cp1_host="$_NODE_HOST"
     local sudo_pfx=""
     [ "$cp1_user" != "root" ] && sudo_pfx="sudo -n "
@@ -325,7 +410,8 @@ upgrade_cluster() {
     _validate_upgrade_version "$current_version" "$UPGRADE_TARGET_VERSION"
 
     # --- Step 5: Run kubeadm upgrade plan (informational) ---
-    log_info "Step $((_step+=1)): Running kubeadm upgrade plan..."
+    _step=$((_step + 1))
+    log_info "Step ${_step}: Running kubeadm upgrade plan..."
     local plan_output
     plan_output=$(_deploy_ssh "$cp1_user" "$cp1_host" "${sudo_pfx}kubeadm upgrade plan" 2>&1) || true
     log_info "$plan_output"
@@ -360,7 +446,12 @@ upgrade_cluster() {
             local target_user="$_NODE_USER" target_actual_host="$_NODE_HOST"
             # For bare IPs passed as target_host, re-parse with the original node address
             # Find the matching node from _DEPLOY_ALL_NODES
-            for _node_entry in "${_DEPLOY_ALL_NODES[@]}"; do
+            local _all_cnt _ni
+            _all_cnt=$(_csv_count "$_DEPLOY_ALL_NODES")
+            _ni=0
+            while [ "$_ni" -lt "$_all_cnt" ]; do
+                local _node_entry
+                _node_entry=$(_csv_get "$_DEPLOY_ALL_NODES" "$_ni")
                 local _check_host="${_node_entry#*@}"
                 if [ "$_check_host" = "$target_host" ] || [ "$_check_host" = "$stripped" ]; then
                     _parse_node_address "$_node_entry"
@@ -368,6 +459,7 @@ upgrade_cluster() {
                     target_actual_host="$_NODE_HOST"
                     break
                 fi
+                _ni=$((_ni + 1))
             done
             local remote_hostname
             remote_hostname=$(_deploy_ssh "$target_user" "$target_actual_host" "hostname" 2>/dev/null | tr -d '[:space:]') || true
@@ -411,13 +503,18 @@ upgrade_cluster() {
     }
 
     # --- Step 6: Upgrade control-plane nodes (sequential) ---
-    log_info "Step $((_step+=1)): Upgrading control-plane nodes..."
+    _step=$((_step + 1))
+    log_info "Step ${_step}: Upgrading control-plane nodes..."
     local upgrade_failed=false
 
-    for ((i=0; i<${#cp_nodes[@]}; i++)); do
-        _parse_node_address "${cp_nodes[$i]}"
+    _i=0
+    while [ "$_i" -lt "$cp_count" ]; do
+        local node
+        node=$(_csv_get "$DEPLOY_CONTROL_PLANES" "$_i")
+        _parse_node_address "$node"
         local node_user="$_NODE_USER" node_host="$_NODE_HOST"
-        local node_bundle="${_DEPLOY_NODE_BUNDLE_DIRS[$node_host]}/setup-k8s.sh"
+        local node_bundle
+        node_bundle="$(_bundle_dir_lookup "$node_host")/setup-k8s.sh"
         local node_sudo=""
         [ "$node_user" != "root" ] && node_sudo="sudo -n "
 
@@ -440,21 +537,12 @@ upgrade_cluster() {
 
         # Build upgrade command
         local upgrade_cmd
-        upgrade_cmd="${node_sudo}bash ${node_bundle} upgrade --kubernetes-version $(printf '%q' "$UPGRADE_TARGET_VERSION")"
-        if [ $i -eq 0 ]; then
-            upgrade_cmd+=" --first-control-plane"
+        upgrade_cmd="${node_sudo}sh ${node_bundle} upgrade --kubernetes-version $(_posix_shell_quote "$UPGRADE_TARGET_VERSION")"
+        if [ "$_i" -eq 0 ]; then
+            upgrade_cmd="${upgrade_cmd} --first-control-plane"
         fi
         # Forward extra passthrough args (e.g. --distro)
-        local _pt_skip_next=false
-        local _pt_idx
-        for ((_pt_idx=0; _pt_idx<${#UPGRADE_PASSTHROUGH_ARGS[@]}; _pt_idx++)); do
-            if [ "$_pt_skip_next" = true ]; then _pt_skip_next=false; continue; fi
-            case "${UPGRADE_PASSTHROUGH_ARGS[$_pt_idx]}" in
-                --kubernetes-version) _pt_skip_next=true ;; # skip flag + value
-                --skip-drain) ;;
-                *) upgrade_cmd+=" $(printf '%q' "${UPGRADE_PASSTHROUGH_ARGS[$_pt_idx]}")" ;;
-            esac
-        done
+        upgrade_cmd=$(_append_upgrade_passthrough "$upgrade_cmd" "$UPGRADE_PASSTHROUGH_ARGS")
 
         if ! _deploy_exec_remote "$node_user" "$node_host" "upgrade control-plane" "$upgrade_cmd"; then
             log_error "Upgrade failed for ${node_host}. Node may be in cordoned state."
@@ -470,6 +558,7 @@ upgrade_cluster() {
         fi
 
         log_info "  [${node_host}] Control-plane upgrade complete"
+        _i=$((_i + 1))
     done
 
     if [ "$upgrade_failed" = true ]; then
@@ -481,13 +570,18 @@ upgrade_cluster() {
     fi
 
     # --- Step 7: Upgrade worker nodes (sequential) ---
-    if [ ${#w_nodes[@]} -gt 0 ]; then
-        log_info "Step $((_step+=1)): Upgrading worker nodes..."
+    if [ "$w_count" -gt 0 ]; then
+        _step=$((_step + 1))
+        log_info "Step ${_step}: Upgrading worker nodes..."
 
-        for node in "${w_nodes[@]}"; do
+        _i=0
+        while [ "$_i" -lt "$w_count" ]; do
+            local node
+            node=$(_csv_get "$DEPLOY_WORKERS" "$_i")
             _parse_node_address "$node"
             local node_user="$_NODE_USER" node_host="$_NODE_HOST"
-            local node_bundle="${_DEPLOY_NODE_BUNDLE_DIRS[$node_host]}/setup-k8s.sh"
+            local node_bundle
+            node_bundle="$(_bundle_dir_lookup "$node_host")/setup-k8s.sh"
             local node_sudo=""
             [ "$node_user" != "root" ] && node_sudo="sudo -n "
 
@@ -514,7 +608,7 @@ upgrade_cluster() {
             remote_admin_conf=$(_deploy_ssh "$node_user" "$node_host" "${node_sudo}mktemp /tmp/upgrade-admin-XXXXXX")
             remote_admin_conf=$(echo "$remote_admin_conf" | tr -d '[:space:]')
             local tmp_admin_conf
-            tmp_admin_conf=$(mktemp -t admin-conf-XXXXXX)
+            tmp_admin_conf=$(mktemp /tmp/admin-conf-XXXXXX)
             chmod 600 "$tmp_admin_conf"
             if ! _deploy_ssh "$cp1_user" "$cp1_host" "${sudo_pfx}cat /etc/kubernetes/admin.conf" > "$tmp_admin_conf" 2>/dev/null; then
                 log_error "  [${node_host}] Failed to download admin.conf from control-plane ${cp1_host}"
@@ -537,18 +631,9 @@ upgrade_cluster() {
             # Build upgrade command with UPGRADE_ADMIN_CONF so kubeadm upgrade node
             # on the worker can use the admin kubeconfig for API access.
             local upgrade_cmd
-            upgrade_cmd="${node_sudo}env UPGRADE_ADMIN_CONF=${remote_admin_conf} bash ${node_bundle} upgrade --kubernetes-version $(printf '%q' "$UPGRADE_TARGET_VERSION")"
+            upgrade_cmd="${node_sudo}env UPGRADE_ADMIN_CONF=${remote_admin_conf} sh ${node_bundle} upgrade --kubernetes-version $(_posix_shell_quote "$UPGRADE_TARGET_VERSION")"
             # Forward extra passthrough args (e.g. --distro)
-            local _pt_skip_next=false
-            local _pt_idx
-            for ((_pt_idx=0; _pt_idx<${#UPGRADE_PASSTHROUGH_ARGS[@]}; _pt_idx++)); do
-                if [ "$_pt_skip_next" = true ]; then _pt_skip_next=false; continue; fi
-                case "${UPGRADE_PASSTHROUGH_ARGS[$_pt_idx]}" in
-                    --kubernetes-version) _pt_skip_next=true ;;
-                    --skip-drain) ;;
-                    *) upgrade_cmd+=" $(printf '%q' "${UPGRADE_PASSTHROUGH_ARGS[$_pt_idx]}")" ;;
-                esac
-            done
+            upgrade_cmd=$(_append_upgrade_passthrough "$upgrade_cmd" "$UPGRADE_PASSTHROUGH_ARGS")
 
             if ! _deploy_exec_remote "$node_user" "$node_host" "upgrade worker" "$upgrade_cmd"; then
                 log_error "Upgrade failed for ${node_host}. Node may be in cordoned state."
@@ -566,17 +651,20 @@ upgrade_cluster() {
             fi
 
             log_info "  [${node_host}] Worker upgrade complete"
+            _i=$((_i + 1))
         done
     fi
 
     # --- Step 8: Verify ---
-    log_info "Step $((_step+=1)): Verifying cluster state..."
+    _step=$((_step + 1))
+    log_info "Step ${_step}: Verifying cluster state..."
     local verify_output
     verify_output=$(_deploy_ssh "$cp1_user" "$cp1_host" "${sudo_pfx}kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes -o wide" 2>&1) || true
     log_info "$verify_output"
 
     # --- Step 9: Clean up remote bundle directories ---
-    log_info "Step $((_step+=1)): Cleaning up remote bundle directories..."
+    _step=$((_step + 1))
+    log_info "Step ${_step}: Cleaning up remote bundle directories..."
     _cleanup_upgrade_remote_dirs
     _pop_cleanup
 
@@ -587,16 +675,24 @@ upgrade_cluster() {
     log_info "Target Version: v${UPGRADE_TARGET_VERSION}"
     log_info ""
     log_info "Control-Plane Nodes:"
-    for node in "${cp_nodes[@]}"; do
+    _i=0
+    while [ "$_i" -lt "$cp_count" ]; do
+        local node
+        node=$(_csv_get "$DEPLOY_CONTROL_PLANES" "$_i")
         _parse_node_address "$node"
         log_info "  - ${_NODE_USER}@${_NODE_HOST}"
+        _i=$((_i + 1))
     done
-    if [ ${#w_nodes[@]} -gt 0 ]; then
+    if [ "$w_count" -gt 0 ]; then
         log_info ""
         log_info "Worker Nodes:"
-        for node in "${w_nodes[@]}"; do
+        _i=0
+        while [ "$_i" -lt "$w_count" ]; do
+            local node
+            node=$(_csv_get "$DEPLOY_WORKERS" "$_i")
             _parse_node_address "$node"
             log_info "  - ${_NODE_USER}@${_NODE_HOST}"
+            _i=$((_i + 1))
         done
     fi
     log_info ""

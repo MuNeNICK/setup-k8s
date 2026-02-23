@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Shell completion setup for Kubernetes tools
 
@@ -37,7 +37,7 @@ _setup_tool_completion() {
     local shell_type="$2"
     local alias_name="${3:-}"
 
-    if ! command -v "$tool" &> /dev/null; then
+    if ! command -v "$tool" >/dev/null 2>&1; then
         log_info "$tool not found, skipping completion setup"
         return 1
     fi
@@ -196,18 +196,18 @@ setup_kubernetes_completions() {
     log_info "Setting up Kubernetes shell completions..."
 
     # Detect shell(s) to configure
-    local shells_to_configure=()
+    local shells_to_configure
 
     if [ "$COMPLETION_SHELLS" = "auto" ]; then
         local detected_shell
         detected_shell=$(detect_user_shell)
-        shells_to_configure+=("$detected_shell")
+        shells_to_configure="$detected_shell"
         log_info "Auto-detected shell: $detected_shell"
     else
-        IFS=',' read -ra shells_to_configure <<< "$COMPLETION_SHELLS"
+        shells_to_configure=$(echo "$COMPLETION_SHELLS" | tr ',' ' ')
     fi
 
-    for shell_type in "${shells_to_configure[@]}"; do
+    for shell_type in $shells_to_configure; do
         shell_type=$(echo "$shell_type" | tr -d ' ')
         log_info "Configuring completions for $shell_type..."
         _setup_tool_completion kubectl "$shell_type" k || true

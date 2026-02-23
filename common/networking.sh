@@ -1,20 +1,19 @@
-#!/bin/bash
+#!/bin/sh
 
 # Install proxy-mode-specific packages (IPVS or nftables).
 # Usage: install_proxy_mode_packages <install_cmd...>
 #   install_cmd: the package install command prefix (e.g., "apt-get install -y")
 # Automatically detects PROXY_MODE and installs the right packages.
 install_proxy_mode_packages() {
-    local -a install_cmd=("$@")
     if [ "$PROXY_MODE" = "ipvs" ]; then
         log_info "Installing IPVS packages for IPVS proxy mode..."
-        if ! "${install_cmd[@]}" ipvsadm ipset; then
+        if ! "$@" ipvsadm ipset; then
             log_error "Failed to install IPVS packages (ipvsadm, ipset)"
             return 1
         fi
     elif [ "$PROXY_MODE" = "nftables" ]; then
         log_info "Installing nftables package for nftables proxy mode..."
-        if ! "${install_cmd[@]}" nftables; then
+        if ! "$@" nftables; then
             log_error "Failed to install nftables package"
             return 1
         fi
@@ -31,7 +30,7 @@ br_netfilter"
 
     if [ "$PROXY_MODE" = "ipvs" ]; then
         log_info "Enabling IPVS kernel modules..."
-        modules+="
+        modules="${modules}
 ip_vs
 ip_vs_rr
 ip_vs_wrr
@@ -39,7 +38,7 @@ ip_vs_sh
 nf_conntrack"
     elif [ "$PROXY_MODE" = "nftables" ]; then
         log_info "Enabling nftables kernel modules..."
-        modules+="
+        modules="${modules}
 nf_tables
 nf_tables_ipv4
 nf_tables_ipv6
@@ -60,12 +59,12 @@ nf_conntrack"
     done
 
     # Load optional mode-specific modules (non-fatal: may be built-in; availability checks validate later)
-    while IFS= read -r mod; do
+    echo "$modules" | while IFS= read -r mod; do
         case "$mod" in
             ""|overlay|br_netfilter) continue ;;
         esac
         modprobe "$mod" || true
-    done <<< "$modules"
+    done
 }
 
 # Configure network settings
@@ -110,25 +109,25 @@ _reset_iptables_family() {
 # Reset K8s-related iptables rules (selective cleanup to avoid flushing unrelated rules)
 reset_iptables() {
     log_info "Resetting K8s-related iptables rules..."
-    if command -v iptables &> /dev/null; then
+    if command -v iptables >/dev/null 2>&1; then
         _reset_iptables_family iptables
     else
         log_warn "iptables command not found, skipping iptables reset"
     fi
 
-    if command -v ip6tables &> /dev/null; then
+    if command -v ip6tables >/dev/null 2>&1; then
         log_info "Resetting K8s-related ip6tables rules..."
         _reset_iptables_family ip6tables
     fi
 
     # Reset IPVS rules if ipvsadm is available
-    if command -v ipvsadm &> /dev/null; then
+    if command -v ipvsadm >/dev/null 2>&1; then
         log_info "Resetting IPVS rules..."
         ipvsadm -C || true
     fi
 
     # Reset K8s-related nftables tables if nft is available (avoid flushing all rules)
-    if command -v nft &> /dev/null; then
+    if command -v nft >/dev/null 2>&1; then
         log_info "Resetting K8s-related nftables tables..."
         local _nft_tables _nft_err
         if _nft_tables=$(nft list tables 2>&1); then
@@ -150,19 +149,19 @@ check_ipvs_availability() {
     log_info "Checking IPVS availability..."
 
     # Check if IPVS modules can be loaded
-    if ! modprobe -n ip_vs &>/dev/null; then
+    if ! modprobe -n ip_vs >/dev/null 2>&1; then
         log_warn "IPVS kernel module not available"
         ipvs_available=false
     fi
 
     # Check if ipvsadm is installed
-    if ! command -v ipvsadm &> /dev/null; then
+    if ! command -v ipvsadm >/dev/null 2>&1; then
         log_warn "ipvsadm command not found"
         ipvs_available=false
     fi
 
     # Check if ipset is installed
-    if ! command -v ipset &> /dev/null; then
+    if ! command -v ipset >/dev/null 2>&1; then
         log_warn "ipset command not found"
         ipvs_available=false
     fi
@@ -183,18 +182,18 @@ check_nftables_availability() {
     log_info "Checking nftables availability..."
 
     # Note if iptables-nft is being used (common on Arch with CRI-O)
-    if command -v iptables &> /dev/null && iptables --version 2>/dev/null | grep -q nf_tables; then
+    if command -v iptables >/dev/null 2>&1 && iptables --version 2>/dev/null | grep -q nf_tables; then
         log_info "iptables-nft detected (iptables using nftables backend)"
     fi
 
     # Check if nftables modules can be loaded
-    if ! modprobe -n nf_tables &>/dev/null; then
+    if ! modprobe -n nf_tables >/dev/null 2>&1; then
         log_warn "nftables kernel module not available"
         nftables_available=false
     fi
 
     # Check if nft command is installed
-    if ! command -v nft &> /dev/null; then
+    if ! command -v nft >/dev/null 2>&1; then
         log_warn "nft command not found"
         nftables_available=false
     fi

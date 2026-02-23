@@ -4,7 +4,7 @@
 
 Download and run the installation script:
 ```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- init
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- init
 ```
 
 Manual download and inspection:
@@ -19,19 +19,19 @@ sudo ./setup-k8s.sh init
 
 Basic setup with default containerd:
 ```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- init
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- init
 ```
 
 Setup with CRI-O runtime:
 ```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- \
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
   init \
   --cri crio
 ```
 
 Advanced setup:
 ```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- \
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
   init \
   --kubernetes-version 1.29 \
   --cri containerd \
@@ -42,7 +42,7 @@ curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo ba
 
 Setup with IPVS mode for better performance:
 ```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- \
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
   init \
   --proxy-mode ipvs \
   --pod-network-cidr 192.168.0.0/16
@@ -50,7 +50,7 @@ curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo ba
 
 Setup with nftables mode (requires K8s 1.29+):
 ```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- \
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
   init \
   --proxy-mode nftables \
   --kubernetes-version 1.31 \
@@ -67,7 +67,7 @@ kubeadm token create --print-join-command
 
 Join as a worker node:
 ```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- \
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
   join \
   --cri containerd \
   --join-token <token> \
@@ -77,7 +77,7 @@ curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo ba
 
 Join as a control-plane node (HA cluster):
 ```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- \
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
   join \
   --control-plane \
   --certificate-key <key> \

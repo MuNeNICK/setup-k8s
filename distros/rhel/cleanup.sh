@@ -1,7 +1,7 @@
-#!/bin/bash
+#!/bin/sh
 
 # Cached RHEL package manager detection (also defined in dependencies.sh)
-_rhel_pkg_mgr() { echo "${_RHEL_PKG_MGR:=$(command -v dnf &>/dev/null && echo dnf || echo yum)}"; }
+_rhel_pkg_mgr() { echo "${_RHEL_PKG_MGR:=$(command -v dnf >/dev/null 2>&1 && echo dnf || echo yum)}"; }
 
 # RHEL/CentOS/Fedora specific cleanup
 cleanup_rhel() {

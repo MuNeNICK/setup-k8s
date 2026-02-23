@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Debian/Ubuntu specific cleanup
 cleanup_debian() {

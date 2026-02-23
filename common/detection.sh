@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Detect Linux distribution
 detect_distribution() {
@@ -88,7 +88,7 @@ determine_k8s_version() {
     fi
 
     # Validate version format (must be X.Y)
-    if ! [[ "$K8S_VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then
+    if ! echo "$K8S_VERSION" | grep -qE '^[0-9]+\.[0-9]+$'; then
         log_error "Invalid Kubernetes version format: $K8S_VERSION (expected X.Y, e.g. 1.32)"
         return 1
     fi

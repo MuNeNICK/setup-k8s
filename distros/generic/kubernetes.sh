@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Setup Kubernetes via direct binary download for generic distributions.
 
@@ -26,7 +26,7 @@ _install_cni_plugins_generic() {
     local url="https://github.com/containernetworking/plugins/releases/download/v${version}/cni-plugins-linux-${arch}-v${version}.tgz"
     local checksum_url="${url}.sha256"
     local tmp
-    tmp=$(mktemp /tmp/cni-plugins-XXXXXX.tgz)
+    tmp=$(mktemp /tmp/cni-plugins-XXXXXX)
     _download_with_checksum "$url" "$tmp" "$checksum_url"
     mkdir -p /opt/cni/bin
     tar -xzf "$tmp" -C /opt/cni/bin/

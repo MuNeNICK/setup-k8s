@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/bin/sh
 
-set -euo pipefail
+set -eu
 
 # Ensure /usr/local/bin is in PATH (generic distro installs binaries there)
 case ":$PATH:" in
@@ -12,14 +12,13 @@ esac
 SUDO_USER="${SUDO_USER:-}"
 
 # Get the directory where the script is located
-# When piped via stdin (curl | bash), BASH_SOURCE[0] is unset under set -u
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Detect stdin execution mode (curl | bash) — BASH_SOURCE[0] is empty or unset
+# Detect stdin execution mode (curl | sh)
 _STDIN_MODE=false
-if [ -z "${BASH_SOURCE[0]:-}" ] || [ "${BASH_SOURCE[0]:-}" = "bash" ] || [ "${BASH_SOURCE[0]:-}" = "/dev/stdin" ] || [ "${BASH_SOURCE[0]:-}" = "/proc/self/fd/0" ]; then
-    _STDIN_MODE=true
-fi
+case "$0" in
+    sh|dash|ash|bash|*/sh|*/dash|*/ash|*/bash|/dev/stdin|/proc/self/fd/0) _STDIN_MODE=true ;;
+esac
 
 # Default GitHub base URL (can be overridden)
 GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main}"
@@ -31,19 +30,17 @@ BUNDLED_MODE="${BUNDLED_MODE:-false}"
 # before bootstrap to avoid unnecessary network fetch for --help.
 # Subcommand is detected strictly from the first positional argument only,
 # to avoid misinterpreting option values (e.g. --ha-interface deploy) as subcommands.
-original_args=("$@")
 ACTION=""
-cli_args=()
+_cli_argc=0
 _action_detected=false
-i=0
-while [ $i -lt ${#original_args[@]} ]; do
-    arg="${original_args[$i]}"
+while [ $# -gt 0 ]; do
+    arg="$1"
     # shellcheck disable=SC2034 # LOG_LEVEL used by logging module
     case "$arg" in
         --help|-h)
             # Deploy/upgrade/backup/restore --help is deferred to their parsers
             if [ "$_action_detected" = true ] && { [ "$ACTION" = "deploy" ] || [ "$ACTION" = "upgrade" ] || [ "$ACTION" = "backup" ] || [ "$ACTION" = "restore" ]; }; then
-                cli_args+=("$arg")
+                _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$arg"
             else
                 cat <<'HELPEOF'
 Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore> [options]
@@ -118,42 +115,44 @@ Options (restore):
 HELPEOF
                 exit 0
             fi
-            ((i += 1))
+            shift
             ;;
         --verbose)
             LOG_LEVEL=2
-            ((i += 1))
+            shift
             ;;
         --quiet)
             LOG_LEVEL=0
-            ((i += 1))
+            shift
             ;;
         --dry-run)
             DRY_RUN=true
-            ((i += 1))
+            shift
             ;;
         --distro)
-            if [ $((i+1)) -ge ${#original_args[@]} ]; then
+            if [ $# -lt 2 ]; then
                 echo "Error: --distro requires a value" >&2
                 exit 1
             fi
-            DISTRO_OVERRIDE="${original_args[$((i+1))]}"
-            cli_args+=("$arg" "${original_args[$((i+1))]}")
-            ((i += 2))
+            DISTRO_OVERRIDE="$2"
+            _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$arg"
+            _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$2"
+            shift 2
             ;;
         --ha|--control-plane|--swap-enabled|--first-control-plane|--skip-drain)
-            cli_args+=("$arg")
-            ((i += 1))
+            _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$arg"
+            shift
             ;;
         -*)
             # All other flags take a value: skip next token so it is never
             # interpreted as a subcommand. Pass both through to cli_args.
-            if [ $((i+1)) -ge ${#original_args[@]} ]; then
+            if [ $# -lt 2 ]; then
                 echo "Error: $arg requires a value" >&2
                 exit 1
             fi
-            cli_args+=("$arg" "${original_args[$((i+1))]}")
-            ((i += 2))
+            _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$arg"
+            _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$2"
+            shift 2
             ;;
         *)
             # First non-flag positional argument is the subcommand (strip it from cli_args)
@@ -162,7 +161,7 @@ HELPEOF
                     init|join|deploy|upgrade|backup|restore)
                         ACTION="$arg"
                         _action_detected=true
-                        ((i += 1))
+                        shift
                         continue
                         ;;
                     *)
@@ -171,26 +170,32 @@ HELPEOF
                         ;;
                 esac
             fi
-            cli_args+=("$arg")
-            ((i += 1))
+            _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$arg"
+            shift
             ;;
     esac
 done
 unset _action_detected
 
+# Inline helper: reconstruct cli_args into positional parameters.
+# In POSIX sh, `set --` inside a function only affects function-local params.
+# This macro must be used inline (not in a function) to modify the caller's $@.
+# Usage: eval "$_RESTORE_CLI_ARGS"
+_RESTORE_CLI_ARGS='set -- ; _i=1; while [ "$_i" -le "$_cli_argc" ]; do eval "set -- \"\$@\" \"\$_cli_${_i}\""; _i=$((_i + 1)); done'
+
 # Source shared bootstrap logic (exit traps, module validation, _dispatch)
-if ! type -t _validate_shell_module &>/dev/null; then
+if ! type _validate_shell_module >/dev/null 2>&1; then
     if [ "$_STDIN_MODE" = false ] && [ -f "$SCRIPT_DIR/common/bootstrap.sh" ]; then
-        source "$SCRIPT_DIR/common/bootstrap.sh"
+        . "$SCRIPT_DIR/common/bootstrap.sh"
     elif [ "$BUNDLED_MODE" = "true" ]; then
         echo "Error: Bundled mode via stdin requires a script with embedded modules." >&2
         exit 1
     else
-        # Running standalone (e.g. curl | bash): download bootstrap.sh from GitHub
-        _BOOTSTRAP_TMP=$(mktemp -t bootstrap-XXXXXX.sh)
+        # Running standalone (e.g. curl | sh): download bootstrap.sh from GitHub
+        _BOOTSTRAP_TMP=$(mktemp /tmp/bootstrap-XXXXXX)
         if curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/bootstrap.sh" > "$_BOOTSTRAP_TMP" && [ -s "$_BOOTSTRAP_TMP" ]; then
             # shellcheck disable=SC1090
-            source "$_BOOTSTRAP_TMP"
+            . "$_BOOTSTRAP_TMP"
             rm -f "$_BOOTSTRAP_TMP"
         else
             echo "Error: Failed to download bootstrap.sh from ${GITHUB_BASE_URL}" >&2
@@ -230,34 +235,29 @@ _setup_dry_run() {
 main() {
     # Deploy subcommand: orchestrator runs locally, no root / distro detection needed
     if [ "$ACTION" = "deploy" ]; then
-        # Deploy uses associative arrays and empty-array expansion under set -u (Bash 4.4+)
-        if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4) )); then
-            echo "Error: Deploy mode requires Bash 4.4+ (current: $BASH_VERSION)" >&2
-            exit 1
-        fi
-
-        local deploy_src_modules=(variables logging validation deploy)
+        local deploy_src_modules="variables logging validation deploy"
         if [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; then
             # Local checkout: source modules directly
-            for module in "${deploy_src_modules[@]}"; do
+            for module in $deploy_src_modules; do
                 if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
-                    source "$SCRIPT_DIR/common/${module}.sh"
+                    . "$SCRIPT_DIR/common/${module}.sh"
                 else
                     echo "Error: Required module common/${module}.sh not found in $SCRIPT_DIR" >&2
                     exit 1
                 fi
             done
         else
-            # Standalone or curl | bash: download all modules for deploy bundle
+            # Standalone or curl | sh: download all modules for deploy bundle
             load_deploy_modules
-            for module in "${deploy_src_modules[@]}"; do
-                source "$DEPLOY_MODULES_DIR/common/${module}.sh"
+            for module in $deploy_src_modules; do
+                . "$DEPLOY_MODULES_DIR/common/${module}.sh"
             done
             # Override SCRIPT_DIR so bundle generation finds the downloaded files
             SCRIPT_DIR="$DEPLOY_MODULES_DIR"
         fi
 
-        parse_deploy_args ${cli_args[@]+"${cli_args[@]}"}
+        eval "$_RESTORE_CLI_ARGS"
+        parse_deploy_args "$@"
         validate_deploy_args
 
         if [ "$DRY_RUN" = true ]; then
@@ -273,7 +273,8 @@ main() {
     if [ "$ACTION" = "upgrade" ]; then
         # Detect mode: --control-planes present → remote mode, otherwise → local mode
         local _upgrade_remote=false
-        for _uarg in ${cli_args[@]+"${cli_args[@]}"}; do
+        eval "$_RESTORE_CLI_ARGS"
+        for _uarg in "$@"; do
             if [ "$_uarg" = "--control-planes" ]; then
                 _upgrade_remote=true
                 break
@@ -282,16 +283,11 @@ main() {
 
         if [ "$_upgrade_remote" = true ]; then
             # Remote mode: orchestrate upgrade via SSH (no root required locally)
-            if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4) )); then
-                echo "Error: Upgrade remote mode requires Bash 4.4+ (current: $BASH_VERSION)" >&2
-                exit 1
-            fi
-
-            local upgrade_deploy_modules=(variables logging validation deploy upgrade)
+            local upgrade_deploy_modules="variables logging validation deploy upgrade"
             if [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; then
-                for module in "${upgrade_deploy_modules[@]}"; do
+                for module in $upgrade_deploy_modules; do
                     if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
-                        source "$SCRIPT_DIR/common/${module}.sh"
+                        . "$SCRIPT_DIR/common/${module}.sh"
                     else
                         echo "Error: Required module common/${module}.sh not found in $SCRIPT_DIR" >&2
                         exit 1
@@ -299,13 +295,14 @@ main() {
                 done
             else
                 load_deploy_modules
-                for module in "${upgrade_deploy_modules[@]}"; do
-                    source "$DEPLOY_MODULES_DIR/common/${module}.sh"
+                for module in $upgrade_deploy_modules; do
+                    . "$DEPLOY_MODULES_DIR/common/${module}.sh"
                 done
                 SCRIPT_DIR="$DEPLOY_MODULES_DIR"
             fi
 
-            parse_upgrade_deploy_args ${cli_args[@]+"${cli_args[@]}"}
+            eval "$_RESTORE_CLI_ARGS"
+            parse_upgrade_deploy_args "$@"
             validate_upgrade_deploy_args
 
             if [ "$DRY_RUN" = true ]; then
@@ -318,11 +315,12 @@ main() {
         else
             # Local mode: upgrade this node (root required)
             # Handle --help before root check (allow non-root users to see help)
-            for _uarg in ${cli_args[@]+"${cli_args[@]}"}; do
+            eval "$_RESTORE_CLI_ARGS"
+            for _uarg in "$@"; do
                 if [ "$_uarg" = "--help" ] || [ "$_uarg" = "-h" ]; then
-                    source "$SCRIPT_DIR/common/variables.sh" 2>/dev/null || true
-                    source "$SCRIPT_DIR/common/logging.sh" 2>/dev/null || true
-                    source "$SCRIPT_DIR/common/validation.sh" 2>/dev/null || true
+                    . "$SCRIPT_DIR/common/variables.sh" 2>/dev/null || true
+                    . "$SCRIPT_DIR/common/logging.sh" 2>/dev/null || true
+                    . "$SCRIPT_DIR/common/validation.sh" 2>/dev/null || true
                     show_upgrade_help
                 fi
             done
@@ -335,15 +333,15 @@ main() {
                 run_local "parse_upgrade_local_args" dependencies containerd crio kubernetes
                 # Source upgrade module
                 if [ "$BUNDLED_MODE" != "true" ] && [ -f "$SCRIPT_DIR/common/upgrade.sh" ]; then
-                    source "$SCRIPT_DIR/common/upgrade.sh"
+                    . "$SCRIPT_DIR/common/upgrade.sh"
                 fi
             else
                 load_modules "setup-k8s" dependencies containerd crio kubernetes
                 # Download and source upgrade module
                 local _upgrade_tmp
-                _upgrade_tmp=$(mktemp -t upgrade-XXXXXX.sh)
+                _upgrade_tmp=$(mktemp /tmp/upgrade-XXXXXX)
                 if curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/upgrade.sh" > "$_upgrade_tmp" && [ -s "$_upgrade_tmp" ]; then
-                    source "$_upgrade_tmp"
+                    . "$_upgrade_tmp"
                     rm -f "$_upgrade_tmp"
                 else
                     echo "Error: Failed to download upgrade.sh" >&2
@@ -352,7 +350,8 @@ main() {
                 fi
             fi
 
-            parse_upgrade_local_args ${cli_args[@]+"${cli_args[@]}"}
+            eval "$_RESTORE_CLI_ARGS"
+            parse_upgrade_local_args "$@"
 
             # Detect distribution (if not already detected)
             if [ -z "${DISTRO_FAMILY:-}" ]; then
@@ -368,7 +367,8 @@ main() {
     if [ "$ACTION" = "backup" ] || [ "$ACTION" = "restore" ]; then
         # Detect mode: --control-plane present → remote mode, otherwise → local mode
         local _etcd_remote=false
-        for _earg in ${cli_args[@]+"${cli_args[@]}"}; do
+        eval "$_RESTORE_CLI_ARGS"
+        for _earg in "$@"; do
             if [ "$_earg" = "--control-plane" ]; then
                 _etcd_remote=true; break
             fi
@@ -376,16 +376,11 @@ main() {
 
         if [ "$_etcd_remote" = true ]; then
             # Remote mode: orchestrate via SSH (no root required locally)
-            if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4) )); then
-                echo "Error: Backup/restore remote mode requires Bash 4.4+ (current: $BASH_VERSION)" >&2
-                exit 1
-            fi
-
-            local etcd_deploy_modules=(variables logging validation deploy etcd)
+            local etcd_deploy_modules="variables logging validation deploy etcd"
             if [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; then
-                for module in "${etcd_deploy_modules[@]}"; do
+                for module in $etcd_deploy_modules; do
                     if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
-                        source "$SCRIPT_DIR/common/${module}.sh"
+                        . "$SCRIPT_DIR/common/${module}.sh"
                     else
                         echo "Error: Required module common/${module}.sh not found in $SCRIPT_DIR" >&2
                         exit 1
@@ -393,14 +388,15 @@ main() {
                 done
             else
                 load_deploy_modules
-                for module in "${etcd_deploy_modules[@]}"; do
-                    source "$DEPLOY_MODULES_DIR/common/${module}.sh"
+                for module in $etcd_deploy_modules; do
+                    . "$DEPLOY_MODULES_DIR/common/${module}.sh"
                 done
                 SCRIPT_DIR="$DEPLOY_MODULES_DIR"
             fi
 
+            eval "$_RESTORE_CLI_ARGS"
             if [ "$ACTION" = "backup" ]; then
-                parse_backup_remote_args ${cli_args[@]+"${cli_args[@]}"}
+                parse_backup_remote_args "$@"
                 validate_backup_remote_args
                 if [ "$DRY_RUN" = true ]; then
                     backup_dry_run
@@ -408,7 +404,7 @@ main() {
                 fi
                 backup_etcd_remote
             else
-                parse_restore_remote_args ${cli_args[@]+"${cli_args[@]}"}
+                parse_restore_remote_args "$@"
                 validate_restore_remote_args
                 if [ "$DRY_RUN" = true ]; then
                     restore_dry_run
@@ -420,11 +416,12 @@ main() {
         else
             # Local mode: run on control-plane node (root required)
             # Handle --help before root check
-            for _earg in ${cli_args[@]+"${cli_args[@]}"}; do
+            eval "$_RESTORE_CLI_ARGS"
+            for _earg in "$@"; do
                 if [ "$_earg" = "--help" ] || [ "$_earg" = "-h" ]; then
-                    source "$SCRIPT_DIR/common/variables.sh" 2>/dev/null || true
-                    source "$SCRIPT_DIR/common/logging.sh" 2>/dev/null || true
-                    source "$SCRIPT_DIR/common/validation.sh" 2>/dev/null || true
+                    . "$SCRIPT_DIR/common/variables.sh" 2>/dev/null || true
+                    . "$SCRIPT_DIR/common/logging.sh" 2>/dev/null || true
+                    . "$SCRIPT_DIR/common/validation.sh" 2>/dev/null || true
                     if [ "$ACTION" = "backup" ]; then
                         show_backup_help
                     else
@@ -441,15 +438,15 @@ main() {
                 run_local "parse_backup_local_args" dependencies containerd crio kubernetes
                 # Source etcd module
                 if [ "$BUNDLED_MODE" != "true" ] && [ -f "$SCRIPT_DIR/common/etcd.sh" ]; then
-                    source "$SCRIPT_DIR/common/etcd.sh"
+                    . "$SCRIPT_DIR/common/etcd.sh"
                 fi
             else
                 load_modules "setup-k8s" dependencies containerd crio kubernetes
                 # Download and source etcd module
                 local _etcd_tmp
-                _etcd_tmp=$(mktemp -t etcd-XXXXXX.sh)
+                _etcd_tmp=$(mktemp /tmp/etcd-XXXXXX)
                 if curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/etcd.sh" > "$_etcd_tmp" && [ -s "$_etcd_tmp" ]; then
-                    source "$_etcd_tmp"
+                    . "$_etcd_tmp"
                     rm -f "$_etcd_tmp"
                 else
                     echo "Error: Failed to download etcd.sh" >&2
@@ -458,15 +455,16 @@ main() {
                 fi
             fi
 
+            eval "$_RESTORE_CLI_ARGS"
             if [ "$ACTION" = "backup" ]; then
-                parse_backup_local_args ${cli_args[@]+"${cli_args[@]}"}
+                parse_backup_local_args "$@"
                 if [ "$DRY_RUN" = true ]; then
                     backup_dry_run
                     exit 0
                 fi
                 backup_etcd_local
             else
-                parse_restore_local_args ${cli_args[@]+"${cli_args[@]}"}
+                parse_restore_local_args "$@"
                 if [ "$DRY_RUN" = true ]; then
                     restore_dry_run
                     exit 0
@@ -501,7 +499,8 @@ main() {
     fi
 
     # Parse command line arguments
-    parse_setup_args ${cli_args[@]+"${cli_args[@]}"}
+    eval "$_RESTORE_CLI_ARGS"
+    parse_setup_args "$@"
 
     # Validate inputs
     validate_join_args
@@ -585,7 +584,7 @@ main() {
     reset_iptables
 
     # Initialize or join cluster based on action
-    if [[ "$ACTION" == "init" ]]; then
+    if [ "$ACTION" = "init" ]; then
         initialize_cluster
     else
         join_cluster

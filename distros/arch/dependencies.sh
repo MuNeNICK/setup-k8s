@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Install AUR packages via a temporary unprivileged user with scoped sudo.
 # Requires AUR_HELPER to be set (see _ensure_aur_helper in kubernetes.sh).
@@ -13,8 +13,6 @@ _cleanup_aur_installer() {
 }
 
 _aur_install_packages() {
-    local -a packages=("$@")
-
     _AUR_INSTALLER_USER="aur_installer_$$"
     _AUR_INSTALLER_SUDOERS="/etc/sudoers.d/99-${_AUR_INSTALLER_USER}"
     local tmp_user="$_AUR_INSTALLER_USER"
@@ -41,9 +39,9 @@ SUDOERS_EOF
     su - "$tmp_user" -c 'echo "OPTIONS+=(!debug)" >> ~/.makepkg.conf'
 
     if [ "$rc" -eq 0 ]; then
-        log_info "Installing AUR packages: ${packages[*]}..."
-        if ! su - "$tmp_user" -c "$AUR_HELPER -S --noconfirm --needed ${packages[*]}"; then
-            log_error "AUR installation failed for: ${packages[*]}"
+        log_info "Installing AUR packages: $*..."
+        if ! su - "$tmp_user" -c "$AUR_HELPER -S --noconfirm --needed $*"; then
+            log_error "AUR installation failed for: $*"
             rc=1
         fi
     fi
@@ -65,7 +63,7 @@ install_dependencies_arch() {
     pacman -S --noconfirm curl sudo conntrack-tools socat ethtool iproute2 crictl
 
     # Handle iptables variant selection
-    if pacman -Qi iptables-nft &>/dev/null; then
+    if pacman -Qi iptables-nft >/dev/null 2>&1; then
         log_info "iptables-nft already installed (uses nftables backend)"
     elif [ "$CRI" = "crio" ]; then
         # CRI-O requires iptables-nft; --ask 4 auto-resolves conflict with iptables

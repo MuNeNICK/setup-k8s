@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # === Architecture and Init System Detection ===
 
@@ -16,9 +16,9 @@ _detect_arch() {
 }
 
 _detect_init_system() {
-    if command -v systemctl &>/dev/null && systemctl --version &>/dev/null; then
+    if command -v systemctl >/dev/null 2>&1 && systemctl --version >/dev/null 2>&1; then
         echo "systemd"
-    elif command -v rc-service &>/dev/null; then
+    elif command -v rc-service >/dev/null 2>&1; then
         echo "openrc"
     else
         echo "unknown"
@@ -103,7 +103,7 @@ _service_is_active() {
     local svc="$1"
     case "$(_detect_init_system)" in
         systemd) systemctl is-active --quiet "$svc" ;;
-        openrc)  rc-service "$svc" status &>/dev/null ;;
+        openrc)  rc-service "$svc" status >/dev/null 2>&1 ;;
     esac
 }
 
@@ -125,10 +125,12 @@ _kubeadm_preflight_ignore_args() {
 # Helper: Get the home directory for a given user (portable, no hardcoded /home)
 get_user_home() {
     local user="$1"
-    if ! [[ "$user" =~ ^[a-zA-Z0-9._-]+$ ]]; then
-        log_error "Invalid username: $user"
-        return 1
-    fi
+    case "$user" in
+        *[!a-zA-Z0-9._-]*)
+            log_error "Invalid username: $user"
+            return 1
+            ;;
+    esac
     local home
     home=$(getent passwd "$user" 2>/dev/null | cut -d: -f6) || true
     if [ -z "$home" ]; then
@@ -272,7 +274,7 @@ _kubelet_api_version() {
 # Helper: Generate kubeadm configuration
 generate_kubeadm_config() {
     local config_file
-    config_file=$(mktemp -t kubeadm-config-XXXXXX.yaml)
+    config_file=$(mktemp /tmp/kubeadm-config-XXXXXX)
     chmod 600 "$config_file"
 
     log_info "Generating kubeadm configuration..."
@@ -616,7 +618,7 @@ initialize_cluster() {
             return 0
         fi
         cert_key=$(echo "$cert_output" | tail -1)
-        if ! [[ "$cert_key" =~ ^[a-f0-9]{64}$ ]]; then
+        if ! echo "$cert_key" | grep -qE '^[a-f0-9]{64}$'; then
             log_error "Invalid certificate key format (expected 64 hex chars, got: '$cert_key')"
             return 1
         fi
@@ -646,21 +648,21 @@ join_cluster() {
         deploy_kube_vip --skip-vip-preadd
     fi
 
-    local -a join_args=("${JOIN_ADDRESS}" --token "${JOIN_TOKEN}" --discovery-token-ca-cert-hash "${DISCOVERY_TOKEN_HASH}")
+    set -- "$JOIN_ADDRESS" --token "$JOIN_TOKEN" --discovery-token-ca-cert-hash "$DISCOVERY_TOKEN_HASH"
     if [ "$CRI" != "containerd" ]; then
         local cri_socket
         cri_socket=$(get_cri_socket)
-        join_args+=(--cri-socket "$cri_socket")
+        set -- "$@" --cri-socket "$cri_socket"
     fi
 
     # HA cluster: join as control-plane node
     if [ "${JOIN_AS_CONTROL_PLANE:-false}" = true ]; then
-        join_args+=(--control-plane --certificate-key "${CERTIFICATE_KEY}")
+        set -- "$@" --control-plane --certificate-key "$CERTIFICATE_KEY"
     fi
 
     local join_exit=0
     # shellcheck disable=SC2046 # intentional word splitting
-    kubeadm join "${join_args[@]}" $(_kubeadm_preflight_ignore_args) || join_exit=$?
+    kubeadm join "$@" $(_kubeadm_preflight_ignore_args) || join_exit=$?
 
     if [ "$join_exit" -ne 0 ]; then
         log_error "kubeadm join failed (exit code: $join_exit)"
@@ -704,7 +706,7 @@ cleanup_kube_configs() {
 reset_containerd_config() {
     if [ -f /etc/containerd/config.toml ]; then
         log_info "Resetting containerd configuration to default..."
-        if command -v containerd &> /dev/null; then
+        if command -v containerd >/dev/null 2>&1; then
             # Backup current config
             if ! cp /etc/containerd/config.toml "/etc/containerd/config.toml.bak.$(date +%Y%m%d%H%M%S)"; then
                 log_warn "Failed to backup containerd config"
@@ -797,7 +799,7 @@ remove_kubernetes_configs() {
 
 # Reset Kubernetes cluster state
 reset_kubernetes_cluster() {
-    if command -v kubeadm &> /dev/null; then
+    if command -v kubeadm >/dev/null 2>&1; then
         log_info "Resetting kubeadm cluster state..."
         if ! kubeadm reset -f; then
             log_error "kubeadm reset failed"

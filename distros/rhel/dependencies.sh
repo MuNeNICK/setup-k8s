@@ -1,7 +1,7 @@
-#!/bin/bash
+#!/bin/sh
 
 # Cached RHEL package manager detection (shared across all distros/rhel/*.sh)
-_rhel_pkg_mgr() { echo "${_RHEL_PKG_MGR:=$(command -v dnf &>/dev/null && echo dnf || echo yum)}"; }
+_rhel_pkg_mgr() { echo "${_RHEL_PKG_MGR:=$(command -v dnf >/dev/null 2>&1 && echo dnf || echo yum)}"; }
 
 # RHEL/CentOS/Fedora specific: Install dependencies
 install_dependencies_rhel() {
@@ -26,17 +26,21 @@ install_dependencies_rhel() {
     fi
 
     # For CentOS 9 Stream, enable additional repositories before installing packages
-    if [ "$DISTRO_NAME" = "centos" ] && [[ "$DISTRO_VERSION" == "9"* ]]; then
-        log_info "Detected CentOS 9 Stream, enabling additional repositories..."
-        if ! $PKG_MGR install -y epel-release; then
-            log_error "Failed to install epel-release"
-            return 1
-        fi
-        if ! $PKG_MGR config-manager --set-enabled crb && ! $PKG_MGR config-manager --set-enabled powertools; then
-            log_error "Failed to enable crb or powertools repository"
-            return 1
-        fi
-    fi
+    case "$DISTRO_VERSION" in
+        9*)
+            if [ "$DISTRO_NAME" = "centos" ]; then
+                log_info "Detected CentOS 9 Stream, enabling additional repositories..."
+                if ! $PKG_MGR install -y epel-release; then
+                    log_error "Failed to install epel-release"
+                    return 1
+                fi
+                if ! $PKG_MGR config-manager --set-enabled crb && ! $PKG_MGR config-manager --set-enabled powertools; then
+                    log_error "Failed to enable crb or powertools repository"
+                    return 1
+                fi
+            fi
+            ;;
+    esac
 
     # Install base dependencies
     if ! $PKG_MGR install -y curl gnupg2 iptables iptables-services ethtool iproute conntrack-tools socat ebtables; then

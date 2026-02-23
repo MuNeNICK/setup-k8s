@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Setup CRI-O for RHEL/CentOS/Rocky/Alma/Fedora
 setup_crio_rhel() {

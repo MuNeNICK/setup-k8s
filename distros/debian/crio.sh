@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Setup CRI-O on Debian/Ubuntu using new isv:/cri-o repositories (2025)
 setup_crio_debian() {

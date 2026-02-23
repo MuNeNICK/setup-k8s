@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Setup containerd for Debian/Ubuntu
 setup_containerd_debian() {

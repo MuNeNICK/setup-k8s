@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Arch: setup CRI-O from official extra repository
 setup_crio_arch() {

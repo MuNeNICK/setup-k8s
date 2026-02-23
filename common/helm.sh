@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Helm package manager installation and setup
 
@@ -8,14 +8,14 @@ install_helm() {
 
     # Download the official installer to a temporary file for inspection
     local installer
-    installer=$(mktemp -t get-helm-3-XXXXXX.sh)
+    installer=$(mktemp /tmp/get-helm-3-XXXXXX)
     if ! curl -fsSL --retry 3 --retry-delay 2 https://raw.githubusercontent.com/helm/helm/v3.17.1/scripts/get-helm-3 -o "$installer"; then
         log_error "Failed to download Helm installer"
         rm -f "$installer"
         return 1
     fi
 
-    # Execute the installer
+    # Execute the installer (Helm's get-helm-3 script requires bash)
     bash "$installer"
     local rc=$?
     rm -f "$installer"
@@ -30,7 +30,7 @@ setup_helm() {
     fi
 
     # Check if helm is already installed
-    if command -v helm &> /dev/null; then
+    if command -v helm >/dev/null 2>&1; then
         log_info "Helm is already installed: $(helm version --short)"
         log_info "Skipping Helm installation"
     else
@@ -52,11 +52,11 @@ cleanup_helm() {
     rm -f /usr/local/bin/helm
 
     # Remove Helm config/cache directories for relevant users
-    local -a _helm_users=(root)
+    local _helm_users="root"
     if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
-        _helm_users+=("$SUDO_USER")
+        _helm_users="root $SUDO_USER"
     fi
-    for _user in "${_helm_users[@]}"; do
+    for _user in $_helm_users; do
         local _home
         _home=$(get_user_home "$_user")
         rm -rf "$_home/.config/helm" "$_home/.helm" "$_home/.cache/helm"

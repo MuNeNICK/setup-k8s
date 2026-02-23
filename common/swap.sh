@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Disable swap
 disable_swap() {
@@ -24,11 +24,11 @@ restore_fstab_swap() {
         if [ -n "$swap_lines" ]; then
             # Remove our commented-out swap lines and insert originals (deduplicated)
             sed -i '/^#.*[[:space:]]swap[[:space:]]/d' /etc/fstab
-            while IFS= read -r line; do
+            echo "$swap_lines" | while IFS= read -r line; do
                 if ! grep -qF "$line" /etc/fstab; then
                     echo "$line" >> /etc/fstab
                 fi
-            done <<< "$swap_lines"
+            done
             log_info "Swap entries restored from backup (merged into current /etc/fstab)"
             swap_restored=true
         fi

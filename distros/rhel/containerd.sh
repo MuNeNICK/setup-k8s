@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # _rhel_pkg_mgr is defined in dependencies.sh (loaded before this module)
 
@@ -21,7 +21,7 @@ setup_containerd_rhel() {
     log_info "Adding Docker repository..."
     if [ "$DISTRO_NAME" = "fedora" ]; then
         # Check Fedora version for correct config-manager syntax
-        if [[ "${DISTRO_VERSION%%.*}" =~ ^[0-9]+$ ]] && [[ "${DISTRO_VERSION%%.*}" -ge 41 ]]; then
+        if echo "${DISTRO_VERSION%%.*}" | grep -qE '^[0-9]+$' && [ "${DISTRO_VERSION%%.*}" -ge 41 ]; then
             # Fedora 41+ uses new syntax - download repo file directly
             log_info "Using direct repo file download for Fedora 41+"
             if ! curl -fsSL --retry 3 --retry-delay 2 https://download.docker.com/linux/fedora/docker-ce.repo -o /etc/yum.repos.d/docker-ce.repo; then

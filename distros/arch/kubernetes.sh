@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Module-level state for AUR builder cleanup (must survive function scope for EXIT trap)
 _AUR_BUILDER_USER=""
@@ -14,10 +14,10 @@ _cleanup_aur_builder() {
 # Sets AUR_HELPER variable on success
 _ensure_aur_helper() {
     AUR_HELPER=""
-    if command -v yay &> /dev/null; then
+    if command -v yay >/dev/null 2>&1; then
         AUR_HELPER="yay"
         return 0
-    elif command -v paru &> /dev/null; then
+    elif command -v paru >/dev/null 2>&1; then
         AUR_HELPER="paru"
         return 0
     fi
@@ -36,7 +36,7 @@ _ensure_aur_helper() {
 
     local YAY_BUILD_SUCCESS=false
     su - "$TEMP_USER" -c "
-        cd $(printf '%q' "$YAY_BUILD_DIR")
+        cd $YAY_BUILD_DIR
         for attempt in 1 2 3; do
             rm -rf yay-bin
             if git clone https://aur.archlinux.org/yay-bin.git; then
@@ -52,9 +52,11 @@ _ensure_aur_helper() {
         exit 1
     " && YAY_BUILD_SUCCESS=true
 
-    if [ "$YAY_BUILD_SUCCESS" = true ] && compgen -G "${YAY_BUILD_DIR}/yay-bin/yay-bin-*.pkg.tar.*" >/dev/null; then
-        local pkg_file
-        pkg_file=$(compgen -G "${YAY_BUILD_DIR}/yay-bin/yay-bin-*.pkg.tar.*" | head -1)
+    local pkg_file=""
+    if [ "$YAY_BUILD_SUCCESS" = true ]; then
+        pkg_file=$(ls "${YAY_BUILD_DIR}"/yay-bin/yay-bin-*.pkg.tar.* 2>/dev/null | head -1)
+    fi
+    if [ "$YAY_BUILD_SUCCESS" = true ] && [ -n "$pkg_file" ]; then
         if ! pacman -Qp "$pkg_file" >/dev/null 2>&1; then
             log_warn "Built package failed validation"
             YAY_BUILD_SUCCESS=false
@@ -66,7 +68,7 @@ _ensure_aur_helper() {
     _cleanup_aur_builder
     _pop_cleanup
 
-    if [ "$YAY_BUILD_SUCCESS" = false ] || ! command -v yay &>/dev/null; then
+    if [ "$YAY_BUILD_SUCCESS" = false ] || ! command -v yay >/dev/null 2>&1; then
         log_error "yay installation failed."
         AUR_HELPER=""
         return 1

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # SUSE specific cleanup
 cleanup_suse() {

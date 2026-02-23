@@ -12,13 +12,13 @@ Proxy mode, CRI (containerd/CRI-O), version pinning, and many other options are 
 ## Quick Start
 
 ### Initialize Cluster
-```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- init
+```sh
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- init
 ```
 
 ### Join Cluster
-```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo bash -s -- \
+```sh
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
   join \
   --join-token <token> \
   --join-address <address> \
@@ -26,8 +26,8 @@ curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo ba
 ```
 
 ### Deploy Multi-Node Cluster via SSH
-```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | bash -s -- \
+```sh
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sh -s -- \
   deploy \
   --control-planes root@192.168.1.10 \
   --workers root@192.168.1.11,root@192.168.1.12 \
@@ -35,8 +35,8 @@ curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | bash -s
 ```
 
 ### Deploy HA Cluster
-```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | bash -s -- \
+```sh
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sh -s -- \
   deploy \
   --control-planes root@192.168.1.10,root@192.168.1.11,root@192.168.1.12 \
   --workers root@192.168.1.20 \
@@ -45,8 +45,8 @@ curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | bash -s
 ```
 
 ### Cleanup
-```bash
-curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/cleanup-k8s.sh | sudo bash -s -- --force
+```sh
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/cleanup-k8s.sh | sudo sh -s -- --force
 ```
 
 ## Documentation

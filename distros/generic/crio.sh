@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Install CRI-O via tarball download for generic distributions.
 # The tarball bundles: crio, conmon, conmonrs, runc, crun, crictl, CNI plugins.
@@ -27,8 +27,7 @@ _install_crio_generic() {
     fi
 
     # Install binaries to /usr/local/bin/
-    local binaries=(crio conmon conmonrs runc crun crictl)
-    for bin in "${binaries[@]}"; do
+    for bin in crio conmon conmonrs runc crun crictl; do
         local src
         src=$(find "$crio_dir" -name "$bin" -type f 2>/dev/null | head -1)
         if [ -n "$src" ]; then

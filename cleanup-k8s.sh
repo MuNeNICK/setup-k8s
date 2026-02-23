@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/bin/sh
 
-set -euo pipefail
+set -eu
 
 # Ensure /usr/local/bin is in PATH (generic distro installs binaries there)
 case ":$PATH:" in
@@ -12,14 +12,13 @@ esac
 SUDO_USER="${SUDO_USER:-}"
 
 # Get the directory where the script is located
-# When piped via stdin (curl | bash), BASH_SOURCE[0] is unset under set -u
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Detect stdin execution mode (curl | bash) — BASH_SOURCE[0] is empty or unset
+# Detect stdin execution mode (curl | sh)
 _STDIN_MODE=false
-if [ -z "${BASH_SOURCE[0]:-}" ] || [ "${BASH_SOURCE[0]:-}" = "bash" ] || [ "${BASH_SOURCE[0]:-}" = "/dev/stdin" ] || [ "${BASH_SOURCE[0]:-}" = "/proc/self/fd/0" ]; then
-    _STDIN_MODE=true
-fi
+case "$0" in
+    sh|dash|ash|bash|*/sh|*/dash|*/ash|*/bash|/dev/stdin|/proc/self/fd/0) _STDIN_MODE=true ;;
+esac
 
 # Default GitHub base URL (can be overridden)
 GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main}"
@@ -29,7 +28,8 @@ BUNDLED_MODE="${BUNDLED_MODE:-false}"
 
 # Single-pass argument parsing: detect global flags and build cli_args
 # before bootstrap to avoid unnecessary network fetch for --help.
-cli_args=()
+# Pre-parse for --help/--verbose/--quiet; remaining args saved in _cli_N positional vars
+_cli_argc=0
 for _arg in "$@"; do
     # shellcheck disable=SC2034 # LOG_LEVEL used by logging module
     case "$_arg" in
@@ -50,24 +50,24 @@ HELPEOF
             ;;
         --verbose) LOG_LEVEL=2 ;;
         --quiet) LOG_LEVEL=0 ;;
-        *) cli_args+=("$_arg") ;;
+        *) _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$_arg" ;;
     esac
 done
 unset _arg
 
 # Source shared bootstrap logic (exit traps, module validation, _dispatch)
-if ! type -t _validate_shell_module &>/dev/null; then
+if ! type _validate_shell_module >/dev/null 2>&1; then
     if [ "$_STDIN_MODE" = false ] && [ -f "$SCRIPT_DIR/common/bootstrap.sh" ]; then
-        source "$SCRIPT_DIR/common/bootstrap.sh"
+        . "$SCRIPT_DIR/common/bootstrap.sh"
     elif [ "$BUNDLED_MODE" = "true" ]; then
         echo "Error: Bundled mode via stdin requires a script with embedded modules." >&2
         exit 1
     else
-        # Running standalone (e.g. curl | bash): download bootstrap.sh from GitHub
-        _BOOTSTRAP_TMP=$(mktemp -t bootstrap-XXXXXX.sh)
+        # Running standalone (e.g. curl | sh): download bootstrap.sh from GitHub
+        _BOOTSTRAP_TMP=$(mktemp /tmp/bootstrap-XXXXXX)
         if curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/bootstrap.sh" > "$_BOOTSTRAP_TMP" && [ -s "$_BOOTSTRAP_TMP" ]; then
             # shellcheck disable=SC1090
-            source "$_BOOTSTRAP_TMP"
+            . "$_BOOTSTRAP_TMP"
             rm -f "$_BOOTSTRAP_TMP"
         else
             echo "Error: Failed to download bootstrap.sh from ${GITHUB_BASE_URL}" >&2
@@ -95,7 +95,10 @@ main() {
         load_modules "cleanup-k8s" cleanup
     fi
 
-    parse_cleanup_args ${cli_args[@]+"${cli_args[@]}"}
+    # Reconstruct cli_args from saved positional vars
+    set --
+    _i=1; while [ "$_i" -le "$_cli_argc" ]; do eval "set -- \"\$@\" \"\$_cli_${_i}\""; _i=$((_i + 1)); done
+    parse_cleanup_args "$@"
 
     # Confirmation prompt
     confirm_cleanup

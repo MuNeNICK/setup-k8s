@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Setup Kubernetes for Debian/Ubuntu
 setup_kubernetes_debian() {

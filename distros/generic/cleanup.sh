@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Generic cleanup: remove binaries, configs, and service files placed by the script.
 # System packages installed via dependencies.sh are intentionally preserved.
@@ -7,8 +7,7 @@ cleanup_generic() {
     log_info "Performing generic distro cleanup..."
 
     # Remove Kubernetes binaries
-    local k8s_bins=(kubeadm kubectl kubelet)
-    for bin in "${k8s_bins[@]}"; do
+    for bin in kubeadm kubectl kubelet; do
         if [ -f "/usr/local/bin/$bin" ]; then
             rm -f "/usr/local/bin/$bin"
             log_info "Removed /usr/local/bin/$bin"
@@ -16,8 +15,7 @@ cleanup_generic() {
     done
 
     # Remove containerd/runc binaries
-    local cri_bins=(containerd containerd-shim-runc-v2 ctr runc)
-    for bin in "${cri_bins[@]}"; do
+    for bin in containerd containerd-shim-runc-v2 ctr runc; do
         if [ -f "/usr/local/bin/$bin" ]; then
             rm -f "/usr/local/bin/$bin"
             log_info "Removed /usr/local/bin/$bin"
@@ -25,8 +23,7 @@ cleanup_generic() {
     done
 
     # Remove CRI-O related binaries
-    local crio_bins=(crio conmon conmonrs crun crictl)
-    for bin in "${crio_bins[@]}"; do
+    for bin in crio conmon conmonrs crun crictl; do
         if [ -f "/usr/local/bin/$bin" ]; then
             rm -f "/usr/local/bin/$bin"
             log_info "Removed /usr/local/bin/$bin"
@@ -54,8 +51,7 @@ cleanup_generic() {
     # Remove service files based on init system
     case "$(_detect_init_system)" in
         systemd)
-            local units=(kubelet.service containerd.service crio.service)
-            for unit in "${units[@]}"; do
+            for unit in kubelet.service containerd.service crio.service; do
                 if [ -f "/etc/systemd/system/$unit" ]; then
                     rm -f "/etc/systemd/system/$unit"
                     log_info "Removed /etc/systemd/system/$unit"
@@ -68,8 +64,7 @@ cleanup_generic() {
             _service_reload
             ;;
         openrc)
-            local initscripts=(kubelet containerd crio)
-            for svc in "${initscripts[@]}"; do
+            for svc in kubelet containerd crio; do
                 rc-update del "$svc" default 2>/dev/null || true
                 if [ -f "/etc/init.d/$svc" ]; then
                     rm -f "/etc/init.d/$svc"

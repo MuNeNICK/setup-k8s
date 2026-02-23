@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Setup CRI-O for SUSE
 setup_crio_suse() {

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Ensure the Alpine community repository is enabled (required for K8s packages).
 _ensure_alpine_community_repo() {
@@ -45,7 +45,7 @@ install_dependencies_alpine() {
     # Generate /etc/machine-id if missing (required by kubelet)
     if [ ! -f /etc/machine-id ] || [ ! -s /etc/machine-id ]; then
         log_info "Generating /etc/machine-id..."
-        if command -v dbus-uuidgen &>/dev/null; then
+        if command -v dbus-uuidgen >/dev/null 2>&1; then
             dbus-uuidgen > /etc/machine-id
         else
             cat /proc/sys/kernel/random/uuid | tr -d '-' > /etc/machine-id

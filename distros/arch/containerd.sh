@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Setup containerd for Arch Linux
 setup_containerd_arch() {

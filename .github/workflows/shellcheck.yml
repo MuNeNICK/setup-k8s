@@ -17,11 +17,11 @@ jobs:
       - name: Install ShellCheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Run ShellCheck on entry scripts
-        run: shellcheck -s bash -S warning setup-k8s.sh cleanup-k8s.sh
+        run: shellcheck -s sh -S warning setup-k8s.sh cleanup-k8s.sh
       - name: Run ShellCheck on common modules
-        run: shellcheck -s bash -S warning common/*.sh
+        run: shellcheck -s sh -S warning common/*.sh
       - name: Run ShellCheck on distro modules
-        run: shellcheck -s bash -S warning distros/**/*.sh
+        run: shellcheck -s sh -S warning distros/**/*.sh
       - name: Run ShellCheck on test runners
         run: shellcheck -s bash -S warning test/run-e2e-tests.sh test/run-ha-test.sh test/run-deploy-test.sh test/run-backup-test.sh test/run-unit-tests.sh
 

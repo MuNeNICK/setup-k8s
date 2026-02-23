@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Etcd backup/restore module: snapshot management for kubeadm clusters
 # Uses crictl exec to run etcdctl inside the etcd container (no binary install needed).
@@ -58,7 +58,7 @@ _extract_etcd_binaries() {
 
     log_debug "etcd image ref: $image_ref"
     local export_dir
-    export_dir=$(mktemp -d -t etcd-export-XXXXXX)
+    export_dir=$(mktemp -d /tmp/etcd-export-XXXXXX)
 
     local image_tar="${export_dir}/image.tar"
     if ! ctr -n k8s.io images export "$image_tar" "$image_ref" >/dev/null 2>&1; then
@@ -73,7 +73,9 @@ _extract_etcd_binaries() {
 
     # Search through blobs for layers containing etcd binaries
     local found_etcdctl=false found_etcdutl=false
-    while IFS= read -r blob; do
+    local _blob_list
+    _blob_list=$(find "$oci_dir/blobs" -type f 2>/dev/null) || true
+    for blob in $_blob_list; do
         [ "$found_etcdctl" = true ] && [ "$found_etcdutl" = true ] && break
         local blob_type
         blob_type=$(file -b "$blob" 2>/dev/null) || true
@@ -107,7 +109,7 @@ _extract_etcd_binaries() {
                 fi
                 ;;
         esac
-    done < <(find "$oci_dir/blobs" -type f 2>/dev/null)
+    done
 
     rm -rf "$export_dir"
 
@@ -190,7 +192,7 @@ restore_etcd_local() {
     # Find etcd container and extract binaries before stopping
     local cid
     local etcd_bin_dir
-    etcd_bin_dir=$(mktemp -d -t etcd-restore-bin-XXXXXX)
+    etcd_bin_dir=$(mktemp -d /tmp/etcd-restore-bin-XXXXXX)
     cid=$(_find_etcd_container) || { rm -rf "$etcd_bin_dir"; return 1; }
     _extract_etcd_binaries "$cid" "$etcd_bin_dir" || { rm -rf "$etcd_bin_dir"; return 1; }
 
@@ -370,7 +372,7 @@ restore_dry_run() {
 
 # --- Remote backup ---
 
-# Global state for remote cleanup handlers (closures don't capture locals in bash)
+# Global state for remote cleanup handlers (closures don't capture locals in sh)
 _ETCD_REMOTE_USER=""
 _ETCD_REMOTE_HOST=""
 _ETCD_REMOTE_DIR=""
@@ -391,7 +393,7 @@ _setup_etcd_remote() {
     _ETCD_REMOTE_HOST="$_NODE_HOST"
 
     # Setup known_hosts
-    _DEPLOY_KNOWN_HOSTS=$(mktemp -t etcd-known-hosts-XXXXXX)
+    _DEPLOY_KNOWN_HOSTS=$(mktemp /tmp/etcd-known-hosts-XXXXXX)
     chmod 600 "$_DEPLOY_KNOWN_HOSTS"
     if [ -n "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ] && [ -f "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
         cp "$DEPLOY_SSH_KNOWN_HOSTS_FILE" "$_DEPLOY_KNOWN_HOSTS"
@@ -419,10 +421,17 @@ _setup_etcd_remote() {
     # Create remote temp directory
     _ETCD_REMOTE_DIR=$(_deploy_ssh "$_ETCD_REMOTE_USER" "$_ETCD_REMOTE_HOST" "d=\$(mktemp -d) && chmod 700 \"\$d\" && echo \"\$d\"") || true
     _ETCD_REMOTE_DIR=$(echo "$_ETCD_REMOTE_DIR" | tr -d '[:space:]')
-    if [ -z "$_ETCD_REMOTE_DIR" ] || [[ "$_ETCD_REMOTE_DIR" != /* ]]; then
+    if [ -z "$_ETCD_REMOTE_DIR" ]; then
         log_error "Failed to create remote temp directory"
         return 1
     fi
+    case "$_ETCD_REMOTE_DIR" in
+        /*) ;;
+        *)
+            log_error "Failed to create remote temp directory"
+            return 1
+            ;;
+    esac
     _push_cleanup _cleanup_etcd_remote_dir
 }
 
@@ -440,7 +449,7 @@ _teardown_etcd_remote() {
 # Generate bundle and transfer to remote node
 _transfer_etcd_bundle() {
     local bundle_path
-    bundle_path=$(mktemp -t setup-k8s-etcd-XXXXXX.sh)
+    bundle_path=$(mktemp /tmp/setup-k8s-etcd-XXXXXX)
     chmod 600 "$bundle_path"
     generate_deploy_bundle "$bundle_path"
 
@@ -458,14 +467,12 @@ _exec_etcd_remote() {
     local subcmd="$1" label="$2"; shift 2
     local sudo_pfx=""
     [ "$_ETCD_REMOTE_USER" != "root" ] && sudo_pfx="sudo -n "
-    local cmd="${sudo_pfx}bash ${_ETCD_REMOTE_DIR}/setup-k8s.sh ${subcmd}"
+    local cmd="${sudo_pfx}sh ${_ETCD_REMOTE_DIR}/setup-k8s.sh ${subcmd}"
     for arg in "$@"; do
-        cmd+=" $(printf '%q' "$arg")"
+        cmd="${cmd} $(_posix_shell_quote "$arg")"
     done
-    if [ ${#ETCD_PASSTHROUGH_ARGS[@]} -gt 0 ]; then
-        for arg in "${ETCD_PASSTHROUGH_ARGS[@]}"; do
-            cmd+=" $(printf '%q' "$arg")"
-        done
+    if [ -n "$ETCD_PASSTHROUGH_ARGS" ]; then
+        cmd=$(_append_passthrough_to_cmd "$cmd" "$ETCD_PASSTHROUGH_ARGS")
     fi
 
     if ! _deploy_exec_remote "$_ETCD_REMOTE_USER" "$_ETCD_REMOTE_HOST" "$label" "$cmd"; then

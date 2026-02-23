@@ -1,14 +1,14 @@
-#!/bin/bash
+#!/bin/sh
 
 # Detect available package manager for generic/unsupported distributions.
 # Also used by generic/cleanup.sh.
 _detect_generic_pkg_mgr() {
-    if command -v apt-get &>/dev/null; then echo "apt-get"
-    elif command -v dnf &>/dev/null; then echo "dnf"
-    elif command -v yum &>/dev/null; then echo "yum"
-    elif command -v zypper &>/dev/null; then echo "zypper"
-    elif command -v pacman &>/dev/null; then echo "pacman"
-    elif command -v apk &>/dev/null; then echo "apk"
+    if command -v apt-get >/dev/null 2>&1; then echo "apt-get"
+    elif command -v dnf >/dev/null 2>&1; then echo "dnf"
+    elif command -v yum >/dev/null 2>&1; then echo "yum"
+    elif command -v zypper >/dev/null 2>&1; then echo "zypper"
+    elif command -v pacman >/dev/null 2>&1; then echo "pacman"
+    elif command -v apk >/dev/null 2>&1; then echo "apk"
     fi
 }
 
@@ -20,12 +20,12 @@ install_dependencies_generic() {
 
     if [ -z "$pkg_mgr" ]; then
         log_warn "No package manager found. Checking required commands..."
-        local missing=()
+        local missing=""
         for cmd in curl socat conntrack; do
-            command -v "$cmd" &>/dev/null || missing+=("$cmd")
+            command -v "$cmd" >/dev/null 2>&1 || missing="${missing}${missing:+ }$cmd"
         done
-        if [ ${#missing[@]} -gt 0 ]; then
-            log_error "Missing required commands: ${missing[*]}"
+        if [ -n "$missing" ]; then
+            log_error "Missing required commands: $missing"
             log_error "Install them manually before proceeding."
             exit 1
         fi

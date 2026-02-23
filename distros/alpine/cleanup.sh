@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Alpine Linux specific cleanup
 cleanup_alpine() {
@@ -7,7 +7,7 @@ cleanup_alpine() {
     # Remove Kubernetes packages
     log_info "Removing Kubernetes packages..."
     for pkg in kubeadm kubelet kubectl; do
-        if apk info -e "$pkg" &>/dev/null; then
+        if apk info -e "$pkg" >/dev/null 2>&1; then
             log_info "Removing $pkg..."
             apk del "$pkg" || log_warn "Failed to remove $pkg"
         fi
@@ -15,7 +15,7 @@ cleanup_alpine() {
 
     # Remove CRI-O packages if installed
     for pkg in cri-o cri-o-openrc; do
-        if apk info -e "$pkg" &>/dev/null; then
+        if apk info -e "$pkg" >/dev/null 2>&1; then
             log_info "Removing $pkg..."
             apk del "$pkg" || log_warn "Failed to remove $pkg"
         fi
@@ -33,7 +33,7 @@ cleanup_alpine() {
     # Verify cleanup
     local remaining=0
     for pkg in kubeadm kubelet kubectl cri-o; do
-        if apk info -e "$pkg" &>/dev/null; then
+        if apk info -e "$pkg" >/dev/null 2>&1; then
             log_warn "Package still installed: $pkg"
             remaining=1
         fi

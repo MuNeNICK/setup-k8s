@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Parse and validate --distro argument, set DISTRO_OVERRIDE.
 # Usage: _parse_distro_arg "$2"
@@ -17,23 +17,23 @@ _parse_distro_arg() {
 
 # Check required arguments for join
 validate_join_args() {
-    if [[ "$ACTION" == "join" ]]; then
-        if [[ -z "$JOIN_TOKEN" || -z "$JOIN_ADDRESS" || -z "$DISCOVERY_TOKEN_HASH" ]]; then
+    if [ "$ACTION" = "join" ]; then
+        if [ -z "$JOIN_TOKEN" ] || [ -z "$JOIN_ADDRESS" ] || [ -z "$DISCOVERY_TOKEN_HASH" ]; then
             log_error "join requires --join-token, --join-address, and --discovery-token-hash"
             exit 1
         fi
         # Validate join token format: 6 alphanumeric chars, dot, 16 alphanumeric chars
-        if ! [[ "$JOIN_TOKEN" =~ ^[a-z0-9]{6}\.[a-z0-9]{16}$ ]]; then
+        if ! echo "$JOIN_TOKEN" | grep -qE '^[a-z0-9]{6}\.[a-z0-9]{16}$'; then
             log_error "--join-token format is invalid (expected: [a-z0-9]{6}.[a-z0-9]{16}, got: $JOIN_TOKEN)"
             exit 1
         fi
         # Validate discovery token hash format: sha256:<64 hex chars>
-        if ! [[ "$DISCOVERY_TOKEN_HASH" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+        if ! echo "$DISCOVERY_TOKEN_HASH" | grep -qE '^sha256:[a-f0-9]{64}$'; then
             log_error "--discovery-token-hash format is invalid (expected: sha256:<64 hex chars>, got: $DISCOVERY_TOKEN_HASH)"
             exit 1
         fi
         # Validate join address format: host:port (host part must be non-empty)
-        if ! [[ "$JOIN_ADDRESS" =~ ^.+:[0-9]+$ ]]; then
+        if ! echo "$JOIN_ADDRESS" | grep -qE '^.+:[0-9]+$'; then
             log_error "--join-address should include a port (e.g., 192.168.1.10:6443 or [::1]:6443, got: $JOIN_ADDRESS)"
             exit 1
         fi
@@ -60,56 +60,54 @@ validate_cri() {
 
 # Validate shell completion options
 validate_completion_options() {
-    if [[ "$ENABLE_COMPLETION" != "true" && "$ENABLE_COMPLETION" != "false" ]]; then
+    if [ "$ENABLE_COMPLETION" != "true" ] && [ "$ENABLE_COMPLETION" != "false" ]; then
         log_error "--enable-completion must be 'true' or 'false'"
         exit 1
     fi
 
-    if [[ "$INSTALL_HELM" != "true" && "$INSTALL_HELM" != "false" ]]; then
+    if [ "$INSTALL_HELM" != "true" ] && [ "$INSTALL_HELM" != "false" ]; then
         log_error "--install-helm must be 'true' or 'false'"
         exit 1
     fi
 
-    if [[ "$COMPLETION_SHELLS" != "auto" ]]; then
-        local valid_shells=("bash" "zsh" "fish")
-        IFS=',' read -ra shells <<< "$COMPLETION_SHELLS"
-        for shell_name in "${shells[@]}"; do
+    if [ "$COMPLETION_SHELLS" != "auto" ]; then
+        _old_ifs="$IFS"; IFS=','
+        for shell_name in $COMPLETION_SHELLS; do
+            IFS="$_old_ifs"
             shell_name=$(echo "$shell_name" | tr -d ' ')
-            local is_valid=false
-            for valid in "${valid_shells[@]}"; do
-                if [[ "$shell_name" == "$valid" ]]; then
-                    is_valid=true
-                    break
-                fi
-            done
-            if [[ "$is_valid" == false ]]; then
-                log_error "Invalid shell '$shell_name' in --completion-shells. Valid options are: ${valid_shells[*]} or 'auto'"
-                exit 1
-            fi
+            case "$shell_name" in
+                bash|zsh|fish) ;;
+                *)
+                    log_error "Invalid shell '$shell_name' in --completion-shells. Valid options are: bash, zsh, fish, or 'auto'"
+                    exit 1
+                    ;;
+            esac
+            IFS=','
         done
+        IFS="$_old_ifs"
     fi
 }
 
 # Validate proxy mode selection
 validate_proxy_mode() {
-    if [[ "$PROXY_MODE" != "iptables" && "$PROXY_MODE" != "ipvs" && "$PROXY_MODE" != "nftables" ]]; then
+    if [ "$PROXY_MODE" != "iptables" ] && [ "$PROXY_MODE" != "ipvs" ] && [ "$PROXY_MODE" != "nftables" ]; then
         log_error "Proxy mode must be 'iptables', 'ipvs', or 'nftables'"
         exit 1
     fi
 
-    if [[ "$PROXY_MODE" == "nftables" ]]; then
+    if [ "$PROXY_MODE" = "nftables" ]; then
         local k8s_major k8s_minor
         k8s_major=$(echo "$K8S_VERSION" | cut -d. -f1)
         k8s_minor=$(echo "$K8S_VERSION" | cut -d. -f2)
 
-        if [[ "$k8s_major" -lt 1 ]] || [[ "$k8s_major" -eq 1 && "$k8s_minor" -lt 29 ]]; then
+        if [ "$k8s_major" -lt 1 ] || [ "$k8s_major" -eq 1 ] && [ "$k8s_minor" -lt 29 ]; then
             log_error "nftables proxy mode requires Kubernetes 1.29 or higher"
             log_error "Current version: $K8S_VERSION"
             log_error "Please use --kubernetes-version 1.29 or higher, or choose a different proxy mode"
             exit 1
         fi
 
-        if [[ "$k8s_major" -eq 1 && "$k8s_minor" -lt 31 ]]; then
+        if [ "$k8s_major" -eq 1 ] && [ "$k8s_minor" -lt 31 ]; then
             log_warn "nftables is in alpha status in Kubernetes $K8S_VERSION (beta from 1.31+)"
         fi
     fi
@@ -129,13 +127,16 @@ validate_swap_enabled() {
 
 # Check if an address is IPv6 (contains colon)
 _is_ipv6() {
-    [[ "$1" == *:* ]]
+    case "$1" in
+        *:*) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 # Validate an IPv6 address (no brackets, no CIDR prefix)
 _validate_ipv6_addr() {
     local addr="$1" label="$2"
-    if ! [[ "$addr" =~ ^[a-fA-F0-9:]+$ ]]; then
+    if ! echo "$addr" | grep -qE '^[a-fA-F0-9:]+$'; then
         log_error "Invalid IPv6 address for $label: $addr"
         exit 1
     fi
@@ -147,11 +148,11 @@ _validate_ipv6_cidr() {
     local addr prefix
     addr="${cidr%/*}"
     prefix="${cidr##*/}"
-    if ! [[ "$addr" =~ ^[a-fA-F0-9:]+$ ]] || ! [[ "$prefix" =~ ^[0-9]+$ ]]; then
+    if ! echo "$addr" | grep -qE '^[a-fA-F0-9:]+$' || ! echo "$prefix" | grep -qE '^[0-9]+$'; then
         log_error "Invalid IPv6 CIDR for $label: $cidr"
         exit 1
     fi
-    if (( 10#$prefix > 128 )); then
+    if [ "$prefix" -gt 128 ]; then
         log_error "IPv6 prefix length out of range for $label: $cidr (max 128)"
         exit 1
     fi
@@ -164,14 +165,16 @@ _validate_single_cidr() {
         _validate_ipv6_cidr "$cidr" "$label"
     else
         # IPv4 CIDR validation
-        if [[ ! "$cidr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]]; then
+        if ! echo "$cidr" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'; then
             log_error "Invalid CIDR format for $label: $cidr"
             log_error "Expected format: x.x.x.x/y (e.g., 192.168.0.0/16)"
             exit 1
         fi
         local o1 o2 o3 o4 prefix
-        IFS='./' read -r o1 o2 o3 o4 prefix <<< "$cidr"
-        if (( 10#$o1>255 || 10#$o2>255 || 10#$o3>255 || 10#$o4>255 || 10#$prefix>32 )); then
+        IFS='./' read -r o1 o2 o3 o4 prefix <<EOF
+$cidr
+EOF
+        if [ "$o1" -gt 255 ] || [ "$o2" -gt 255 ] || [ "$o3" -gt 255 ] || [ "$o4" -gt 255 ] || [ "$prefix" -gt 32 ]; then
             log_error "CIDR values out of range for $label: $cidr"
             exit 1
         fi
@@ -181,23 +184,26 @@ _validate_single_cidr() {
 # Validate CIDR format (IPv4, IPv6, or dual-stack comma-separated)
 _validate_cidr() {
     local cidr="$1" label="$2"
-    if [[ "$cidr" == *,* ]]; then
-        # Dual-stack: validate each CIDR separately
-        local first="${cidr%%,*}"
-        local second="${cidr#*,}"
-        _validate_single_cidr "$first" "$label (first)"
-        _validate_single_cidr "$second" "$label (second)"
-        # Ensure one IPv4 + one IPv6
-        local first_is_v6=false second_is_v6=false
-        _is_ipv6 "${first%/*}" && first_is_v6=true
-        _is_ipv6 "${second%/*}" && second_is_v6=true
-        if [ "$first_is_v6" = "$second_is_v6" ]; then
-            log_error "Dual-stack $label must have one IPv4 and one IPv6 CIDR (got: $cidr)"
-            exit 1
-        fi
-    else
-        _validate_single_cidr "$cidr" "$label"
-    fi
+    case "$cidr" in
+        *,*)
+            # Dual-stack: validate each CIDR separately
+            local first="${cidr%%,*}"
+            local second="${cidr#*,}"
+            _validate_single_cidr "$first" "$label (first)"
+            _validate_single_cidr "$second" "$label (second)"
+            # Ensure one IPv4 + one IPv6
+            local first_is_v6=false second_is_v6=false
+            _is_ipv6 "${first%/*}" && first_is_v6=true
+            _is_ipv6 "${second%/*}" && second_is_v6=true
+            if [ "$first_is_v6" = "$second_is_v6" ]; then
+                log_error "Dual-stack $label must have one IPv4 and one IPv6 CIDR (got: $cidr)"
+                exit 1
+            fi
+            ;;
+        *)
+            _validate_single_cidr "$cidr" "$label"
+            ;;
+    esac
 }
 
 # Validate HA arguments
@@ -226,13 +232,15 @@ validate_ha_args() {
             _validate_ipv6_addr "$HA_VIP_ADDRESS" "--ha-vip"
         else
             # Validate IPv4 VIP address
-            if ! [[ "$HA_VIP_ADDRESS" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            if ! echo "$HA_VIP_ADDRESS" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
                 log_error "--ha-vip must be a valid IPv4 address (got: $HA_VIP_ADDRESS)"
                 exit 1
             fi
             local _vo1 _vo2 _vo3 _vo4
-            IFS='.' read -r _vo1 _vo2 _vo3 _vo4 <<< "$HA_VIP_ADDRESS"
-            if (( 10#$_vo1>255 || 10#$_vo2>255 || 10#$_vo3>255 || 10#$_vo4>255 )); then
+            IFS='.' read -r _vo1 _vo2 _vo3 _vo4 <<EOF
+$HA_VIP_ADDRESS
+EOF
+            if [ "$_vo1" -gt 255 ] || [ "$_vo2" -gt 255 ] || [ "$_vo3" -gt 255 ] || [ "$_vo4" -gt 255 ]; then
                 log_error "--ha-vip octets out of range (got: $HA_VIP_ADDRESS)"
                 exit 1
             fi
@@ -268,7 +276,7 @@ validate_ha_args() {
             fi
         fi
         # Validate interface name (alphanumeric, hyphens, dots; typical Linux interface names)
-        if ! [[ "$HA_VIP_INTERFACE" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+        if ! echo "$HA_VIP_INTERFACE" | grep -qE '^[a-zA-Z0-9._-]+$'; then
             log_error "--ha-interface contains invalid characters (got: $HA_VIP_INTERFACE)"
             exit 1
         fi
@@ -308,7 +316,7 @@ _parse_common_ssh_args() {
             _SSH_SHIFT=2
             ;;
         --ssh-password)
-            if [[ $argc -lt 2 ]]; then
+            if [ $argc -lt 2 ]; then
                 log_error "$arg requires a value"
                 exit 1
             fi
@@ -323,11 +331,14 @@ _parse_common_ssh_args() {
             ;;
         --ssh-host-key-check)
             _require_value "$argc" "$arg" "$next"
-            if [[ "$next" != "yes" && "$next" != "no" && "$next" != "accept-new" ]]; then
-                log_error "--ssh-host-key-check must be 'yes', 'no', or 'accept-new'"
-                exit 1
-            fi
-            if [[ "$next" == "no" ]]; then
+            case "$next" in
+                yes|no|accept-new) ;;
+                *)
+                    log_error "--ssh-host-key-check must be 'yes', 'no', or 'accept-new'"
+                    exit 1
+                    ;;
+            esac
+            if [ "$next" = "no" ]; then
                 log_warn "Disabling SSH host key verification allows MITM attacks. Consider 'accept-new' instead."
             fi
             # shellcheck disable=SC2034 # used by common/deploy.sh
@@ -341,7 +352,7 @@ _parse_common_ssh_args() {
 # Validate common SSH arguments (user, key, known_hosts, sshpass, port)
 _validate_common_ssh_args() {
     # Validate SSH user if specified
-    if [ -n "$DEPLOY_SSH_USER" ] && ! [[ "$DEPLOY_SSH_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_.-]*$ ]]; then
+    if [ -n "$DEPLOY_SSH_USER" ] && ! echo "$DEPLOY_SSH_USER" | grep -qE '^[a-zA-Z_][a-zA-Z0-9_.-]*$'; then
         log_error "Invalid SSH user: $DEPLOY_SSH_USER"
         exit 1
     fi
@@ -359,13 +370,13 @@ _validate_common_ssh_args() {
     fi
 
     # Check sshpass if password authentication is used
-    if [ -n "$DEPLOY_SSH_PASSWORD" ] && ! command -v sshpass &>/dev/null; then
+    if [ -n "$DEPLOY_SSH_PASSWORD" ] && ! command -v sshpass >/dev/null 2>&1; then
         log_error "sshpass is required for --ssh-password. Install it with your package manager."
         exit 1
     fi
 
     # Validate port number
-    if ! [[ "$DEPLOY_SSH_PORT" =~ ^[0-9]+$ ]] || [ "$DEPLOY_SSH_PORT" -lt 1 ] || [ "$DEPLOY_SSH_PORT" -gt 65535 ]; then
+    if ! echo "$DEPLOY_SSH_PORT" | grep -qE '^[0-9]+$' || [ "$DEPLOY_SSH_PORT" -lt 1 ] || [ "$DEPLOY_SSH_PORT" -gt 65535 ]; then
         log_error "Invalid SSH port: $DEPLOY_SSH_PORT"
         exit 1
     fi
@@ -374,53 +385,67 @@ _validate_common_ssh_args() {
 # Normalize a comma-separated node list: trim whitespace and remove empty tokens.
 # Usage: result=$(_normalize_node_list "node1 , node2,,node3")
 _normalize_node_list() {
-    local raw="$1" result=() cleaned=() token
-    IFS=',' read -ra result <<< "$raw"
-    for token in "${result[@]}"; do
+    local raw="$1" result="" token
+    _old_ifs="$IFS"; IFS=','
+    for token in $raw; do
+        IFS="$_old_ifs"
         token="${token#"${token%%[![:space:]]*}"}"  # trim leading whitespace
         token="${token%"${token##*[![:space:]]}"}"  # trim trailing whitespace
-        [ -n "$token" ] && cleaned+=("$token")
+        if [ -n "$token" ]; then
+            result="${result}${result:+,}${token}"
+        fi
+        IFS=','
     done
-    local IFS=','
-    echo "${cleaned[*]}"
+    IFS="$_old_ifs"
+    echo "$result"
 }
 
 # Validate node addresses (IP or hostname format, duplicate check, username validation)
 # Usage: _validate_node_addresses <comma-separated-addresses>
 _validate_node_addresses() {
     local all_addrs="$1"
-    IFS=',' read -ra _all_nodes <<< "$all_addrs"
+    local _seen_hosts=""
 
     # Check for duplicate host addresses
-    local -A _seen_hosts=()
-    for addr in "${_all_nodes[@]}"; do
+    _old_ifs="$IFS"; IFS=','
+    for addr in $all_addrs; do
+        IFS="$_old_ifs"
         local host="${addr#*@}"
-        if [ -n "${_seen_hosts[$host]:-}" ]; then
+        if printf '%s\n' "$_seen_hosts" | grep -qxF "$host"; then
             log_error "Duplicate node address: $host"
             exit 1
         fi
-        _seen_hosts[$host]="$addr"
+        _seen_hosts="${_seen_hosts}${_seen_hosts:+
+}${host}"
+        IFS=','
     done
+    IFS="$_old_ifs"
 
-    for addr in "${_all_nodes[@]}"; do
+    _old_ifs="$IFS"; IFS=','
+    for addr in $all_addrs; do
+        IFS="$_old_ifs"
         # Validate optional user@ prefix
-        if [[ "$addr" == *@* ]]; then
-            local username="${addr%%@*}"
-            if [ -z "$username" ]; then
-                log_error "Empty username in node address: $addr"
-                exit 1
-            fi
-            # Reject usernames starting with '-' (SSH option injection)
-            if [[ "$username" == -* ]]; then
-                log_error "Invalid username (starts with '-'): $username"
-                exit 1
-            fi
-            # Only allow safe characters in usernames
-            if ! [[ "$username" =~ ^[a-zA-Z0-9._-]+$ ]]; then
-                log_error "Invalid username: $username"
-                exit 1
-            fi
-        fi
+        case "$addr" in
+            *@*)
+                local username="${addr%%@*}"
+                if [ -z "$username" ]; then
+                    log_error "Empty username in node address: $addr"
+                    exit 1
+                fi
+                # Reject usernames starting with '-' (SSH option injection)
+                case "$username" in
+                    -*)
+                        log_error "Invalid username (starts with '-'): $username"
+                        exit 1
+                        ;;
+                esac
+                # Only allow safe characters in usernames
+                if ! echo "$username" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+                    log_error "Invalid username: $username"
+                    exit 1
+                fi
+                ;;
+        esac
         # Strip optional user@ prefix
         local host="${addr#*@}"
         if [ -z "$host" ]; then
@@ -428,40 +453,51 @@ _validate_node_addresses() {
             exit 1
         fi
         # Validate host: IPv4, hostname, or bracketed IPv6 (e.g., [::1])
-        if [[ "$host" =~ ^\[.*\]$ ]]; then
-            # Bracketed IPv6: strip brackets and validate hex/colons
-            local ipv6_inner="${host:1:${#host}-2}"
-            if ! [[ "$ipv6_inner" =~ ^[a-fA-F0-9:]+$ ]]; then
-                log_error "Invalid IPv6 address: $host"
+        case "$host" in
+            '['*']')
+                # Bracketed IPv6: strip brackets and validate hex/colons
+                local ipv6_inner
+                ipv6_inner="${host#\[}"; ipv6_inner="${ipv6_inner%\]}"
+                if ! echo "$ipv6_inner" | grep -qE '^[a-fA-F0-9:]+$'; then
+                    log_error "Invalid IPv6 address: $host"
+                    exit 1
+                fi
+                ;;
+            *:*)
+                # Raw IPv6 without brackets: require brackets for SCP compatibility
+                log_error "IPv6 addresses must be enclosed in brackets, e.g., [$host]"
                 exit 1
-            fi
-        elif [[ "$host" == *:* ]]; then
-            # Raw IPv6 without brackets: require brackets for SCP compatibility
-            log_error "IPv6 addresses must be enclosed in brackets, e.g., [$host]"
-            exit 1
-        elif ! [[ "$host" =~ ^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$ ]]; then
-            log_error "Invalid node address: $host"
-            exit 1
-        fi
+                ;;
+            *)
+                if ! echo "$host" | grep -qE '^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$'; then
+                    log_error "Invalid node address: $host"
+                    exit 1
+                fi
+                ;;
+        esac
+        IFS=','
     done
+    IFS="$_old_ifs"
 }
 
 # Guard for options requiring a value argument
 _require_value() {
-    if [[ $1 -lt 2 ]]; then
+    if [ $1 -lt 2 ]; then
         log_error "$2 requires a value"
         exit 1
     fi
     # Reject flag-like values (starting with -) to catch missing arguments
-    if [[ "${3:-}" == -* ]]; then
-        log_error "$2 requires a value, got '$3' (looks like a flag)"
-        exit 1
-    fi
+    case "${3:-}" in
+        -*)
+            log_error "$2 requires a value, got '$3' (looks like a flag)"
+            exit 1
+            ;;
+    esac
 }
 
 # Parse command line arguments for setup
 parse_setup_args() {
-    while [[ $# -gt 0 ]]; do
+    while [ $# -gt 0 ]; do
         case $1 in
             --cri)
                 _require_value $# "$1" "${2:-}"
@@ -471,7 +507,7 @@ parse_setup_args() {
             --kubernetes-version)
                 _require_value $# "$1" "${2:-}"
                 # Strict format validation: must be MAJOR.MINOR (e.g., 1.29, 1.32)
-                if ! [[ "$2" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                if ! echo "$2" | grep -qE '^[0-9]+\.[0-9]+$'; then
                     log_error "--kubernetes-version must be in MAJOR.MINOR format (e.g., 1.29, 1.32), got '$2'"
                     exit 1
                 fi
@@ -622,7 +658,7 @@ show_deploy_help() {
 
 # Parse command line arguments for deploy
 parse_deploy_args() {
-    while [[ $# -gt 0 ]]; do
+    while [ $# -gt 0 ]; do
         case $1 in
             --help|-h)
                 show_deploy_help
@@ -643,31 +679,42 @@ parse_deploy_args() {
                 ;;
             --ha-vip)
                 _require_value $# "$1" "${2:-}"
-                DEPLOY_PASSTHROUGH_ARGS+=("--ha-vip" "$2")
+                DEPLOY_PASSTHROUGH_ARGS="${DEPLOY_PASSTHROUGH_ARGS}${DEPLOY_PASSTHROUGH_ARGS:+
+}--ha-vip
+$2"
                 shift 2
                 ;;
             --ha-interface)
                 _require_value $# "$1" "${2:-}"
-                DEPLOY_PASSTHROUGH_ARGS+=("--ha-interface" "$2")
+                DEPLOY_PASSTHROUGH_ARGS="${DEPLOY_PASSTHROUGH_ARGS}${DEPLOY_PASSTHROUGH_ARGS:+
+}--ha-interface
+$2"
                 shift 2
                 ;;
             --distro)
                 _require_value $# "$1" "${2:-}"
-                DEPLOY_PASSTHROUGH_ARGS+=("$1" "$2")
+                DEPLOY_PASSTHROUGH_ARGS="${DEPLOY_PASSTHROUGH_ARGS}${DEPLOY_PASSTHROUGH_ARGS:+
+}$1
+$2"
                 shift 2
                 ;;
             --cri|--proxy-mode|--kubernetes-version|--pod-network-cidr|--service-cidr|--apiserver-advertise-address|--control-plane-endpoint)
                 _require_value $# "$1" "${2:-}"
-                DEPLOY_PASSTHROUGH_ARGS+=("$1" "$2")
+                DEPLOY_PASSTHROUGH_ARGS="${DEPLOY_PASSTHROUGH_ARGS}${DEPLOY_PASSTHROUGH_ARGS:+
+}$1
+$2"
                 shift 2
                 ;;
             --swap-enabled)
-                DEPLOY_PASSTHROUGH_ARGS+=("$1")
+                DEPLOY_PASSTHROUGH_ARGS="${DEPLOY_PASSTHROUGH_ARGS}${DEPLOY_PASSTHROUGH_ARGS:+
+}$1"
                 shift
                 ;;
             --enable-completion|--install-helm|--completion-shells)
                 _require_value $# "$1" "${2:-}"
-                DEPLOY_PASSTHROUGH_ARGS+=("$1" "$2")
+                DEPLOY_PASSTHROUGH_ARGS="${DEPLOY_PASSTHROUGH_ARGS}${DEPLOY_PASSTHROUGH_ARGS:+
+}$1
+$2"
                 shift 2
                 ;;
             *)
@@ -700,17 +747,13 @@ validate_deploy_args() {
 
     # Count control-plane nodes
     local cp_count
-    IFS=',' read -ra _cp_nodes <<< "$DEPLOY_CONTROL_PLANES"
-    cp_count=${#_cp_nodes[@]}
+    cp_count=$(echo "$DEPLOY_CONTROL_PLANES" | tr ',' '\n' | wc -l)
 
     # Check --ha-vip in passthrough args
     local has_ha_vip=false
-    for arg in "${DEPLOY_PASSTHROUGH_ARGS[@]}"; do
-        if [ "$arg" = "--ha-vip" ]; then
-            has_ha_vip=true
-            break
-        fi
-    done
+    case "$DEPLOY_PASSTHROUGH_ARGS" in
+        *--ha-vip*) has_ha_vip=true ;;
+    esac
 
     # If >1 CP, --ha-vip is required
     if [ "$cp_count" -gt 1 ] && [ "$has_ha_vip" = false ]; then
@@ -784,14 +827,14 @@ show_upgrade_help() {
 
 # Parse command line arguments for upgrade (local mode)
 parse_upgrade_local_args() {
-    while [[ $# -gt 0 ]]; do
+    while [ $# -gt 0 ]; do
         case $1 in
             --help|-h)
                 show_upgrade_help
                 ;;
             --kubernetes-version)
                 _require_value $# "$1" "${2:-}"
-                if ! [[ "$2" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                if ! echo "$2" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
                     log_error "--kubernetes-version for upgrade must be MAJOR.MINOR.PATCH (e.g., 1.33.2)"
                     exit 1
                 fi
@@ -827,7 +870,7 @@ parse_upgrade_local_args() {
 
 # Parse command line arguments for upgrade (remote/deploy mode)
 parse_upgrade_deploy_args() {
-    while [[ $# -gt 0 ]]; do
+    while [ $# -gt 0 ]; do
         case $1 in
             --help|-h)
                 show_upgrade_help
@@ -848,23 +891,28 @@ parse_upgrade_deploy_args() {
                 ;;
             --kubernetes-version)
                 _require_value $# "$1" "${2:-}"
-                if ! [[ "$2" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                if ! echo "$2" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
                     log_error "--kubernetes-version for upgrade must be MAJOR.MINOR.PATCH (e.g., 1.33.2)"
                     exit 1
                 fi
                 UPGRADE_TARGET_VERSION="$2"
-                UPGRADE_PASSTHROUGH_ARGS+=("$1" "$2")
+                UPGRADE_PASSTHROUGH_ARGS="${UPGRADE_PASSTHROUGH_ARGS}${UPGRADE_PASSTHROUGH_ARGS:+
+}$1
+$2"
                 shift 2
                 ;;
             --skip-drain)
                 # shellcheck disable=SC2034 # used by common/upgrade.sh
                 UPGRADE_SKIP_DRAIN=true
-                UPGRADE_PASSTHROUGH_ARGS+=("$1")
+                UPGRADE_PASSTHROUGH_ARGS="${UPGRADE_PASSTHROUGH_ARGS}${UPGRADE_PASSTHROUGH_ARGS:+
+}$1"
                 shift
                 ;;
             --distro)
                 _require_value $# "$1" "${2:-}"
-                UPGRADE_PASSTHROUGH_ARGS+=("$1" "$2")
+                UPGRADE_PASSTHROUGH_ARGS="${UPGRADE_PASSTHROUGH_ARGS}${UPGRADE_PASSTHROUGH_ARGS:+
+}$1
+$2"
                 shift 2
                 ;;
             *)
@@ -908,7 +956,7 @@ validate_upgrade_deploy_args() {
 
 # Parse command line arguments for cleanup
 parse_cleanup_args() {
-    while [[ $# -gt 0 ]]; do
+    while [ $# -gt 0 ]; do
         case $1 in
             --force)
                 FORCE=true
@@ -1025,7 +1073,7 @@ show_restore_help() {
 
 # Parse command line arguments for backup (local mode)
 parse_backup_local_args() {
-    while [[ $# -gt 0 ]]; do
+    while [ $# -gt 0 ]; do
         case $1 in
             --help|-h)
                 show_backup_help
@@ -1055,7 +1103,7 @@ parse_backup_local_args() {
 
 # Parse command line arguments for backup (remote mode)
 parse_backup_remote_args() {
-    while [[ $# -gt 0 ]]; do
+    while [ $# -gt 0 ]; do
         case $1 in
             --help|-h)
                 show_backup_help
@@ -1076,7 +1124,9 @@ parse_backup_remote_args() {
                 ;;
             --distro)
                 _require_value $# "$1" "${2:-}"
-                ETCD_PASSTHROUGH_ARGS+=("$1" "$2")
+                ETCD_PASSTHROUGH_ARGS="${ETCD_PASSTHROUGH_ARGS}${ETCD_PASSTHROUGH_ARGS:+
+}$1
+$2"
                 shift 2
                 ;;
             *)
@@ -1093,7 +1143,7 @@ parse_backup_remote_args() {
 
 # Parse command line arguments for restore (local mode)
 parse_restore_local_args() {
-    while [[ $# -gt 0 ]]; do
+    while [ $# -gt 0 ]; do
         case $1 in
             --help|-h)
                 show_restore_help
@@ -1122,7 +1172,7 @@ parse_restore_local_args() {
 
 # Parse command line arguments for restore (remote mode)
 parse_restore_remote_args() {
-    while [[ $# -gt 0 ]]; do
+    while [ $# -gt 0 ]; do
         case $1 in
             --help|-h)
                 show_restore_help
@@ -1143,7 +1193,9 @@ parse_restore_remote_args() {
                 ;;
             --distro)
                 _require_value $# "$1" "${2:-}"
-                ETCD_PASSTHROUGH_ARGS+=("$1" "$2")
+                ETCD_PASSTHROUGH_ARGS="${ETCD_PASSTHROUGH_ARGS}${ETCD_PASSTHROUGH_ARGS:+
+}$1
+$2"
                 shift 2
                 ;;
             *)
@@ -1198,16 +1250,19 @@ confirm_cleanup() {
             log_error "Non-interactive environment detected. Use --force to skip confirmation."
             exit 1
         fi
-        if [[ ! "$response" =~ ^[yY]$ ]]; then
-            echo "Operation cancelled."
-            exit 0
-        fi
+        case "$response" in
+            [yY]) ;;
+            *)
+                echo "Operation cancelled."
+                exit 0
+                ;;
+        esac
     fi
 }
 
 # Check if Docker is installed and warn about containerd
 check_docker_warning() {
-    if command -v docker &> /dev/null; then
+    if command -v docker >/dev/null 2>&1; then
         log_warn "Docker is installed on this system."
         log_warn "This cleanup script will reset containerd configuration but will NOT remove containerd."
         log_warn "Docker should continue to work normally after cleanup."

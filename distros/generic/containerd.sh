@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Install containerd + runc via direct binary download for generic distributions.
 

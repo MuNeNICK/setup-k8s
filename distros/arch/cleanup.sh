@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Arch Linux specific cleanup
 cleanup_arch() {
@@ -8,7 +8,7 @@ cleanup_arch() {
     # failures when shared deps exist. Orphan cleanup is handled separately.
     log_info "Removing Kubernetes packages from AUR..."
     for pkg in kubeadm-bin kubectl-bin kubelet-bin kubeadm kubectl kubelet; do
-        if pacman -Qi "$pkg" &>/dev/null; then
+        if pacman -Qi "$pkg" >/dev/null 2>&1; then
             log_info "Removing $pkg..."
             pacman -Rdd --noconfirm "$pkg" ||
                 log_warn "Failed to remove $pkg"
@@ -16,7 +16,7 @@ cleanup_arch() {
     done
 
     # Remove CRI-O package if installed
-    if pacman -Qi cri-o &>/dev/null; then
+    if pacman -Qi cri-o >/dev/null 2>&1; then
         log_info "Removing cri-o..."
         pacman -Rdd --noconfirm cri-o ||
             log_warn "Failed to remove cri-o"
@@ -49,13 +49,13 @@ cleanup_arch() {
     # Verify cleanup
     local remaining=0
     for pkg in kubeadm-bin kubeadm kubelet-bin kubelet kubectl-bin kubectl cri-o; do
-        if pacman -Qi "$pkg" &>/dev/null; then
+        if pacman -Qi "$pkg" >/dev/null 2>&1; then
             log_warn "Package still installed: $pkg"
             remaining=1
         fi
     done
     for binary in kubeadm kubectl kubelet; do
-        if [ -f "/usr/local/bin/$binary" ] || command -v "$binary" &>/dev/null; then
+        if [ -f "/usr/local/bin/$binary" ] || command -v "$binary" >/dev/null 2>&1; then
             log_warn "$binary still exists in PATH"
             remaining=1
         fi

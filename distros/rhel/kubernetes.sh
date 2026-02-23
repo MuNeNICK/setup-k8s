@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # _rhel_pkg_mgr is defined in dependencies.sh (loaded before this module)
 
@@ -26,7 +26,7 @@ EOF
     $PKG_MGR install -y kubelet kubeadm kubectl cri-tools
     
     # Check if installation was successful
-    if ! command -v kubeadm &> /dev/null; then
+    if ! command -v kubeadm >/dev/null 2>&1; then
         log_error "Kubernetes package installation failed."
         log_error "Ensure the repository GPG key is trusted and the repo is accessible."
         return 1

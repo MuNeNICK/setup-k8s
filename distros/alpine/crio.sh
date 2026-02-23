@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Setup CRI-O for Alpine Linux
 setup_crio_alpine() {

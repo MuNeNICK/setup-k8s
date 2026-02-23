@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Logging module with log level control
 # LOG_LEVEL: 0=quiet (errors only), 1=normal (default), 2=verbose (debug)

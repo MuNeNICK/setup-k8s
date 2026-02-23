@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Debian/Ubuntu specific: Install dependencies
 install_dependencies_debian() {

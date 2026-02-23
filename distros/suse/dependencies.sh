@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # SUSE specific: Install dependencies
 install_dependencies_suse() {

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Setup Kubernetes for Alpine Linux
 setup_kubernetes_alpine() {

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Setup containerd for Alpine Linux
 setup_containerd_alpine() {

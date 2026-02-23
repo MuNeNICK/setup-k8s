@@ -1,5 +1,5 @@
 # ShellCheck configuration for setup-k8s
-shell=bash
+shell=sh
 
 # SC1090: Can't follow non-constant source.
 # SC1091: Not following sourced file (file not found).
@@ -7,3 +7,8 @@ shell=bash
 # dynamic $SCRIPT_DIR / $DISTRO_FAMILY paths that shellcheck cannot resolve.
 disable=SC1090
 disable=SC1091
+
+# SC3043: 'local' is not defined in POSIX sh.
+# We use 'local' deliberately: it is supported by dash, ash, and busybox sh —
+# the POSIX-ish shells this project targets.
+disable=SC3043

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Setup Kubernetes for SUSE
 setup_kubernetes_suse() {
