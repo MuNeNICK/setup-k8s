@@ -68,6 +68,11 @@ ETCD_PASSTHROUGH_ARGS=""      # arguments to forward to remote nodes
 # Status subcommand
 STATUS_OUTPUT_FORMAT="text"   # output format: text or wide
 
+# Preflight subcommand
+PREFLIGHT_MODE="init"
+PREFLIGHT_CRI="containerd"
+PREFLIGHT_PROXY_MODE="iptables"
+
 # Version constants (overridable via environment)
 KUBE_VIP_VERSION="${KUBE_VIP_VERSION:-v0.8.9}"
 PAUSE_IMAGE_VERSION="${PAUSE_IMAGE_VERSION:-3.10}"

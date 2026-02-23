@@ -88,6 +88,28 @@ curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh
 
 Note: The joining node must use the same CRI as the existing cluster.
 
+## Preflight Checks
+
+Before initializing or joining a cluster, you can run preflight checks to verify system requirements:
+
+```bash
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- preflight
+```
+
+Check for join mode with specific options:
+```bash
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- \
+  preflight \
+  --mode join \
+  --cri crio \
+  --proxy-mode ipvs
+```
+
+Preview what checks will be performed:
+```bash
+curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh -s -- preflight --dry-run
+```
+
 ## Prerequisites
 
 ### System Requirements

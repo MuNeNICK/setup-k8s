@@ -39,11 +39,11 @@ while [ $# -gt 0 ]; do
     case "$arg" in
         --help|-h)
             # Deploy/upgrade/backup/restore/status --help is deferred to their parsers
-            if [ "$_action_detected" = true ] && { [ "$ACTION" = "deploy" ] || [ "$ACTION" = "upgrade" ] || [ "$ACTION" = "backup" ] || [ "$ACTION" = "restore" ] || [ "$ACTION" = "status" ]; }; then
+            if [ "$_action_detected" = true ] && { [ "$ACTION" = "deploy" ] || [ "$ACTION" = "upgrade" ] || [ "$ACTION" = "backup" ] || [ "$ACTION" = "restore" ] || [ "$ACTION" = "status" ] || [ "$ACTION" = "preflight" ]; }; then
                 _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$arg"
             else
                 cat <<'HELPEOF'
-Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore|status> [options]
+Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore|status|preflight> [options]
 
 Subcommands:
   init                    Initialize a new Kubernetes cluster
@@ -53,6 +53,7 @@ Subcommands:
   backup                  Create an etcd snapshot backup
   restore                 Restore an etcd snapshot
   status                  Show cluster and node status
+  preflight               Run preflight checks before init/join
 
 Options (init/join):
   --cri RUNTIME           Container runtime (containerd or crio). Default: containerd
@@ -118,6 +119,13 @@ Options (status):
   --output FORMAT         Output format: text (default) or wide
 
   Run 'setup-k8s.sh status --help' for details.
+
+Options (preflight):
+  --mode MODE             Check mode: init or join (default: init)
+  --cri RUNTIME           Container runtime to check (default: containerd)
+  --proxy-mode MODE       Proxy mode to check (default: iptables)
+
+  Run 'setup-k8s.sh preflight --help' for details.
 HELPEOF
                 exit 0
             fi
@@ -164,14 +172,14 @@ HELPEOF
             # First non-flag positional argument is the subcommand (strip it from cli_args)
             if [ "$_action_detected" = false ]; then
                 case "$arg" in
-                    init|join|deploy|upgrade|backup|restore|status)
+                    init|join|deploy|upgrade|backup|restore|status|preflight)
                         ACTION="$arg"
                         _action_detected=true
                         shift
                         continue
                         ;;
                     *)
-                        echo "Error: Unknown subcommand '$arg'. Valid subcommands: init, join, deploy, upgrade, backup, restore, status" >&2
+                        echo "Error: Unknown subcommand '$arg'. Valid subcommands: init, join, deploy, upgrade, backup, restore, status, preflight" >&2
                         exit 1
                         ;;
                 esac
@@ -481,6 +489,59 @@ main() {
         fi
     fi
 
+    # Preflight subcommand: local mode only, root required
+    if [ "$ACTION" = "preflight" ]; then
+        local preflight_modules="variables logging detection validation helpers preflight"
+        if { [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; } || [ "$BUNDLED_MODE" = "true" ]; then
+            if [ "$BUNDLED_MODE" != "true" ]; then
+                for module in $preflight_modules; do
+                    if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
+                        . "$SCRIPT_DIR/common/${module}.sh"
+                    else
+                        echo "Error: Required module common/${module}.sh not found in $SCRIPT_DIR" >&2
+                        exit 1
+                    fi
+                done
+            fi
+        else
+            # Standalone or curl | sh: download required modules
+            local _preflight_tmp_dir
+            _preflight_tmp_dir=$(mktemp -d /tmp/setup-k8s-preflight-XXXXXX)
+            _append_exit_trap "$_preflight_tmp_dir"
+            for module in $preflight_modules; do
+                if ! curl -fsSL --retry 3 --retry-delay 2 "${GITHUB_BASE_URL}/common/${module}.sh" > "$_preflight_tmp_dir/${module}.sh"; then
+                    echo "Error: Failed to download common/${module}.sh" >&2
+                    exit 1
+                fi
+                . "$_preflight_tmp_dir/${module}.sh"
+            done
+        fi
+
+        # Handle --help before root check
+        eval "$_RESTORE_CLI_ARGS"
+        for _parg in "$@"; do
+            if [ "$_parg" = "--help" ] || [ "$_parg" = "-h" ]; then
+                show_preflight_help
+            fi
+        done
+
+        if [ "$(id -u)" -ne 0 ]; then
+            echo "Error: Preflight checks must be run as root" >&2
+            exit 1
+        fi
+
+        eval "$_RESTORE_CLI_ARGS"
+        parse_preflight_args "$@"
+
+        if [ "$DRY_RUN" = true ]; then
+            preflight_dry_run
+            exit 0
+        fi
+
+        preflight_local
+        exit $?
+    fi
+
     # Status subcommand: local mode only, no root required
     if [ "$ACTION" = "status" ]; then
         local status_modules="variables logging validation helpers status"
@@ -523,7 +584,7 @@ main() {
 
     # Validate action early (deploy/upgrade/backup/restore/status already handled above)
     if [ -z "$ACTION" ]; then
-        echo "Error: Missing subcommand. Valid subcommands: init, join, deploy, upgrade, backup, restore, status" >&2
+        echo "Error: Missing subcommand. Valid subcommands: init, join, deploy, upgrade, backup, restore, status, preflight" >&2
         echo "Run with --help for usage information" >&2
         exit 1
     fi

@@ -3,7 +3,7 @@
 ## setup-k8s.sh
 
 ```
-Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore|status> [options]
+Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore|status|preflight> [options]
 ```
 
 ### Subcommands
@@ -17,6 +17,7 @@ Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore|status> [options]
 | `backup` | Create an etcd snapshot |
 | `restore` | Restore etcd from a snapshot |
 | `status` | Show cluster and node status |
+| `preflight` | Run preflight checks before init/join |
 
 ### Options
 
@@ -167,6 +168,22 @@ Options for the `status` subcommand. Runs locally without root privileges (read-
 **text mode** displays: node role, service status (kubelet, containerd, crio), installed versions, `kubectl get nodes`, and `kubectl get pods -n kube-system`.
 
 **wide mode** additionally displays: API server endpoint, Pod/Service CIDR, and etcd endpoint health.
+
+### Preflight Options
+
+Options for the `preflight` subcommand. Runs locally with root privileges to verify system requirements before `init` or `join`.
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `--mode MODE` | Check mode (`init` or `join`) | `init` | `--mode join` |
+| `--cri RUNTIME` | Container runtime to check (`containerd` or `crio`) | `containerd` | `--cri crio` |
+| `--proxy-mode MODE` | Proxy mode to check (`iptables`, `ipvs`, or `nftables`) | `iptables` | `--proxy-mode ipvs` |
+| `--dry-run` | Show what checks would be performed | — | `--dry-run` |
+| `--verbose` | Enable debug logging | — | `--verbose` |
+| `--quiet` | Suppress informational messages | — | `--quiet` |
+| `--help` | Display help message | — | `--help` |
+
+Checks performed: CPU count (>= 2), memory (>= 1700 MB), disk space, required port availability, kernel modules, IPv4 forwarding, CRI installation, swap state, cgroups v2, existing cluster detection (init only), and network connectivity.
 
 ## cleanup-k8s.sh
 

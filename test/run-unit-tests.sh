@@ -1425,6 +1425,142 @@ test_backup_help_exit
 test_restore_help_exit
 test_help_contains_backup_restore
 
+# ============================================================
+# Test: PREFLIGHT_* variable defaults
+# ============================================================
+test_preflight_variables_defaults() {
+    echo "=== Test: PREFLIGHT_* variable defaults ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        _assert_eq "PREFLIGHT_MODE default" "init" "$PREFLIGHT_MODE"
+        _assert_eq "PREFLIGHT_CRI default" "containerd" "$PREFLIGHT_CRI"
+        _assert_eq "PREFLIGHT_PROXY_MODE default" "iptables" "$PREFLIGHT_PROXY_MODE"
+    )
+}
+
+# ============================================================
+# Test: parse_preflight_args
+# ============================================================
+test_parse_preflight_args() {
+    echo "=== Test: parse_preflight_args ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+        source "$PROJECT_ROOT/common/preflight.sh"
+
+        parse_preflight_args --mode join --cri crio --proxy-mode ipvs
+        _assert_eq "PREFLIGHT_MODE parsed" "join" "$PREFLIGHT_MODE"
+        _assert_eq "PREFLIGHT_CRI parsed" "crio" "$PREFLIGHT_CRI"
+        _assert_eq "PREFLIGHT_PROXY_MODE parsed" "ipvs" "$PREFLIGHT_PROXY_MODE"
+    )
+}
+
+# ============================================================
+# Test: parse_preflight_args rejects invalid --mode
+# ============================================================
+test_parse_preflight_args_invalid_mode() {
+    echo "=== Test: parse_preflight_args rejects invalid --mode ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+        source "$PROJECT_ROOT/common/preflight.sh"
+
+        local exit_code=0
+        (parse_preflight_args --mode upgrade) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "invalid --mode rejected" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: parse_preflight_args rejects unknown option
+# ============================================================
+test_parse_preflight_unknown_option() {
+    echo "=== Test: parse_preflight_args unknown option ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+        source "$PROJECT_ROOT/common/preflight.sh"
+
+        local exit_code=0
+        (parse_preflight_args --bogus-flag) >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "unknown option rejected" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: preflight --help exits 0
+# ============================================================
+test_preflight_help_exit() {
+    echo "=== Test: preflight --help exits 0 ==="
+    _assert_exit_code "setup-k8s.sh preflight --help exits 0" 0 bash "$PROJECT_ROOT/setup-k8s.sh" preflight --help
+}
+
+# ============================================================
+# Test: help text contains 'preflight'
+# ============================================================
+test_help_contains_preflight() {
+    echo "=== Test: help text contains preflight ==="
+    (
+        local help_out
+        help_out=$(bash "$PROJECT_ROOT/setup-k8s.sh" --help 2>&1)
+        local has_preflight="false"
+        if echo "$help_out" | grep -q 'preflight'; then has_preflight="true"; fi
+        _assert_eq "help contains preflight" "true" "$has_preflight"
+    )
+}
+
+# ============================================================
+# Test: _preflight_check_cpu runs
+# ============================================================
+test_preflight_check_cpu() {
+    echo "=== Test: _preflight_check_cpu runs ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+        source "$PROJECT_ROOT/common/preflight.sh"
+
+        local out
+        out=$(_preflight_check_cpu 2>&1)
+        # Should output something about CPU
+        local has_cpu="false"
+        if echo "$out" | grep -qi 'cpu'; then has_cpu="true"; fi
+        _assert_eq "cpu check produces output" "true" "$has_cpu"
+    )
+}
+
+# ============================================================
+# Test: _preflight_check_memory runs
+# ============================================================
+test_preflight_check_memory() {
+    echo "=== Test: _preflight_check_memory runs ==="
+    (
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+        source "$PROJECT_ROOT/common/preflight.sh"
+
+        local out
+        out=$(_preflight_check_memory 2>&1)
+        # Should output something about memory
+        local has_mem="false"
+        if echo "$out" | grep -qi 'memory\|memtotal\|MB'; then has_mem="true"; fi
+        _assert_eq "memory check produces output" "true" "$has_mem"
+    )
+}
+
+test_preflight_variables_defaults
+test_parse_preflight_args
+test_parse_preflight_args_invalid_mode
+test_parse_preflight_unknown_option
+test_preflight_help_exit
+test_help_contains_preflight
+test_preflight_check_cpu
+test_preflight_check_memory
+
 echo ""
 TESTS_RUN=$(wc -l < "$_RESULTS_FILE")
 TESTS_PASSED=$(grep -c '^PASS$' "$_RESULTS_FILE" || true)
