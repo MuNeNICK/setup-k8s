@@ -3292,9 +3292,9 @@ eth0
     )
 }
 
-# 8A-deep: _bundle_dir_set / _bundle_dir_lookup
-test_bundle_dir_store() {
-    echo "=== Test: _bundle_dir_set / _bundle_dir_lookup ==="
+# 8A-deep: _bundle_dir_set / _bundle_dir_lookup (extended)
+test_bundle_dir_store_deep() {
+    echo "=== Test: _bundle_dir_set / _bundle_dir_lookup (deep) ==="
     (
         . "$PROJECT_ROOT/common/variables.sh"
         log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
@@ -3937,7 +3937,7 @@ test_parse_node_address_bare_ipv6
 test_posix_shell_quote_precise
 test_passthrough_special_chars
 test_passthrough_worker_ha_interface
-test_bundle_dir_store
+test_bundle_dir_store_deep
 test_session_known_hosts_lifecycle
 test_session_known_hosts_seeded
 test_etcd_backup_path_variables
