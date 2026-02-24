@@ -320,8 +320,13 @@ _parse_common_ssh_args() {
                 log_error "$arg requires a value"
                 exit 1
             fi
-            log_warn "--ssh-password exposes the password in the process list. Prefer DEPLOY_SSH_PASSWORD env var."
+            log_warn "--ssh-password exposes the password in the process list. Prefer --ssh-password-file or DEPLOY_SSH_PASSWORD env var."
             DEPLOY_SSH_PASSWORD="$next"
+            _SSH_SHIFT=2
+            ;;
+        --ssh-password-file)
+            _require_value "$argc" "$arg" "$next"
+            DEPLOY_SSH_PASSWORD_FILE="$next"
             _SSH_SHIFT=2
             ;;
         --ssh-known-hosts)
@@ -343,6 +348,29 @@ _parse_common_ssh_args() {
             fi
             # shellcheck disable=SC2034 # used by common/deploy.sh
             DEPLOY_SSH_HOST_KEY_CHECK="$next"
+            _SSH_SHIFT=2
+            ;;
+        --persist-known-hosts)
+            _require_value "$argc" "$arg" "$next"
+            DEPLOY_PERSIST_KNOWN_HOSTS="$next"
+            _SSH_SHIFT=2
+            ;;
+        --remote-timeout)
+            _require_value "$argc" "$arg" "$next"
+            if ! echo "$next" | grep -qE '^[0-9]+$' || [ "$next" -lt 1 ]; then
+                log_error "--remote-timeout must be a positive integer (seconds)"
+                exit 1
+            fi
+            DEPLOY_REMOTE_TIMEOUT="$next"
+            _SSH_SHIFT=2
+            ;;
+        --poll-interval)
+            _require_value "$argc" "$arg" "$next"
+            if ! echo "$next" | grep -qE '^[0-9]+$' || [ "$next" -lt 1 ]; then
+                log_error "--poll-interval must be a positive integer (seconds)"
+                exit 1
+            fi
+            DEPLOY_POLL_INTERVAL="$next"
             _SSH_SHIFT=2
             ;;
         *) return 1 ;;
@@ -379,6 +407,18 @@ _validate_common_ssh_args() {
     if ! echo "$DEPLOY_SSH_PORT" | grep -qE '^[0-9]+$' || [ "$DEPLOY_SSH_PORT" -lt 1 ] || [ "$DEPLOY_SSH_PORT" -gt 65535 ]; then
         log_error "Invalid SSH port: $DEPLOY_SSH_PORT"
         exit 1
+    fi
+
+    # Validate SSH key permissions (warning only)
+    if type _validate_ssh_key_permissions >/dev/null 2>&1; then
+        _validate_ssh_key_permissions
+    fi
+
+    # Load password from file if specified
+    if [ -n "${DEPLOY_SSH_PASSWORD_FILE:-}" ]; then
+        if type _load_ssh_password_file >/dev/null 2>&1; then
+            _load_ssh_password_file "$DEPLOY_SSH_PASSWORD_FILE"
+        fi
     fi
 }
 
@@ -601,6 +641,21 @@ parse_setup_args() {
                 SWAP_ENABLED=true
                 shift
                 ;;
+            --kubeadm-config-patch)
+                _require_value $# "$1" "${2:-}"
+                KUBEADM_CONFIG_PATCH="$2"
+                shift 2
+                ;;
+            --api-server-extra-sans)
+                _require_value $# "$1" "${2:-}"
+                API_SERVER_EXTRA_SANS="$2"
+                shift 2
+                ;;
+            --kubelet-node-ip)
+                _require_value $# "$1" "${2:-}"
+                KUBELET_NODE_IP="$2"
+                shift 2
+                ;;
             --distro)
                 _require_value $# "$1" "${2:-}"
                 _parse_distro_arg "$2"
@@ -629,9 +684,13 @@ show_deploy_help() {
     echo "  --ssh-user USER         Default SSH user (default: root)"
     echo "  --ssh-port PORT         SSH port (default: 22)"
     echo "  --ssh-key PATH          Path to SSH private key"
-    echo "  --ssh-password PASS     SSH password (requires sshpass; prefer DEPLOY_SSH_PASSWORD env var)"
+    echo "  --ssh-password PASS     SSH password (requires sshpass; prefer --ssh-password-file)"
+    echo "  --ssh-password-file PATH  Read SSH password from file (mode 0600 required)"
     echo "  --ssh-known-hosts FILE  Pre-seeded known_hosts for strict host key verification"
     echo "  --ssh-host-key-check MODE  SSH host key policy: yes, no, or accept-new (default: yes)"
+    echo "  --persist-known-hosts PATH  Save session known_hosts to file for reuse"
+    echo "  --remote-timeout SECS   Remote operation timeout in seconds (default: 600)"
+    echo "  --poll-interval SECS    Remote operation poll interval in seconds (default: 10)"
     echo "  --ha-vip ADDRESS        VIP address for HA (required when >1 control-plane)"
     echo "  --ha-interface IFACE    Network interface for VIP (auto-detected on remote)"
     echo "  --cri RUNTIME           Container runtime (containerd or crio)"
@@ -645,6 +704,7 @@ show_deploy_help() {
     echo "  --pod-network-cidr CIDR Pod network CIDR"
     echo "  --service-cidr CIDR     Service CIDR"
     echo "  --dry-run               Show deployment plan and exit"
+    echo "  --resume                Resume a previously interrupted deploy"
     echo "  --verbose               Enable debug logging"
     echo "  --quiet                 Suppress informational messages"
     echo "  --help                  Display this help message"
@@ -673,7 +733,7 @@ parse_deploy_args() {
                 DEPLOY_WORKERS="$2"
                 shift 2
                 ;;
-            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-known-hosts|--ssh-host-key-check)
+            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-password-file|--ssh-known-hosts|--ssh-host-key-check|--persist-known-hosts|--remote-timeout|--poll-interval)
                 _parse_common_ssh_args $# "$1" "${2:-}"
                 shift "$_SSH_SHIFT"
                 ;;
@@ -698,7 +758,7 @@ $2"
 $2"
                 shift 2
                 ;;
-            --cri|--proxy-mode|--kubernetes-version|--pod-network-cidr|--service-cidr|--apiserver-advertise-address|--control-plane-endpoint)
+            --cri|--proxy-mode|--kubernetes-version|--pod-network-cidr|--service-cidr|--apiserver-advertise-address|--control-plane-endpoint|--kubeadm-config-patch|--api-server-extra-sans|--kubelet-node-ip)
                 _require_value $# "$1" "${2:-}"
                 DEPLOY_PASSTHROUGH_ARGS="${DEPLOY_PASSTHROUGH_ARGS}${DEPLOY_PASSTHROUGH_ARGS:+
 }$1
@@ -786,6 +846,8 @@ show_upgrade_help() {
     echo "  Optional:"
     echo "    --first-control-plane     Run 'kubeadm upgrade apply' (first CP only)"
     echo "    --skip-drain              Skip drain/uncordon (for single-node clusters)"
+    echo "    --no-rollback             Disable automatic rollback on failure"
+    echo "    --auto-step-upgrade       Automatically step through intermediate minor versions"
     echo "    --distro FAMILY           Override distro family detection"
     echo "    --verbose                 Enable debug logging"
     echo "    --quiet                   Suppress informational messages"
@@ -804,8 +866,12 @@ show_upgrade_help() {
     echo "    --ssh-password PASS       SSH password (requires sshpass; prefer DEPLOY_SSH_PASSWORD env var)"
     echo "    --ssh-known-hosts FILE    Pre-seeded known_hosts for host key verification"
     echo "    --ssh-host-key-check MODE SSH host key policy: yes, no, or accept-new (default: yes)"
+    echo "    --remote-timeout SECS     Remote operation timeout in seconds (default: 600)"
+    echo "    --poll-interval SECS      Remote operation poll interval in seconds (default: 10)"
     echo "    --skip-drain              Skip drain/uncordon for all nodes"
+    echo "    --auto-step-upgrade       Automatically step through intermediate minor versions"
     echo "    --dry-run                 Show upgrade plan and exit"
+    echo "    --resume                  Resume a previously interrupted upgrade"
     echo "    --verbose                 Enable debug logging"
     echo "    --quiet                   Suppress informational messages"
     echo "    --help                    Display this help message"
@@ -851,6 +917,16 @@ parse_upgrade_local_args() {
                 UPGRADE_SKIP_DRAIN=true
                 shift
                 ;;
+            --no-rollback)
+                # shellcheck disable=SC2034 # used by common/upgrade.sh
+                UPGRADE_NO_ROLLBACK=true
+                shift
+                ;;
+            --auto-step-upgrade)
+                # shellcheck disable=SC2034 # used by common/upgrade.sh
+                UPGRADE_AUTO_STEP=true
+                shift
+                ;;
             --distro)
                 _require_value $# "$1" "${2:-}"
                 _parse_distro_arg "$2"
@@ -885,7 +961,7 @@ parse_upgrade_deploy_args() {
                 DEPLOY_WORKERS="$2"
                 shift 2
                 ;;
-            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-known-hosts|--ssh-host-key-check)
+            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-password-file|--ssh-known-hosts|--ssh-host-key-check|--persist-known-hosts|--remote-timeout|--poll-interval)
                 _parse_common_ssh_args $# "$1" "${2:-}"
                 shift "$_SSH_SHIFT"
                 ;;
@@ -906,6 +982,16 @@ $2"
                 UPGRADE_SKIP_DRAIN=true
                 UPGRADE_PASSTHROUGH_ARGS="${UPGRADE_PASSTHROUGH_ARGS}${UPGRADE_PASSTHROUGH_ARGS:+
 }$1"
+                shift
+                ;;
+            --no-rollback)
+                # shellcheck disable=SC2034 # used by common/upgrade.sh
+                UPGRADE_NO_ROLLBACK=true
+                shift
+                ;;
+            --auto-step-upgrade)
+                # shellcheck disable=SC2034 # used by common/upgrade.sh
+                UPGRADE_AUTO_STEP=true
                 shift
                 ;;
             --distro)
@@ -972,6 +1058,8 @@ show_remove_help() {
     echo "  --ssh-password PASS       SSH password (requires sshpass; prefer DEPLOY_SSH_PASSWORD env var)"
     echo "  --ssh-known-hosts FILE    Pre-seeded known_hosts for host key verification"
     echo "  --ssh-host-key-check MODE SSH host key policy: yes, no, or accept-new (default: yes)"
+    echo "  --remote-timeout SECS     Remote operation timeout in seconds (default: 600)"
+    echo "  --poll-interval SECS      Remote operation poll interval in seconds (default: 10)"
     echo "  --dry-run                 Show removal plan and exit"
     echo "  --verbose                 Enable debug logging"
     echo "  --quiet                   Suppress informational messages"
@@ -1004,7 +1092,7 @@ parse_remove_args() {
                 FORCE=true
                 shift
                 ;;
-            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-known-hosts|--ssh-host-key-check)
+            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-password-file|--ssh-known-hosts|--ssh-host-key-check|--persist-known-hosts|--remote-timeout|--poll-interval)
                 _parse_common_ssh_args $# "$1" "${2:-}"
                 shift "$_SSH_SHIFT"
                 ;;
@@ -1134,6 +1222,8 @@ show_backup_help() {
     echo "    --ssh-password PASS     SSH password (requires sshpass; prefer DEPLOY_SSH_PASSWORD env var)"
     echo "    --ssh-known-hosts FILE  Pre-seeded known_hosts for host key verification"
     echo "    --ssh-host-key-check MODE  SSH host key policy: yes, no, or accept-new (default: yes)"
+    echo "    --remote-timeout SECS   Remote operation timeout in seconds (default: 600)"
+    echo "    --poll-interval SECS    Remote operation poll interval in seconds (default: 10)"
     echo "    --dry-run               Show backup plan and exit"
     echo "    --verbose               Enable debug logging"
     echo "    --quiet                 Suppress informational messages"
@@ -1178,6 +1268,8 @@ show_restore_help() {
     echo "    --ssh-password PASS     SSH password (requires sshpass; prefer DEPLOY_SSH_PASSWORD env var)"
     echo "    --ssh-known-hosts FILE  Pre-seeded known_hosts for host key verification"
     echo "    --ssh-host-key-check MODE  SSH host key policy: yes, no, or accept-new (default: yes)"
+    echo "    --remote-timeout SECS   Remote operation timeout in seconds (default: 600)"
+    echo "    --poll-interval SECS    Remote operation poll interval in seconds (default: 10)"
     echo "    --dry-run               Show restore plan and exit"
     echo "    --verbose               Enable debug logging"
     echo "    --quiet                 Suppress informational messages"
@@ -1239,7 +1331,7 @@ parse_backup_remote_args() {
                 ETCD_SNAPSHOT_PATH="$2"
                 shift 2
                 ;;
-            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-known-hosts|--ssh-host-key-check)
+            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-password-file|--ssh-known-hosts|--ssh-host-key-check|--persist-known-hosts|--remote-timeout|--poll-interval)
                 _parse_common_ssh_args $# "$1" "${2:-}"
                 shift "$_SSH_SHIFT"
                 ;;
@@ -1308,7 +1400,7 @@ parse_restore_remote_args() {
                 ETCD_SNAPSHOT_PATH="$2"
                 shift 2
                 ;;
-            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-known-hosts|--ssh-host-key-check)
+            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-password-file|--ssh-known-hosts|--ssh-host-key-check|--persist-known-hosts|--remote-timeout|--poll-interval)
                 _parse_common_ssh_args $# "$1" "${2:-}"
                 shift "$_SSH_SHIFT"
                 ;;
@@ -1384,6 +1476,8 @@ show_renew_help() {
     echo "    --ssh-password PASS       SSH password (requires sshpass; prefer DEPLOY_SSH_PASSWORD env var)"
     echo "    --ssh-known-hosts FILE    Pre-seeded known_hosts for host key verification"
     echo "    --ssh-host-key-check MODE SSH host key policy: yes, no, or accept-new (default: yes)"
+    echo "    --remote-timeout SECS     Remote operation timeout in seconds (default: 600)"
+    echo "    --poll-interval SECS      Remote operation poll interval in seconds (default: 10)"
     echo "    --dry-run                 Show renewal plan and exit"
     echo "    --verbose                 Enable debug logging"
     echo "    --quiet                   Suppress informational messages"
@@ -1451,7 +1545,7 @@ parse_renew_deploy_args() {
                 DEPLOY_CONTROL_PLANES="$2"
                 shift 2
                 ;;
-            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-known-hosts|--ssh-host-key-check)
+            --ssh-user|--ssh-port|--ssh-key|--ssh-password|--ssh-password-file|--ssh-known-hosts|--ssh-host-key-check|--persist-known-hosts|--remote-timeout|--poll-interval)
                 _parse_common_ssh_args $# "$1" "${2:-}"
                 shift "$_SSH_SHIFT"
                 ;;

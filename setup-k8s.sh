@@ -23,6 +23,12 @@ esac
 # Default GitHub base URL (can be overridden)
 GITHUB_BASE_URL="${GITHUB_BASE_URL:-https://raw.githubusercontent.com/MuNeNICK/setup-k8s/main}"
 
+# Defaults for global flags parsed before modules are loaded
+LOG_DIR="${LOG_DIR:-}"
+_AUDIT_SYSLOG="${_AUDIT_SYSLOG:-false}"
+COLLECT_DIAGNOSTICS="${COLLECT_DIAGNOSTICS:-false}"
+RESUME_ENABLED="${RESUME_ENABLED:-false}"
+
 # Check if running in bundled mode (all modules embedded in this script)
 BUNDLED_MODE="${BUNDLED_MODE:-false}"
 
@@ -167,6 +173,22 @@ HELPEOF
             DRY_RUN=true
             shift
             ;;
+        --log-dir)
+            if [ $# -lt 2 ]; then
+                echo "Error: --log-dir requires a value" >&2
+                exit 1
+            fi
+            LOG_DIR="$2"
+            shift 2
+            ;;
+        --audit-syslog)
+            _AUDIT_SYSLOG=true
+            shift
+            ;;
+        --collect-diagnostics)
+            COLLECT_DIAGNOSTICS=true
+            shift
+            ;;
         --distro)
             if [ $# -lt 2 ]; then
                 echo "Error: --distro requires a value" >&2
@@ -177,7 +199,11 @@ HELPEOF
             _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$2"
             shift 2
             ;;
-        --ha|--control-plane|--swap-enabled|--first-control-plane|--skip-drain|--force|--preserve-cni|--remove-helm|--check-only)
+        --resume)
+            RESUME_ENABLED=true
+            shift
+            ;;
+        --ha|--control-plane|--swap-enabled|--first-control-plane|--skip-drain|--no-rollback|--auto-step-upgrade|--force|--preserve-cni|--remove-helm|--check-only|--preflight-strict)
             _cli_argc=$((_cli_argc + 1)); eval "_cli_${_cli_argc}=\$arg"
             shift
             ;;
@@ -273,7 +299,7 @@ _setup_dry_run() {
 main() {
     # Deploy subcommand: orchestrator runs locally, no root / distro detection needed
     if [ "$ACTION" = "deploy" ]; then
-        local deploy_src_modules="variables logging validation deploy"
+        local deploy_src_modules="variables logging validation ssh health diagnostics state deploy"
         if [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; then
             # Local checkout: source modules directly
             for module in $deploy_src_modules; do
@@ -321,7 +347,7 @@ main() {
 
         if [ "$_upgrade_remote" = true ]; then
             # Remote mode: orchestrate upgrade via SSH (no root required locally)
-            local upgrade_deploy_modules="variables logging validation deploy upgrade"
+            local upgrade_deploy_modules="variables logging validation ssh health diagnostics state deploy upgrade"
             if [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; then
                 for module in $upgrade_deploy_modules; do
                     if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
@@ -403,7 +429,7 @@ main() {
 
     # Remove subcommand: remote mode only (orchestrate node removal via SSH)
     if [ "$ACTION" = "remove" ]; then
-        local remove_deploy_modules="variables logging validation deploy upgrade remove"
+        local remove_deploy_modules="variables logging validation ssh health diagnostics state deploy upgrade remove"
         if [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; then
             for module in $remove_deploy_modules; do
                 if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
@@ -510,7 +536,7 @@ main() {
 
         if [ "$_etcd_remote" = true ]; then
             # Remote mode: orchestrate via SSH (no root required locally)
-            local etcd_deploy_modules="variables logging validation deploy etcd"
+            local etcd_deploy_modules="variables logging validation ssh deploy etcd"
             if [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; then
                 for module in $etcd_deploy_modules; do
                     if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then
@@ -676,7 +702,7 @@ main() {
 
         if [ "$_renew_remote" = true ]; then
             # Remote mode: orchestrate renewal via SSH (no root required locally)
-            local renew_deploy_modules="variables logging validation deploy renew"
+            local renew_deploy_modules="variables logging validation ssh deploy renew"
             if [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/common" ]; then
                 for module in $renew_deploy_modules; do
                     if [ -f "$SCRIPT_DIR/common/${module}.sh" ]; then

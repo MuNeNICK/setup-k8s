@@ -198,12 +198,36 @@ The orchestration flow:
 5. For each worker node: drain, upgrade, uncordon
 6. Verify cluster state with `kubectl get nodes`
 
+### Automatic Rollback
+
+When a remote upgrade fails, setup-k8s automatically rolls back the failing node:
+
+1. Records pre-upgrade package versions (kubeadm, kubelet, kubectl)
+2. On failure, downgrades packages to the recorded versions
+3. Restarts kubelet and uncordons the node
+4. Logs the rollback outcome
+
+Use `--no-rollback` to disable automatic rollback (useful for debugging).
+
+### Multi-Version Upgrade
+
+Kubernetes only supports +1 minor version upgrades. To upgrade across multiple minor versions (e.g., 1.31 → 1.33), use `--auto-step-upgrade`:
+
+```bash
+setup-k8s.sh upgrade \
+  --control-planes 10.0.0.1,10.0.0.2 \
+  --kubernetes-version 1.33.2 \
+  --auto-step-upgrade \
+  --ssh-key ~/.ssh/id_rsa
+```
+
+The script automatically computes intermediate steps (1.31 → 1.32.latest → 1.33.2), running a full cluster upgrade and health check at each step.
+
 ### Error Handling
 
 - **Drain timeout**: The upgrade stops at the failing node. The node remains cordoned.
-- **Upgrade failure**: The process stops. Some nodes may be in mixed-version state (allowed by Kubernetes skew policy).
+- **Upgrade failure**: Automatic rollback restores the failing node to pre-upgrade state (disable with `--no-rollback`).
 - **kubelet restart failure**: A warning is logged but the process continues (kubelet may take time to stabilize).
-- No automatic rollback is performed. Manual intervention may be required for partially upgraded clusters.
 
 ### Requirements
 
@@ -535,4 +559,119 @@ Check cluster status:
 ```bash
 kubectl get nodes
 kubectl get pods --all-namespaces
+```
+
+## Logging and Diagnostics
+
+### File Logging
+
+Persist all log output to disk with `--log-dir`:
+
+```bash
+setup-k8s.sh deploy --log-dir /var/log/setup-k8s --control-planes 10.0.0.1 --ssh-key ~/.ssh/id_rsa
+```
+
+Log files are created with timestamp names (e.g., `setup-k8s-20260224-120000.log`) and mode 0600.
+
+### Audit Logging
+
+Structured audit events are recorded for all operations (deploy, upgrade, remove, backup, restore, renew). Each event includes timestamp, operation, outcome, and user.
+
+Audit events are always written to the log file (when `--log-dir` is set). Add `--audit-syslog` to also send them to syslog via `logger -t setup-k8s`.
+
+### Failure Diagnostics
+
+When `--collect-diagnostics` is enabled, the script automatically collects debug information from failing nodes:
+
+- kubelet logs (last 100 lines)
+- containerd logs (last 50 lines)
+- Recent cluster events
+- Disk and memory status
+
+Diagnostics are saved to `/tmp/setup-k8s-diag-*` on the orchestrator machine.
+
+## Cluster Health Checks
+
+Post-operation health checks run automatically after deploy, upgrade, and remove operations:
+
+- **API server responsiveness** — `kubectl get --raw /readyz`
+- **Node readiness** — all nodes in `Ready` state
+- **etcd health** — etcd cluster health and quorum
+- **Core pods** — kube-system pods running
+
+Pre-operation health checks run before upgrade and remove to verify the cluster is healthy before making changes.
+
+## Operation Resume
+
+Long-running operations (deploy, upgrade) can be resumed after interruption with `--resume`:
+
+```bash
+# If deploy was interrupted, resume from the last completed step
+setup-k8s.sh deploy --resume --control-planes 10.0.0.1,10.0.0.2 --ssh-key ~/.ssh/id_rsa
+```
+
+State is persisted to `/var/lib/setup-k8s/state/`. Completed steps (e.g., kubeadm init, individual node joins) are skipped on resume. Bundle generation and transfer are always re-executed since remote temp directories are cleaned on exit.
+
+## kubeadm Configuration
+
+### Custom kubeadm Config Patch
+
+Append additional kubeadm configuration via `--kubeadm-config-patch`:
+
+```bash
+setup-k8s.sh deploy --control-planes 10.0.0.1 \
+  --kubeadm-config-patch custom-config.yaml \
+  --ssh-key ~/.ssh/id_rsa
+```
+
+The patch file is appended as an additional YAML document (`---` separator) to the generated kubeadm config. This allows customizing any kubeadm API object (ClusterConfiguration, KubeletConfiguration, etc.).
+
+### Extra API Server SANs
+
+Add additional Subject Alternative Names to the API server certificate:
+
+```bash
+setup-k8s.sh deploy --control-planes 10.0.0.1 \
+  --api-server-extra-sans lb.example.com,10.0.0.200 \
+  --ssh-key ~/.ssh/id_rsa
+```
+
+### Kubelet Node IP
+
+Set a specific node IP for kubelet advertisement:
+
+```bash
+setup-k8s.sh deploy --control-planes 10.0.0.1 \
+  --kubelet-node-ip 10.0.0.1 \
+  --ssh-key ~/.ssh/id_rsa
+```
+
+## SSH Security
+
+### Password File
+
+Avoid exposing passwords in the process list by using `--ssh-password-file` instead of `--ssh-password`:
+
+```bash
+setup-k8s.sh deploy --control-planes 10.0.0.1 \
+  --ssh-password-file /run/secrets/ssh-pass
+```
+
+The file must have mode 0600 or stricter.
+
+### Known Hosts Persistence
+
+Save discovered SSH host keys for reuse across sessions:
+
+```bash
+# First run: discover and save host keys
+setup-k8s.sh deploy --control-planes 10.0.0.1 \
+  --ssh-host-key-check accept-new \
+  --persist-known-hosts ./known_hosts \
+  --ssh-key ~/.ssh/id_rsa
+
+# Subsequent runs: reuse saved host keys
+setup-k8s.sh upgrade --control-planes 10.0.0.1 \
+  --ssh-known-hosts ./known_hosts \
+  --ssh-key ~/.ssh/id_rsa
 ```

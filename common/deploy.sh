@@ -1,315 +1,7 @@
 #!/bin/sh
 
 # Deploy module: orchestrate remote Kubernetes cluster installation via SSH
-
-# Timeout for remote operations (seconds)
-DEPLOY_REMOTE_TIMEOUT=600
-# Polling interval (seconds)
-DEPLOY_POLL_INTERVAL=10
-# Session-scoped known_hosts file (set by deploy_cluster)
-_DEPLOY_KNOWN_HOSTS=""
-# Module-level state for remote cleanup (must survive function scope for EXIT trap)
-_DEPLOY_ALL_NODES=""
-_DEPLOY_NODE_BUNDLE_DIRS=""
-
-# --- SSH Infrastructure ---
-
-# Build SSH options string (space-separated, no arrays)
-# Sets: _SSH_OPTS (global string)
-_build_deploy_ssh_opts() {
-    local known_hosts="${_DEPLOY_KNOWN_HOSTS:-/dev/null}"
-    local host_key_policy="${DEPLOY_SSH_HOST_KEY_CHECK:-yes}"
-    _SSH_OPTS="-o StrictHostKeyChecking=$host_key_policy -o UserKnownHostsFile=$known_hosts -o LogLevel=ERROR -o ConnectTimeout=10"
-    # Prevent interactive prompts in automated mode (BatchMode not used with sshpass)
-    if [ -z "$DEPLOY_SSH_PASSWORD" ]; then
-        _SSH_OPTS="$_SSH_OPTS -o BatchMode=yes"
-    fi
-    _SSH_OPTS="$_SSH_OPTS -p $DEPLOY_SSH_PORT"
-    if [ -n "$DEPLOY_SSH_KEY" ]; then
-        _SSH_OPTS="$_SSH_OPTS -i $DEPLOY_SSH_KEY"
-    fi
-}
-
-# Run SSH command on a remote node
-# Usage: _deploy_ssh <user> <host> <command...>
-_deploy_ssh() {
-    local user="$1" host="$2"; shift 2
-    _build_deploy_ssh_opts
-
-    # Strip brackets from IPv6 addresses for SSH (SSH needs user@::1, not user@[::1])
-    local ssh_host="$host"
-    case "$host" in
-        '['*']')
-            ssh_host="${host#\[}"
-            ssh_host="${ssh_host%\]}"
-            ;;
-    esac
-
-    if [ -n "$DEPLOY_SSH_PASSWORD" ]; then
-        # shellcheck disable=SC2086 # intentional word splitting on SSH opts
-        SSHPASS="$DEPLOY_SSH_PASSWORD" sshpass -e ssh $_SSH_OPTS -- "${user}@${ssh_host}" "$@"
-    else
-        # shellcheck disable=SC2086 # intentional word splitting on SSH opts
-        ssh $_SSH_OPTS -- "${user}@${ssh_host}" "$@"
-    fi
-}
-
-# Build SCP options string and bracketed host from SSH opts.
-# Sets: _SCP_OPTS (string), _SCP_HOST (string)
-_build_scp_args() {
-    local host="$1"
-    _build_deploy_ssh_opts
-
-    # Convert -p to -P for scp
-    _SCP_OPTS=$(echo "$_SSH_OPTS" | sed "s/ -p / -P /")
-
-    _SCP_HOST="$host"
-    case "$host" in
-        *:*)
-            case "$host" in
-                '['*']') ;;  # already bracketed
-                *) _SCP_HOST="[$host]" ;;
-            esac
-            ;;
-    esac
-}
-
-# Run scp with optional sshpass
-_run_scp() {
-    if [ -n "$DEPLOY_SSH_PASSWORD" ]; then
-        SSHPASS="$DEPLOY_SSH_PASSWORD" sshpass -e scp "$@"
-    else
-        scp "$@"
-    fi
-}
-
-# SCP file to a remote node
-# Usage: _deploy_scp <local_path> <user> <host> <remote_path>
-_deploy_scp() {
-    local local_path="$1" user="$2" host="$3" remote_path="$4"
-    _build_scp_args "$host"
-    # shellcheck disable=SC2086 # intentional word splitting on SCP opts
-    _run_scp $_SCP_OPTS "$local_path" "${user}@${_SCP_HOST}:${remote_path}"
-}
-
-# SCP file from a remote node to local
-# Usage: _deploy_scp_from <user> <host> <remote_path> <local_path>
-_deploy_scp_from() {
-    local user="$1" host="$2" remote_path="$3" local_path="$4"
-    _build_scp_args "$host"
-    # shellcheck disable=SC2086 # intentional word splitting on SCP opts
-    _run_scp $_SCP_OPTS "${user}@${_SCP_HOST}:${remote_path}" "$local_path"
-}
-
-# Parse node address: "user@ip" or "ip" → sets _NODE_USER, _NODE_HOST
-_parse_node_address() {
-    local addr="$1"
-    case "$addr" in
-        *@*)
-            _NODE_USER="${addr%%@*}"
-            _NODE_HOST="${addr#*@}"
-            ;;
-        *)
-            _NODE_USER="$DEPLOY_SSH_USER"
-            _NODE_HOST="$addr"
-            ;;
-    esac
-}
-
-# Check SSH connectivity and sudo for a list of nodes
-# Usage: _check_ssh_connectivity <node1> [node2] ...
-_check_ssh_connectivity() {
-    local ssh_failed=false
-    for node in "$@"; do
-        _parse_node_address "$node"
-        local _ssh_err
-        if _ssh_err=$(_deploy_ssh "$_NODE_USER" "$_NODE_HOST" "echo ok" 2>&1 >/dev/null); then
-            log_info "  [${_NODE_HOST}] SSH OK"
-            if [ "$_NODE_USER" != "root" ]; then
-                local _sudo_err
-                if ! _sudo_err=$(_deploy_ssh "$_NODE_USER" "$_NODE_HOST" "sudo -n true" 2>&1); then
-                    log_error "  [${_NODE_HOST}] sudo -n failed — NOPASSWD sudo required for ${_NODE_USER}"
-                    [ -n "$_sudo_err" ] && log_error "  [${_NODE_HOST}] ${_sudo_err}"
-                    ssh_failed=true
-                fi
-            fi
-        else
-            log_error "  [${_NODE_HOST}] SSH connection failed (${_NODE_USER}@${_NODE_HOST}:${DEPLOY_SSH_PORT})"
-            [ -n "$_ssh_err" ] && log_error "  [${_NODE_HOST}] ${_ssh_err}"
-            ssh_failed=true
-        fi
-    done
-    [ "$ssh_failed" = true ] && return 1
-    return 0
-}
-
-# --- Bundle Generation ---
-
-# Generate a self-contained bundle script for remote execution
-generate_deploy_bundle() {
-    local bundle_path="$1"
-    local script_dir="${SCRIPT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
-    _generate_bundle_core "$bundle_path" "$script_dir/setup-k8s.sh" "all" "$script_dir"
-}
-
-# --- Associative store helpers (newline-separated key=value) ---
-
-# Store a key=value pair in the bundle dirs store
-# Usage: _bundle_dir_set <host> <dir>
-_bundle_dir_set() {
-    _DEPLOY_NODE_BUNDLE_DIRS="${_DEPLOY_NODE_BUNDLE_DIRS}${_DEPLOY_NODE_BUNDLE_DIRS:+
-}${1}=${2}"
-}
-
-# Lookup a value by key from the bundle dirs store
-# Usage: _bundle_dir_lookup <host>
-_bundle_dir_lookup() {
-    local _lookup_key="$1" _lookup_result=""
-    _lookup_result=$(printf '%s\n' "$_DEPLOY_NODE_BUNDLE_DIRS" | while IFS='=' read -r _k _v; do
-        if [ "$_k" = "$_lookup_key" ]; then
-            echo "$_v"
-            break
-        fi
-    done)
-    echo "$_lookup_result"
-}
-
-# --- Passthrough args helpers ---
-
-# Append all passthrough args (newline-delimited) to a command string.
-# Outputs the modified command string to stdout (caller captures via $()).
-# Usage: cmd=$(_append_passthrough_to_cmd "$cmd" "$DEPLOY_PASSTHROUGH_ARGS")
-_append_passthrough_to_cmd() {
-    local _cmd="$1" _args_str="$2"
-    if [ -n "$_args_str" ]; then
-        local _pt_arg
-        while IFS= read -r _pt_arg; do
-            _cmd="${_cmd} $(_posix_shell_quote "$_pt_arg")"
-        done <<EOF
-$_args_str
-EOF
-    fi
-    printf '%s' "$_cmd"
-}
-
-# Append passthrough args for workers (excluding HA-specific flags + their values).
-# Outputs the modified command string to stdout.
-# Usage: cmd=$(_append_passthrough_to_cmd_worker "$cmd" "$DEPLOY_PASSTHROUGH_ARGS")
-_append_passthrough_to_cmd_worker() {
-    local _cmd="$1" _args_str="$2"
-    if [ -n "$_args_str" ]; then
-        local _pt_arg _skip_next=false
-        while IFS= read -r _pt_arg; do
-            if [ "$_skip_next" = true ]; then
-                _skip_next=false
-                continue
-            fi
-            case "$_pt_arg" in
-                --ha-vip|--ha-interface) _skip_next=true; continue ;;
-            esac
-            _cmd="${_cmd} $(_posix_shell_quote "$_pt_arg")"
-        done <<EOF
-$_args_str
-EOF
-    fi
-    printf '%s' "$_cmd"
-}
-
-# --- Remote Execution ---
-
-# Execute a command on a remote node via nohup + polling
-# Usage: _deploy_exec_remote <user> <host> <description> <command>
-_deploy_exec_remote() {
-    local user="$1" host="$2" desc="$3" cmd="$4"
-
-    log_info "[$host] Starting: $desc"
-
-    # Create secure temp directory on remote (mktemp -d defaults to mode 700)
-    local remote_dir
-    remote_dir=$(_deploy_ssh "$user" "$host" "d=\$(mktemp -d) && chmod 700 \"\$d\" && echo \"\$d\"") || true
-    remote_dir=$(echo "$remote_dir" | tr -d '[:space:]')
-    if [ -z "$remote_dir" ]; then
-        log_error "[$host] Failed to create remote temp directory (got: '${remote_dir}')"
-        return 1
-    fi
-    case "$remote_dir" in
-        /*) ;;
-        *)
-            log_error "[$host] Failed to create remote temp directory (got: '${remote_dir}')"
-            return 1
-            ;;
-    esac
-
-    local remote_script="${remote_dir}/run.sh"
-    local log_file="${remote_dir}/run.log"
-    local exit_file="${remote_dir}/run.exit"
-
-    # Write command to remote script via stdin
-    if ! printf '%s\n' "$cmd" | _deploy_ssh "$user" "$host" "cat > '$remote_script' && chmod 700 '$remote_script'"; then
-        log_error "[$host] Failed to upload remote script"
-        _deploy_ssh "$user" "$host" "rm -rf '$remote_dir'" >/dev/null 2>&1 || true
-        return 1
-    fi
-
-    # Launch via nohup (nohup wraps the entire command to ensure exit-code file is written)
-    if ! _deploy_ssh "$user" "$host" "nohup sh -c 'sh \"$remote_script\" > \"$log_file\" 2>&1; echo \$? > \"$exit_file\"' </dev/null >/dev/null 2>&1 &"; then
-        log_error "[$host] Failed to launch remote command"
-        _deploy_ssh "$user" "$host" "rm -rf '$remote_dir'" >/dev/null 2>&1 || true
-        return 1
-    fi
-
-    # Poll for completion
-    local elapsed=0 _last_poll_err=""
-    while [ $elapsed -lt $DEPLOY_REMOTE_TIMEOUT ]; do
-        sleep "$DEPLOY_POLL_INTERVAL"
-        elapsed=$((elapsed + DEPLOY_POLL_INTERVAL))
-
-        if _last_poll_err=$(_deploy_ssh "$user" "$host" "test -f '$exit_file'" 2>&1 >/dev/null); then
-            break
-        fi
-
-        # Show progress
-        local progress_line
-        progress_line=$(_deploy_ssh "$user" "$host" "tail -1 '$log_file'" 2>/dev/null || true)
-        if [ -n "$progress_line" ]; then
-            log_info "[$host] [${elapsed}s] $progress_line"
-        fi
-    done
-
-    if [ $elapsed -ge $DEPLOY_REMOTE_TIMEOUT ]; then
-        log_error "[$host] Timeout after ${DEPLOY_REMOTE_TIMEOUT}s: $desc"
-        [ -n "$_last_poll_err" ] && log_error "[$host] Last poll error: $_last_poll_err"
-        log_error "[$host] Remote log:"
-        _deploy_ssh "$user" "$host" "cat '$log_file'" || true
-        _deploy_ssh "$user" "$host" "rm -rf '$remote_dir'" >/dev/null 2>&1 || true
-        return 1
-    fi
-
-    # Retrieve exit code
-    local remote_exit
-    remote_exit=$(_deploy_ssh "$user" "$host" "cat '$exit_file'" || echo "1")
-    remote_exit=$(echo "$remote_exit" | tr -d '[:space:]')
-
-    if ! echo "$remote_exit" | grep -qE '^[0-9]+$'; then
-        log_error "[$host] Invalid exit code from remote: '$remote_exit'"
-        _deploy_ssh "$user" "$host" "rm -rf '$remote_dir'" >/dev/null 2>&1 || true
-        return 1
-    fi
-
-    if [ "$remote_exit" -ne 0 ]; then
-        log_error "[$host] Failed (exit $remote_exit): $desc"
-        log_error "[$host] Remote log:"
-        _deploy_ssh "$user" "$host" "cat '$log_file'" || true
-        _deploy_ssh "$user" "$host" "rm -rf '$remote_dir'" >/dev/null 2>&1 || true
-        return 1
-    fi
-
-    # Clean up remote temp directory
-    _deploy_ssh "$user" "$host" "rm -rf '$remote_dir'" >/dev/null 2>&1 || true
-
-    log_info "[$host] Completed: $desc"
-    return 0
-}
+# SSH infrastructure is provided by common/ssh.sh (loaded before this module).
 
 # --- Token Extraction ---
 
@@ -453,15 +145,7 @@ deploy_dry_run() {
     fi
     log_info ""
 
-    log_info "SSH Settings:"
-    log_info "  Default user: $DEPLOY_SSH_USER"
-    log_info "  Port: $DEPLOY_SSH_PORT"
-    if [ -n "$DEPLOY_SSH_KEY" ]; then
-        log_info "  Key: $DEPLOY_SSH_KEY"
-    fi
-    if [ -n "$DEPLOY_SSH_PASSWORD" ]; then
-        log_info "  Auth: password (sshpass)"
-    fi
+    _log_ssh_settings
     log_info ""
 
     if [ -n "$DEPLOY_PASSTHROUGH_ARGS" ]; then
@@ -524,6 +208,22 @@ deploy_cluster() {
     local total_steps=6
     [ "$cp_count" -gt 1 ] && total_steps=$((total_steps + 1))
     [ "$w_count" -gt 0 ] && total_steps=$((total_steps + 1))
+    # State/resume support (only when --resume is enabled)
+    if [ "${RESUME_ENABLED:-false}" = true ]; then
+        local resume_file
+        resume_file=$(_state_find_resume "deploy")
+        if [ -n "$resume_file" ]; then
+            _state_load "$resume_file"
+            log_info "Resuming previous deploy operation..."
+        else
+            log_info "No resumable deploy state found, starting fresh."
+            _state_init "deploy"
+        fi
+    fi
+    _state_set "cp_count" "$cp_count"
+    _state_set "w_count" "$w_count"
+
+    _audit_log "deploy" "started" "cp=${cp_count} workers=${w_count}"
     log_info "Deploying Kubernetes cluster: ${cp_count} control-plane(s), ${w_count} worker(s)"
 
     # Inform about SSH host key policy
@@ -539,22 +239,15 @@ deploy_cluster() {
     fi
 
     # Create session-scoped known_hosts for MITM detection within this deploy
-    if [ -n "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ] && [ -f "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
-        _DEPLOY_KNOWN_HOSTS=$(mktemp /tmp/deploy-known-hosts-XXXXXX)
-        chmod 600 "$_DEPLOY_KNOWN_HOSTS"
-        cp "$DEPLOY_SSH_KNOWN_HOSTS_FILE" "$_DEPLOY_KNOWN_HOSTS"
-    else
-        _DEPLOY_KNOWN_HOSTS=$(mktemp /tmp/deploy-known-hosts-XXXXXX)
-        chmod 600 "$_DEPLOY_KNOWN_HOSTS"
-    fi
-    _cleanup_deploy_known_hosts() { rm -f "$_DEPLOY_KNOWN_HOSTS"; }
-    _push_cleanup _cleanup_deploy_known_hosts
+    _setup_session_known_hosts "deploy"
 
     # --- Step 1: Generate bundle ---
+    # Always regenerate the bundle (even on resume), because bundle paths are
+    # process-local and remote temp dirs are cleaned on exit.
     local _step=0
     _step=$((_step + 1))
+    local bundle_path=""
     log_info "Step ${_step}/${total_steps}: Generating deploy bundle..."
-    local bundle_path
     bundle_path=$(mktemp /tmp/setup-k8s-deploy-XXXXXX)
     chmod 600 "$bundle_path"
     generate_deploy_bundle "$bundle_path"
@@ -579,27 +272,15 @@ deploy_cluster() {
     fi
 
     # --- Step 3: Transfer bundle to all nodes ---
+    # Always re-transfer (even on resume): remote temp dirs are cleaned on exit,
+    # and _DEPLOY_NODE_BUNDLE_DIRS is process-local.
     _step=$((_step + 1))
     log_info "Step ${_step}/${total_steps}: Transferring bundle to all nodes..."
     _DEPLOY_NODE_BUNDLE_DIRS=""
 
     # Register cleanup handler for remote temp directories (best-effort on early failure)
     # Uses module-level globals so EXIT trap can access them after function returns
-    _cleanup_deploy_remote_dirs() {
-        local _all_cnt _ci _cleanup_node
-        [ -z "$_DEPLOY_ALL_NODES" ] && return 0
-        _all_cnt=$(_csv_count "$_DEPLOY_ALL_NODES")
-        _ci=0
-        while [ "$_ci" -lt "$_all_cnt" ]; do
-            _cleanup_node=$(_csv_get "$_DEPLOY_ALL_NODES" "$_ci")
-            _parse_node_address "$_cleanup_node"
-            local _cdir
-            _cdir=$(_bundle_dir_lookup "$_NODE_HOST")
-            [ -n "$_cdir" ] && _deploy_ssh "$_NODE_USER" "$_NODE_HOST" "rm -rf '$_cdir'" >/dev/null 2>&1 || true
-            _ci=$((_ci + 1))
-        done
-    }
-    _push_cleanup _cleanup_deploy_remote_dirs
+    _push_cleanup _cleanup_remote_bundle_dirs
 
     _i=0
     while [ "$_i" -lt "$all_count" ]; do
@@ -637,27 +318,57 @@ deploy_cluster() {
 
     # --- Step 4: Init first control-plane ---
     _step=$((_step + 1))
-    log_info "Step ${_step}/${total_steps}: Initializing first control-plane..."
     local cp0
     cp0=$(_csv_get "$DEPLOY_CONTROL_PLANES" 0)
     _parse_node_address "$cp0"
     local cp1_user="$_NODE_USER" cp1_host="$_NODE_HOST"
 
-    # Build init command with passthrough args (shell-escaped)
-    local remote_bundle
-    remote_bundle="$(_bundle_dir_lookup "$cp1_host")/setup-k8s.sh"
-    local sudo_pfx=""
-    [ "$cp1_user" != "root" ] && sudo_pfx="sudo -n "
-    local init_cmd="${sudo_pfx}sh ${remote_bundle} init"
-    # If multiple CPs, enable HA
-    if [ "$cp_count" -gt 1 ]; then
-        init_cmd="${init_cmd} --ha"
-    fi
-    init_cmd=$(_append_passthrough_to_cmd "$init_cmd" "$DEPLOY_PASSTHROUGH_ARGS")
+    if ! _state_is_step_done "init_cp"; then
+        log_info "Step ${_step}/${total_steps}: Initializing first control-plane..."
 
-    if ! _deploy_exec_remote "$cp1_user" "$cp1_host" "kubeadm init" "$init_cmd"; then
-        log_error "First control-plane initialization failed. Aborting."
-        return 1
+        # Transfer kubeadm config patch file to remote if specified
+        local _remote_patch_path=""
+        if [ -n "${KUBEADM_CONFIG_PATCH:-}" ] && [ -f "$KUBEADM_CONFIG_PATCH" ]; then
+            local _rdir
+            _rdir=$(_bundle_dir_lookup "$cp1_host")
+            _remote_patch_path="${_rdir}/kubeadm-config-patch.yaml"
+            log_info "  Transferring kubeadm config patch to ${cp1_host}..."
+            if ! _deploy_scp "$KUBEADM_CONFIG_PATCH" "$cp1_user" "$cp1_host" "$_remote_patch_path"; then
+                log_error "Failed to transfer kubeadm config patch to ${cp1_host}"
+                return 1
+            fi
+            # Rewrite passthrough args: replace local path with remote path
+            DEPLOY_PASSTHROUGH_ARGS=$(printf '%s\n' "$DEPLOY_PASSTHROUGH_ARGS" | while IFS= read -r _line; do
+                if [ "$_line" = "$KUBEADM_CONFIG_PATCH" ]; then
+                    echo "$_remote_patch_path"
+                else
+                    echo "$_line"
+                fi
+            done)
+        fi
+
+        # Build init command with passthrough args (shell-escaped)
+        local remote_bundle
+        remote_bundle="$(_bundle_dir_lookup "$cp1_host")/setup-k8s.sh"
+        local sudo_pfx=""
+        [ "$cp1_user" != "root" ] && sudo_pfx="sudo -n "
+        local init_cmd="${sudo_pfx}sh ${remote_bundle} init"
+        # If multiple CPs, enable HA
+        if [ "$cp_count" -gt 1 ]; then
+            init_cmd="${init_cmd} --ha"
+        fi
+        init_cmd=$(_append_passthrough_to_cmd "$init_cmd" "$DEPLOY_PASSTHROUGH_ARGS")
+
+        if ! _deploy_exec_remote "$cp1_user" "$cp1_host" "kubeadm init" "$init_cmd"; then
+            log_error "First control-plane initialization failed. Aborting."
+            if [ "${COLLECT_DIAGNOSTICS:-false}" = true ]; then
+                _collect_diagnostics "$cp1_user" "$cp1_host" "/tmp/setup-k8s-diag-init-$(date +%s)" || true
+            fi
+            return 1
+        fi
+        _state_mark_step "init_cp" "done"
+    else
+        log_info "Step ${_step}/${total_steps}: Initializing first control-plane... (skipped, resumed)"
     fi
 
     # --- Step 5: Extract join token ---
@@ -677,6 +388,13 @@ deploy_cluster() {
             local node
             node=$(_csv_get "$DEPLOY_CONTROL_PLANES" "$_i")
             _parse_node_address "$node"
+
+            if _state_is_step_done "join_cp_${_NODE_HOST}"; then
+                log_info "  [${_NODE_HOST}] Control-plane join... (skipped, resumed)"
+                _i=$((_i + 1))
+                continue
+            fi
+
             local node_bundle
             node_bundle="$(_bundle_dir_lookup "$_NODE_HOST")/setup-k8s.sh"
             local sudo_pfx=""
@@ -692,8 +410,12 @@ deploy_cluster() {
 
             if ! _deploy_exec_remote "$_NODE_USER" "$_NODE_HOST" "join control-plane" "$join_cmd"; then
                 log_error "Control-plane join failed for ${_NODE_HOST}. Aborting."
+                if [ "${COLLECT_DIAGNOSTICS:-false}" = true ]; then
+                    _collect_diagnostics "$_NODE_USER" "$_NODE_HOST" "/tmp/setup-k8s-diag-join-cp-$(date +%s)" || true
+                fi
                 return 1
             fi
+            _state_mark_step "join_cp_${_NODE_HOST}" "done"
             _i=$((_i + 1))
         done
     fi
@@ -745,10 +467,14 @@ deploy_cluster() {
         done
     fi
 
+    # --- Post-deploy health check ---
+    log_info ""
+    _health_check_cluster "$cp1_user" "$cp1_host" --post || true
+
     # --- Step 8: Clean up remote bundle directories ---
     _step=$((_step + 1))
     log_info "Step ${_step}/${total_steps}: Cleaning up remote bundle directories..."
-    _cleanup_deploy_remote_dirs
+    _cleanup_remote_bundle_dirs
     _pop_cleanup
 
     # --- Step 9: Summary ---
@@ -793,15 +519,18 @@ deploy_cluster() {
     log_info "=========================="
 
     if [ "$worker_failed" = true ]; then
+        _state_set "status" "failed"
+        _audit_log "deploy" "failed" "some worker joins failed"
         log_error "Some worker joins failed. Check logs above."
         return 1
     fi
 
-    # Clean up session-scoped known_hosts and restore previous cleanup handler
-    _cleanup_deploy_known_hosts
+    # Clean up session-scoped known_hosts
+    _teardown_session_known_hosts
     _pop_cleanup
-    _DEPLOY_KNOWN_HOSTS=""
 
+    _state_complete
+    _audit_log "deploy" "completed" "cp=${cp_count} workers=${w_count}"
     log_info "Cluster deployment completed successfully!"
     return 0
 }

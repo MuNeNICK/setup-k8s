@@ -3,7 +3,7 @@
 ## setup-k8s.sh
 
 ```
-Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore|renew|status|preflight> [options]
+Usage: setup-k8s.sh <init|join|deploy|upgrade|remove|backup|restore|cleanup|renew|status|preflight> [options]
 ```
 
 ### Subcommands
@@ -14,13 +14,31 @@ Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore|renew|status|prefli
 | `join` | Join an existing cluster as a worker or control-plane node |
 | `deploy` | Deploy a cluster across remote nodes via SSH |
 | `upgrade` | Upgrade cluster Kubernetes version |
+| `remove` | Remove nodes from an existing cluster via SSH |
 | `backup` | Create an etcd snapshot |
 | `restore` | Restore etcd from a snapshot |
+| `cleanup` | Remove Kubernetes components from the local node |
 | `renew` | Renew or check kubeadm-managed certificates |
 | `status` | Show cluster and node status |
 | `preflight` | Run preflight checks before init/join |
 
-### Options
+### Global Options
+
+These options apply to all subcommands and are parsed before subcommand-specific arguments.
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `--verbose` | Enable debug logging | — | `--verbose` |
+| `--quiet` | Suppress informational messages (errors only) | — | `--quiet` |
+| `--dry-run` | Show configuration summary and exit without making changes | — | `--dry-run` |
+| `--log-dir DIR` | Persist logs to files in the specified directory | — | `--log-dir /var/log/setup-k8s` |
+| `--audit-syslog` | Send structured audit events to syslog via `logger` | — | `--audit-syslog` |
+| `--collect-diagnostics` | Collect node diagnostics (kubelet/containerd logs, events) on failure | — | `--collect-diagnostics` |
+| `--resume` | Resume a previously interrupted deploy or upgrade operation | — | `--resume` |
+| `--distro FAMILY` | Override distro family detection (debian, rhel, suse, arch, alpine, generic) | auto-detect | `--distro alpine` |
+| `--help`, `-h` | Display help message | — | `--help` |
+
+### Init/Join Options
 
 | Option | Description | Default | Example |
 |--------|-------------|---------|---------|
@@ -40,14 +58,26 @@ Usage: setup-k8s.sh <init|join|deploy|upgrade|backup|restore|renew|status|prefli
 | `--ha-vip ADDRESS` | VIP address (required when --ha is set) | — | `--ha-vip 192.168.1.100` |
 | `--ha-interface IFACE` | Network interface for VIP | auto-detect | `--ha-interface eth0` |
 | `--swap-enabled` | Keep swap enabled (K8s 1.28+, NodeSwap LimitedSwap) | — | `--swap-enabled` |
-| `--distro FAMILY` | Override distro family detection (debian, rhel, suse, arch, alpine, generic) | auto-detect | `--distro alpine` |
 | `--enable-completion BOOL` | Enable shell completion setup | `true` | `--enable-completion false` |
 | `--completion-shells LIST` | Shells to configure (auto, bash, zsh, fish, or comma-separated) | `auto` | `--completion-shells bash,zsh` |
 | `--install-helm BOOL` | Install Helm package manager | `false` | `--install-helm true` |
-| `--dry-run` | Show configuration summary and exit without making changes | — | `--dry-run` |
-| `--verbose` | Enable debug logging | — | `--verbose` |
-| `--quiet` | Suppress informational messages (errors only) | — | `--quiet` |
-| `--help`, `-h` | Display help message | — | `--help` |
+
+### SSH Options (shared)
+
+These options are shared across all remote subcommands: `deploy`, `upgrade`, `remove`, `backup`, `restore`, and `renew`.
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `--ssh-user USER` | Default SSH user | `root` | `--ssh-user ubuntu` |
+| `--ssh-port PORT` | SSH port | `22` | `--ssh-port 2222` |
+| `--ssh-key PATH` | Path to SSH private key | — | `--ssh-key ~/.ssh/id_rsa` |
+| `--ssh-password PASS` | SSH password (requires sshpass; prefer `--ssh-password-file` or `DEPLOY_SSH_PASSWORD` env var) | — | `--ssh-password secret` |
+| `--ssh-password-file PATH` | Read SSH password from file (file must have mode 0600) | — | `--ssh-password-file /run/secrets/ssh-pass` |
+| `--ssh-known-hosts FILE` | Pre-seeded known_hosts file for SSH host key verification (implies `--ssh-host-key-check yes`) | — | `--ssh-known-hosts ~/.ssh/known_hosts` |
+| `--ssh-host-key-check MODE` | SSH host key verification policy (`yes`, `no`, or `accept-new`) | `yes` | `--ssh-host-key-check accept-new` |
+| `--persist-known-hosts PATH` | Save session known_hosts to file after operation (reusable with `--ssh-known-hosts` next time) | — | `--persist-known-hosts ./known_hosts` |
+| `--remote-timeout SECS` | Timeout for remote operations in seconds | `600` | `--remote-timeout 900` |
+| `--poll-interval SECS` | Poll interval for remote operation progress in seconds | `10` | `--poll-interval 5` |
 
 ### Deploy Options
 
@@ -57,15 +87,11 @@ Options specific to the `deploy` subcommand. Init/join options like `--cri`, `--
 |--------|-------------|---------|---------|
 | `--control-planes IPs` | Comma-separated control-plane nodes (user@ip or ip) | — (required) | `--control-planes 10.0.0.1,10.0.0.2` |
 | `--workers IPs` | Comma-separated worker nodes (user@ip or ip) | — | `--workers 10.0.0.3,10.0.0.4` |
-| `--ssh-user USER` | Default SSH user | `root` | `--ssh-user ubuntu` |
-| `--ssh-port PORT` | SSH port | `22` | `--ssh-port 2222` |
-| `--ssh-key PATH` | Path to SSH private key | — | `--ssh-key ~/.ssh/id_rsa` |
-| `--ssh-password PASS` | SSH password (requires sshpass; prefer `DEPLOY_SSH_PASSWORD` env var) | — | `DEPLOY_SSH_PASSWORD=secret bash setup-k8s.sh deploy ...` |
-| `--ssh-known-hosts FILE` | Pre-seeded known_hosts file for SSH host key verification (implies `--ssh-host-key-check yes`) | — | `--ssh-known-hosts ~/.ssh/known_hosts` |
-| `--ssh-host-key-check MODE` | SSH host key verification policy (`yes`, `no`, or `accept-new`) | `yes` | `--ssh-host-key-check no` |
 | `--ha-vip ADDRESS` | VIP for HA (required when >1 control-plane) | — | `--ha-vip 10.0.0.100` |
 | `--ha-interface IFACE` | Network interface for VIP | auto-detect | `--ha-interface eth0` |
-| `--dry-run` | Show deployment plan and exit | — | `--dry-run` |
+| `--kubeadm-config-patch FILE` | Extra kubeadm config YAML to append (merged as additional `---` document) | — | `--kubeadm-config-patch custom.yaml` |
+| `--api-server-extra-sans NAMES` | Additional SANs for the API server certificate (comma-separated) | — | `--api-server-extra-sans lb.example.com,10.0.0.200` |
+| `--kubelet-node-ip IP` | Set kubelet `--node-ip` on all nodes | — | `--kubelet-node-ip 10.0.0.1` |
 
 ### Upgrade Options (local mode)
 
@@ -76,27 +102,28 @@ Options for the `upgrade` subcommand when run locally with `sudo`.
 | `--kubernetes-version VER` | Target version in MAJOR.MINOR.PATCH format | — (required) | `--kubernetes-version 1.33.2` |
 | `--first-control-plane` | Run `kubeadm upgrade apply` (first CP only) | — | `--first-control-plane` |
 | `--skip-drain` | Skip drain/uncordon | — | `--skip-drain` |
-| `--verbose` | Enable debug logging | — | `--verbose` |
-| `--quiet` | Suppress informational messages | — | `--quiet` |
-| `--help` | Display help message | — | `--help` |
 
 ### Upgrade Options (remote mode)
 
-Options for the `upgrade` subcommand when orchestrating remotely via SSH. SSH options (`--ssh-user`, `--ssh-port`, `--ssh-key`, `--ssh-password`, `--ssh-known-hosts`, `--ssh-host-key-check`) follow the same behavior as the `deploy` subcommand.
+Options for the `upgrade` subcommand when orchestrating remotely via SSH.
 
 | Option | Description | Default | Example |
 |--------|-------------|---------|---------|
 | `--control-planes IPs` | Comma-separated control-plane nodes (user@ip or ip) | — (required) | `--control-planes 10.0.0.1,10.0.0.2` |
 | `--workers IPs` | Comma-separated worker nodes (user@ip or ip) | — | `--workers 10.0.0.3,10.0.0.4` |
 | `--kubernetes-version VER` | Target version in MAJOR.MINOR.PATCH format | — (required) | `--kubernetes-version 1.33.2` |
-| `--ssh-user USER` | Default SSH user | `root` | `--ssh-user ubuntu` |
-| `--ssh-port PORT` | SSH port | `22` | `--ssh-port 2222` |
-| `--ssh-key PATH` | Path to SSH private key | — | `--ssh-key ~/.ssh/id_rsa` |
-| `--ssh-password PASS` | SSH password (requires sshpass) | — | `DEPLOY_SSH_PASSWORD=secret bash setup-k8s.sh upgrade ...` |
-| `--ssh-known-hosts FILE` | Pre-seeded known_hosts file | — | `--ssh-known-hosts ~/.ssh/known_hosts` |
-| `--ssh-host-key-check MODE` | SSH host key policy (`yes`, `no`, or `accept-new`) | `yes` | `--ssh-host-key-check accept-new` |
 | `--skip-drain` | Skip drain/uncordon for all nodes | — | `--skip-drain` |
-| `--dry-run` | Show upgrade plan and exit | — | `--dry-run` |
+| `--no-rollback` | Disable automatic rollback on upgrade failure | — | `--no-rollback` |
+| `--auto-step-upgrade` | Automatically step through intermediate minor versions (e.g., 1.31 → 1.32 → 1.33) | — | `--auto-step-upgrade` |
+
+### Remove Options
+
+Options for the `remove` subcommand. Removes nodes from an existing cluster via SSH.
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|---------|
+| `--control-planes IPs` | Control-plane node to orchestrate from | — (required) | `--control-planes 10.0.0.1` |
+| `--remove-nodes IPs` | Comma-separated nodes to remove | — (required) | `--remove-nodes 10.0.0.3,10.0.0.4` |
 
 ### Backup Options (local mode)
 
@@ -105,26 +132,15 @@ Options for the `backup` subcommand when run locally with `sudo`.
 | Option | Description | Default | Example |
 |--------|-------------|---------|---------|
 | `--snapshot-path PATH` | Output snapshot file path | `/var/lib/etcd-backup/snapshot-YYYYMMDD-HHMMSS.db` | `--snapshot-path /tmp/snap.db` |
-| `--verbose` | Enable debug logging | — | `--verbose` |
-| `--quiet` | Suppress informational messages | — | `--quiet` |
-| `--dry-run` | Show backup plan and exit | — | `--dry-run` |
-| `--help` | Display help message | — | `--help` |
 
 ### Backup Options (remote mode)
 
-Options for the `backup` subcommand when orchestrating remotely via SSH. SSH options follow the same behavior as the `deploy` subcommand.
+Options for the `backup` subcommand when orchestrating remotely via SSH.
 
 | Option | Description | Default | Example |
 |--------|-------------|---------|---------|
 | `--control-plane IP` | Target control-plane node (user@ip or ip) | — (required) | `--control-plane root@10.0.0.1` |
 | `--snapshot-path PATH` | Local path to save the downloaded snapshot | `/var/lib/etcd-backup/snapshot-YYYYMMDD-HHMMSS.db` | `--snapshot-path ./snap.db` |
-| `--ssh-user USER` | Default SSH user | `root` | `--ssh-user ubuntu` |
-| `--ssh-port PORT` | SSH port | `22` | `--ssh-port 2222` |
-| `--ssh-key PATH` | Path to SSH private key | — | `--ssh-key ~/.ssh/id_rsa` |
-| `--ssh-password PASS` | SSH password (requires sshpass) | — | `DEPLOY_SSH_PASSWORD=secret bash setup-k8s.sh backup ...` |
-| `--ssh-known-hosts FILE` | Pre-seeded known_hosts file | — | `--ssh-known-hosts ~/.ssh/known_hosts` |
-| `--ssh-host-key-check MODE` | SSH host key policy (`yes`, `no`, or `accept-new`) | `yes` | `--ssh-host-key-check accept-new` |
-| `--dry-run` | Show backup plan and exit | — | `--dry-run` |
 
 ### Restore Options (local mode)
 
@@ -133,26 +149,15 @@ Options for the `restore` subcommand when run locally with `sudo`.
 | Option | Description | Default | Example |
 |--------|-------------|---------|---------|
 | `--snapshot-path PATH` | Snapshot file to restore | — (required) | `--snapshot-path /tmp/snap.db` |
-| `--verbose` | Enable debug logging | — | `--verbose` |
-| `--quiet` | Suppress informational messages | — | `--quiet` |
-| `--dry-run` | Show restore plan and exit | — | `--dry-run` |
-| `--help` | Display help message | — | `--help` |
 
 ### Restore Options (remote mode)
 
-Options for the `restore` subcommand when orchestrating remotely via SSH. SSH options follow the same behavior as the `deploy` subcommand.
+Options for the `restore` subcommand when orchestrating remotely via SSH.
 
 | Option | Description | Default | Example |
 |--------|-------------|---------|---------|
 | `--control-plane IP` | Target control-plane node (user@ip or ip) | — (required) | `--control-plane root@10.0.0.1` |
 | `--snapshot-path PATH` | Local snapshot file to upload and restore | — (required) | `--snapshot-path ./snap.db` |
-| `--ssh-user USER` | Default SSH user | `root` | `--ssh-user ubuntu` |
-| `--ssh-port PORT` | SSH port | `22` | `--ssh-port 2222` |
-| `--ssh-key PATH` | Path to SSH private key | — | `--ssh-key ~/.ssh/id_rsa` |
-| `--ssh-password PASS` | SSH password (requires sshpass) | — | `DEPLOY_SSH_PASSWORD=secret bash setup-k8s.sh restore ...` |
-| `--ssh-known-hosts FILE` | Pre-seeded known_hosts file | — | `--ssh-known-hosts ~/.ssh/known_hosts` |
-| `--ssh-host-key-check MODE` | SSH host key policy (`yes`, `no`, or `accept-new`) | `yes` | `--ssh-host-key-check accept-new` |
-| `--dry-run` | Show restore plan and exit | — | `--dry-run` |
 
 ### Renew Options (local mode)
 
@@ -162,29 +167,18 @@ Options for the `renew` subcommand when run locally on a control-plane node with
 |--------|-------------|---------|---------|
 | `--certs CERTS` | Certificates to renew (`all` or comma-separated names) | `all` | `--certs apiserver,front-proxy-client` |
 | `--check-only` | Check certificate expiration only (no renewal) | — | `--check-only` |
-| `--dry-run` | Show renewal plan and exit | — | `--dry-run` |
-| `--verbose` | Enable debug logging | — | `--verbose` |
-| `--quiet` | Suppress informational messages | — | `--quiet` |
-| `--help` | Display help message | — | `--help` |
 
 Valid certificate names: `apiserver`, `apiserver-kubelet-client`, `front-proxy-client`, `apiserver-etcd-client`, `etcd-healthcheck-client`, `etcd-peer`, `etcd-server`, `admin.conf`, `controller-manager.conf`, `scheduler.conf`, `super-admin.conf`.
 
 ### Renew Options (remote mode)
 
-Options for the `renew` subcommand when orchestrating remotely via SSH. SSH options (`--ssh-user`, `--ssh-port`, `--ssh-key`, `--ssh-password`, `--ssh-known-hosts`, `--ssh-host-key-check`) follow the same behavior as the `deploy` subcommand.
+Options for the `renew` subcommand when orchestrating remotely via SSH.
 
 | Option | Description | Default | Example |
 |--------|-------------|---------|---------|
 | `--control-planes IPs` | Comma-separated control-plane nodes (user@ip or ip) | — (required) | `--control-planes 10.0.0.1,10.0.0.2` |
 | `--certs CERTS` | Certificates to renew (`all` or comma-separated names) | `all` | `--certs apiserver,etcd-server` |
 | `--check-only` | Check certificate expiration only (no renewal) | — | `--check-only` |
-| `--ssh-user USER` | Default SSH user | `root` | `--ssh-user ubuntu` |
-| `--ssh-port PORT` | SSH port | `22` | `--ssh-port 2222` |
-| `--ssh-key PATH` | Path to SSH private key | — | `--ssh-key ~/.ssh/id_rsa` |
-| `--ssh-password PASS` | SSH password (requires sshpass) | — | `DEPLOY_SSH_PASSWORD=secret bash setup-k8s.sh renew ...` |
-| `--ssh-known-hosts FILE` | Pre-seeded known_hosts file | — | `--ssh-known-hosts ~/.ssh/known_hosts` |
-| `--ssh-host-key-check MODE` | SSH host key policy (`yes`, `no`, or `accept-new`) | `yes` | `--ssh-host-key-check accept-new` |
-| `--dry-run` | Show renewal plan and exit | — | `--dry-run` |
 
 ### Status Options
 
@@ -193,10 +187,6 @@ Options for the `status` subcommand. Runs locally without root privileges (read-
 | Option | Description | Default | Example |
 |--------|-------------|---------|---------|
 | `--output FORMAT` | Output format (`text` or `wide`) | `text` | `--output wide` |
-| `--dry-run` | Show what checks would be performed | — | `--dry-run` |
-| `--verbose` | Enable debug logging | — | `--verbose` |
-| `--quiet` | Suppress informational messages | — | `--quiet` |
-| `--help` | Display help message | — | `--help` |
 
 **text mode** displays: node role, service status (kubelet, containerd, crio), installed versions, `kubectl get nodes`, and `kubectl get pods -n kube-system`.
 
@@ -211,24 +201,14 @@ Options for the `preflight` subcommand. Runs locally with root privileges to ver
 | `--mode MODE` | Check mode (`init` or `join`) | `init` | `--mode join` |
 | `--cri RUNTIME` | Container runtime to check (`containerd` or `crio`) | `containerd` | `--cri crio` |
 | `--proxy-mode MODE` | Proxy mode to check (`iptables`, `ipvs`, or `nftables`) | `iptables` | `--proxy-mode ipvs` |
-| `--dry-run` | Show what checks would be performed | — | `--dry-run` |
-| `--verbose` | Enable debug logging | — | `--verbose` |
-| `--quiet` | Suppress informational messages | — | `--quiet` |
-| `--help` | Display help message | — | `--help` |
+| `--preflight-strict` | Treat warnings as failures (exit non-zero on any warning) | — | `--preflight-strict` |
 
-Checks performed: CPU count (>= 2), memory (>= 1700 MB), disk space, required port availability, kernel modules, IPv4 forwarding, CRI installation, swap state, cgroups v2, existing cluster detection (init only), and network connectivity.
+Checks performed: CPU count (>= 2), memory (>= 1700 MB), disk space, required port availability, kernel modules, IPv4 forwarding, CRI installation, swap state, cgroups v2, SELinux state, AppArmor state, unattended upgrades detection, existing cluster detection (init only), and network connectivity.
 
-## setup-k8s.sh cleanup
-
-```
-Usage: setup-k8s.sh cleanup [options]
-```
+### Cleanup Options
 
 | Option | Description | Default | Example |
 |--------|-------------|---------|---------|
 | `--force` | Skip confirmation prompt | — | `--force` |
 | `--preserve-cni` | Preserve CNI configurations | — | `--preserve-cni` |
 | `--remove-helm` | Remove Helm binary and configuration | — | `--remove-helm` |
-| `--verbose` | Enable debug logging | — | `--verbose` |
-| `--quiet` | Suppress informational messages (errors only) | — | `--quiet` |
-| `--help`, `-h` | Display help message | — | `--help` |

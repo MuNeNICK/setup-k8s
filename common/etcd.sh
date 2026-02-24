@@ -124,11 +124,15 @@ _extract_etcd_binaries() {
 # --- Local backup ---
 
 backup_etcd_local() {
+    _audit_log "backup" "started" "path=${ETCD_SNAPSHOT_PATH}"
     log_info "Starting etcd backup..."
 
     # Find etcd container
     local cid
-    cid=$(_find_etcd_container) || return 1
+    if ! cid=$(_find_etcd_container); then
+        _audit_log "backup" "failed" "reason=etcd_container_not_found"
+        return 1
+    fi
 
     # Create output directory
     local snapshot_dir
@@ -142,6 +146,7 @@ backup_etcd_local() {
     log_info "Creating etcd snapshot..."
     if ! _etcdctl_exec "$cid" snapshot save "$container_snapshot"; then
         log_error "etcdctl snapshot save failed"
+        _audit_log "backup" "failed" "reason=etcdctl_snapshot_save_failed"
         return 1
     fi
 
@@ -149,6 +154,7 @@ backup_etcd_local() {
     log_info "Copying snapshot to $ETCD_SNAPSHOT_PATH..."
     if ! cp "$container_snapshot" "$ETCD_SNAPSHOT_PATH"; then
         log_error "Failed to copy snapshot from $container_snapshot"
+        _audit_log "backup" "failed" "reason=snapshot_copy_failed"
         return 1
     fi
 
@@ -160,9 +166,11 @@ backup_etcd_local() {
     snapshot_size=$(wc -c < "$ETCD_SNAPSHOT_PATH")
     if [ "$snapshot_size" -lt 100 ]; then
         log_error "Snapshot file is too small ($snapshot_size bytes), backup may have failed"
+        _audit_log "backup" "failed" "reason=snapshot_too_small size=${snapshot_size}"
         return 1
     fi
 
+    _audit_log "backup" "completed" "path=${ETCD_SNAPSHOT_PATH} size=${snapshot_size}"
     log_info "Etcd backup complete: $ETCD_SNAPSHOT_PATH ($snapshot_size bytes)"
     return 0
 }
@@ -181,11 +189,13 @@ _restore_etcd_manifest() {
 }
 
 restore_etcd_local() {
+    _audit_log "restore" "started" "path=${ETCD_SNAPSHOT_PATH}"
     log_info "Starting etcd restore from $ETCD_SNAPSHOT_PATH..."
 
     # Validate snapshot file
     if [ ! -f "$ETCD_SNAPSHOT_PATH" ]; then
         log_error "Snapshot file not found: $ETCD_SNAPSHOT_PATH"
+        _audit_log "restore" "failed" "reason=snapshot_not_found path=${ETCD_SNAPSHOT_PATH}"
         return 1
     fi
 
@@ -193,12 +203,19 @@ restore_etcd_local() {
     local cid
     local etcd_bin_dir
     etcd_bin_dir=$(mktemp -d /tmp/etcd-restore-bin-XXXXXX)
-    cid=$(_find_etcd_container) || { rm -rf "$etcd_bin_dir"; return 1; }
-    _extract_etcd_binaries "$cid" "$etcd_bin_dir" || { rm -rf "$etcd_bin_dir"; return 1; }
+    if ! cid=$(_find_etcd_container); then
+        _audit_log "restore" "failed" "reason=etcd_container_not_found"
+        rm -rf "$etcd_bin_dir"; return 1
+    fi
+    if ! _extract_etcd_binaries "$cid" "$etcd_bin_dir"; then
+        _audit_log "restore" "failed" "reason=binary_extraction_failed"
+        rm -rf "$etcd_bin_dir"; return 1
+    fi
 
     # Move etcd static pod manifest to stop the etcd container
     if [ ! -f "$_ETCD_MANIFEST_PATH" ]; then
         log_error "etcd manifest not found: $_ETCD_MANIFEST_PATH"
+        _audit_log "restore" "failed" "reason=etcd_manifest_not_found"
         return 1
     fi
 
@@ -220,6 +237,7 @@ restore_etcd_local() {
     done
     if [ $wait_elapsed -ge $wait_timeout ]; then
         log_error "Timeout waiting for etcd container to stop"
+        _audit_log "restore" "failed" "reason=etcd_stop_timeout"
         return 1
     fi
     log_info "etcd container stopped"
@@ -255,6 +273,7 @@ restore_etcd_local() {
 
     if [ "$restore_ok" = false ]; then
         log_error "Snapshot restore failed"
+        _audit_log "restore" "failed" "reason=snapshot_restore_failed"
         # Restore original data directory if backup exists
         if [ -n "${backup_dir:-}" ] && [ -d "$backup_dir" ]; then
             log_warn "Restoring original etcd data from $backup_dir..."
@@ -295,19 +314,12 @@ restore_etcd_local() {
     # Clean up
     rm -rf "$etcd_bin_dir"
 
+    _audit_log "restore" "completed" "path=${ETCD_SNAPSHOT_PATH}"
     log_info "Etcd restore complete!"
     return 0
 }
 
 # --- Dry-run ---
-
-_log_ssh_settings() {
-    log_info "SSH Settings:"
-    log_info "  Default user: $DEPLOY_SSH_USER"
-    log_info "  Port: $DEPLOY_SSH_PORT"
-    [ -n "$DEPLOY_SSH_KEY" ] && log_info "  Key: $DEPLOY_SSH_KEY"
-    [ -n "$DEPLOY_SSH_PASSWORD" ] && log_info "  Auth: password (sshpass)"
-}
 
 backup_dry_run() {
     log_info "=== Backup Dry-Run Plan ==="
@@ -382,8 +394,6 @@ _cleanup_etcd_remote_dir() {
         _deploy_ssh "$_ETCD_REMOTE_USER" "$_ETCD_REMOTE_HOST" "rm -rf '$_ETCD_REMOTE_DIR'" >/dev/null 2>&1 || true
     fi
 }
-_cleanup_etcd_known_hosts() { rm -f "$_DEPLOY_KNOWN_HOSTS"; }
-
 # Common setup for remote backup/restore: known_hosts, SSH check, sudo check, temp dir
 # Sets: _ETCD_REMOTE_USER, _ETCD_REMOTE_HOST, _ETCD_REMOTE_DIR
 _setup_etcd_remote() {
@@ -393,12 +403,7 @@ _setup_etcd_remote() {
     _ETCD_REMOTE_HOST="$_NODE_HOST"
 
     # Setup known_hosts
-    _DEPLOY_KNOWN_HOSTS=$(mktemp /tmp/etcd-known-hosts-XXXXXX)
-    chmod 600 "$_DEPLOY_KNOWN_HOSTS"
-    if [ -n "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ] && [ -f "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
-        cp "$DEPLOY_SSH_KNOWN_HOSTS_FILE" "$_DEPLOY_KNOWN_HOSTS"
-    fi
-    _push_cleanup _cleanup_etcd_known_hosts
+    _setup_session_known_hosts "etcd"
 
     # SSH connectivity check
     log_info "Step 1: Checking SSH connectivity..."
@@ -438,9 +443,8 @@ _setup_etcd_remote() {
 _teardown_etcd_remote() {
     _cleanup_etcd_remote_dir
     _pop_cleanup
-    _cleanup_etcd_known_hosts
+    _teardown_session_known_hosts
     _pop_cleanup
-    _DEPLOY_KNOWN_HOSTS=""
     _ETCD_REMOTE_USER=""
     _ETCD_REMOTE_HOST=""
     _ETCD_REMOTE_DIR=""

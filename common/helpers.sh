@@ -364,6 +364,35 @@ memorySwap:
 EOF
     fi
 
+    # Add extra SANs for API server certificate
+    if [ -n "${API_SERVER_EXTRA_SANS:-}" ]; then
+        # Append apiServer.certSANs to ClusterConfiguration
+        # Since we already wrote ClusterConfiguration, we add it via a patch document
+        cat >> "$config_file" <<EOF
+---
+apiVersion: $kubeadm_api
+kind: ClusterConfiguration
+apiServer:
+  certSANs:
+EOF
+        _old_ifs="$IFS"; IFS=','
+        for san in $API_SERVER_EXTRA_SANS; do
+            IFS="$_old_ifs"
+            san="${san#"${san%%[![:space:]]*}"}"
+            san="${san%"${san##*[![:space:]]}"}"
+            [ -n "$san" ] && echo "  - $san" >> "$config_file"
+            IFS=','
+        done
+        IFS="$_old_ifs"
+    fi
+
+    # Append kubeadm config patch file if specified
+    if [ -n "${KUBEADM_CONFIG_PATCH:-}" ] && [ -f "$KUBEADM_CONFIG_PATCH" ]; then
+        log_info "Appending kubeadm config patch from: $KUBEADM_CONFIG_PATCH"
+        printf '\n---\n' >> "$config_file"
+        cat "$KUBEADM_CONFIG_PATCH" >> "$config_file"
+    fi
+
     echo "$config_file"
 }
 
@@ -559,11 +588,19 @@ initialize_cluster() {
         deploy_kube_vip
     fi
 
+    # Configure kubelet node-ip if specified
+    if [ -n "${KUBELET_NODE_IP:-}" ]; then
+        log_info "Setting kubelet node-ip: $KUBELET_NODE_IP"
+        mkdir -p /etc/default
+        echo "KUBELET_EXTRA_ARGS=\"--node-ip=${KUBELET_NODE_IP}\"" > /etc/default/kubelet
+    fi
+
     # Run kubeadm init, capturing exit code for rollback
     local init_exit=0
     if [ "$PROXY_MODE" != "iptables" ] || [ -n "$KUBEADM_POD_CIDR" ] || \
        [ -n "$KUBEADM_SERVICE_CIDR" ] || [ -n "$KUBEADM_API_ADDR" ] || \
-       [ -n "$KUBEADM_CP_ENDPOINT" ] || [ "$SWAP_ENABLED" = true ]; then
+       [ -n "$KUBEADM_CP_ENDPOINT" ] || [ "$SWAP_ENABLED" = true ] || \
+       [ -n "${API_SERVER_EXTRA_SANS:-}" ] || [ -n "${KUBEADM_CONFIG_PATCH:-}" ]; then
         local CONFIG_FILE
         if ! CONFIG_FILE=$(generate_kubeadm_config); then
             log_error "Failed to generate kubeadm configuration"
@@ -646,6 +683,13 @@ join_cluster() {
     # Skip VIP pre-add to avoid conflicts with the existing VIP leader
     if [ "${JOIN_AS_CONTROL_PLANE:-false}" = true ] && [ -n "$HA_VIP_ADDRESS" ]; then
         deploy_kube_vip --skip-vip-preadd
+    fi
+
+    # Configure kubelet node-ip if specified
+    if [ -n "${KUBELET_NODE_IP:-}" ]; then
+        log_info "Setting kubelet node-ip: $KUBELET_NODE_IP"
+        mkdir -p /etc/default
+        echo "KUBELET_EXTRA_ARGS=\"--node-ip=${KUBELET_NODE_IP}\"" > /etc/default/kubelet
     fi
 
     set -- "$JOIN_ADDRESS" --token "$JOIN_TOKEN" --discovery-token-ca-cert-hash "$DISCOVERY_TOKEN_HASH"

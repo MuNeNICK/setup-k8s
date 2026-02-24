@@ -15,6 +15,7 @@ Options:
   --mode MODE           Check mode: init or join (default: init)
   --cri RUNTIME         Container runtime to check (containerd or crio). Default: containerd
   --proxy-mode MODE     Proxy mode to check (iptables, ipvs, or nftables). Default: iptables
+  --preflight-strict    Treat warnings as failures
   --dry-run             Show what checks would be performed
   --help, -h            Display this help message
 
@@ -28,6 +29,9 @@ Checks performed:
   - Container runtime installation (info only)
   - Swap state (warning only)
   - cgroups v2
+  - SELinux state (warning only)
+  - AppArmor state (info only)
+  - Unattended upgrades detection (warning only)
   - Existing cluster detection (init only)
   - Network connectivity to dl.k8s.io (warning only)
 EOF
@@ -60,6 +64,10 @@ parse_preflight_args() {
                 _require_value $# "$1"
                 PREFLIGHT_PROXY_MODE="$2"
                 shift 2
+                ;;
+            --preflight-strict)
+                PREFLIGHT_STRICT=true
+                shift
                 ;;
             --help|-h)
                 show_preflight_help
@@ -265,6 +273,62 @@ _preflight_check_existing_cluster() {
     fi
 }
 
+_preflight_check_selinux() {
+    if ! command -v getenforce >/dev/null 2>&1; then
+        # SELinux not installed, nothing to check
+        return
+    fi
+    local mode
+    mode=$(getenforce 2>/dev/null) || mode="unknown"
+    case "$mode" in
+        Enforcing)
+            _preflight_record_warn "SELinux is in Enforcing mode (may require additional configuration for K8s)"
+            ;;
+        Permissive)
+            _preflight_record_pass "SELinux is in Permissive mode"
+            ;;
+        Disabled)
+            _preflight_record_pass "SELinux is disabled"
+            ;;
+        *)
+            _preflight_record_warn "Cannot determine SELinux state: $mode"
+            ;;
+    esac
+}
+
+_preflight_check_apparmor() {
+    if [ ! -d /sys/module/apparmor ]; then
+        return
+    fi
+    if command -v aa-status >/dev/null 2>&1; then
+        local profiles
+        profiles=$(aa-status --profiled 2>/dev/null) || profiles="unknown"
+        log_info "  [INFO] AppArmor is active ($profiles profiles loaded)"
+    else
+        log_info "  [INFO] AppArmor kernel module detected (aa-status not available)"
+    fi
+}
+
+_preflight_check_unattended_upgrades() {
+    # Check for Debian/Ubuntu unattended-upgrades
+    if command -v unattended-upgrade >/dev/null 2>&1; then
+        if systemctl is-active --quiet unattended-upgrades 2>/dev/null; then
+            _preflight_record_warn "unattended-upgrades service is active (may interfere with K8s package management)"
+            return
+        fi
+    fi
+    # Check for RHEL/CentOS dnf-automatic
+    if systemctl is-active --quiet dnf-automatic.timer 2>/dev/null; then
+        _preflight_record_warn "dnf-automatic timer is active (may interfere with K8s package management)"
+        return
+    fi
+    # Check for SUSE transactional-update
+    if systemctl is-active --quiet transactional-update.timer 2>/dev/null; then
+        _preflight_record_warn "transactional-update timer is active (may interfere with K8s package management)"
+        return
+    fi
+}
+
 _preflight_check_connectivity() {
     if command -v curl >/dev/null 2>&1; then
         if curl -fsSL --connect-timeout 5 --max-time 10 https://dl.k8s.io/ >/dev/null 2>&1; then
@@ -303,6 +367,9 @@ preflight_local() {
     _preflight_check_cri
     _preflight_check_swap
     _preflight_check_cgroups
+    _preflight_check_selinux
+    _preflight_check_apparmor
+    _preflight_check_unattended_upgrades
     _preflight_check_existing_cluster
     _preflight_check_connectivity
 
@@ -318,6 +385,12 @@ preflight_local() {
 
     if [ "$_PREFLIGHT_FAIL" -gt 0 ]; then
         log_error "Preflight checks failed. Please fix the issues above before proceeding."
+        return 1
+    fi
+
+    # In strict mode, treat warnings as failures
+    if [ "${PREFLIGHT_STRICT:-false}" = true ] && [ "$_PREFLIGHT_WARN" -gt 0 ]; then
+        log_error "Preflight checks failed in strict mode ($_PREFLIGHT_WARN warnings treated as failures)."
         return 1
     fi
 
@@ -343,9 +416,15 @@ preflight_dry_run() {
     log_info "  7. Container runtime ($PREFLIGHT_CRI) installation status"
     log_info "  8. Swap state"
     log_info "  9. cgroups v2"
+    log_info "  10. SELinux state"
+    log_info "  11. AppArmor state"
+    log_info "  12. Unattended upgrades detection"
     if [ "$PREFLIGHT_MODE" = "init" ]; then
-        log_info "  10. Existing cluster detection"
+        log_info "  13. Existing cluster detection"
     fi
-    log_info "  11. Network connectivity (dl.k8s.io)"
+    log_info "  14. Network connectivity (dl.k8s.io)"
+    if [ "${PREFLIGHT_STRICT:-false}" = true ]; then
+        log_info "  Strict mode: warnings will be treated as failures"
+    fi
     log_info "=== End of dry-run (no changes made) ==="
 }

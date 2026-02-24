@@ -104,17 +104,22 @@ _restart_control_plane_components() {
 # --- Local renewal ---
 
 renew_certs_local() {
+    _audit_log "renew" "started" "certs=${RENEW_CERTS} check_only=${RENEW_CHECK_ONLY}"
     log_info "Starting certificate renewal..."
 
     # Verify this is a control-plane node
     if [ ! -f /etc/kubernetes/manifests/kube-apiserver.yaml ]; then
         log_error "This node does not appear to be a control-plane node"
         log_error "  (missing /etc/kubernetes/manifests/kube-apiserver.yaml)"
+        _audit_log "renew" "failed" "reason=not_control_plane_node"
         return 1
     fi
 
     # Validate certificate names
-    _validate_cert_names || return 1
+    if ! _validate_cert_names; then
+        _audit_log "renew" "failed" "reason=invalid_cert_names"
+        return 1
+    fi
 
     # Show current certificate expiration
     log_info "Current certificate expiration:"
@@ -133,6 +138,7 @@ renew_certs_local() {
         log_info "Renewing all certificates..."
         if ! kubeadm certs renew all; then
             log_error "Certificate renewal failed"
+            _audit_log "renew" "failed" "reason=kubeadm_renew_all_failed"
             return 1
         fi
     else
@@ -145,6 +151,7 @@ renew_certs_local() {
             log_info "Renewing certificate: $cert_name..."
             if ! kubeadm certs renew "$cert_name"; then
                 log_error "Failed to renew certificate: $cert_name"
+                _audit_log "renew" "failed" "reason=kubeadm_renew_failed cert=${cert_name}"
                 IFS="$_old_ifs"
                 return 1
             fi
@@ -163,6 +170,7 @@ renew_certs_local() {
         log_info "  $line"
     done
 
+    _audit_log "renew" "completed" "certs=${RENEW_CERTS}"
     log_info "Certificate renewal complete!"
     return 0
 }
@@ -232,8 +240,6 @@ _cleanup_renew_remote_dirs() {
         done
     fi
 }
-_cleanup_renew_known_hosts() { rm -f "$_DEPLOY_KNOWN_HOSTS"; }
-
 renew_cluster() {
     local cp_count
     cp_count=$(_csv_count "$DEPLOY_CONTROL_PLANES")
@@ -245,12 +251,7 @@ renew_cluster() {
     log_info ""
 
     # Setup known_hosts
-    _DEPLOY_KNOWN_HOSTS=$(mktemp /tmp/renew-known-hosts-XXXXXX)
-    chmod 600 "$_DEPLOY_KNOWN_HOSTS"
-    if [ -n "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ] && [ -f "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
-        cp "$DEPLOY_SSH_KNOWN_HOSTS_FILE" "$_DEPLOY_KNOWN_HOSTS"
-    fi
-    _push_cleanup _cleanup_renew_known_hosts
+    _setup_session_known_hosts "renew"
 
     # Step 1: Check SSH connectivity to all nodes
     log_info "Step 1: Checking SSH connectivity..."
@@ -351,9 +352,8 @@ renew_cluster() {
     _RENEW_REMOTE_DIRS=""
 
     # Cleanup known_hosts
-    _cleanup_renew_known_hosts
+    _teardown_session_known_hosts
     _pop_cleanup
-    _DEPLOY_KNOWN_HOSTS=""
 
     # Summary
     log_info ""

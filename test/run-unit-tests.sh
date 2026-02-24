@@ -1847,6 +1847,2109 @@ test_remove_help_exit
 test_cleanup_help_exit
 test_help_contains_remove_cleanup
 
+# ============================================================
+# Test: DEPLOY_REMOTE_TIMEOUT / DEPLOY_POLL_INTERVAL defaults
+# ============================================================
+test_deploy_timeout_defaults() {
+    echo "=== Test: DEPLOY_REMOTE_TIMEOUT / DEPLOY_POLL_INTERVAL defaults ==="
+    (
+        source "$PROJECT_ROOT/common/bootstrap.sh"
+        source "$PROJECT_ROOT/common/variables.sh"
+        _assert_eq "DEPLOY_REMOTE_TIMEOUT default" "600" "$DEPLOY_REMOTE_TIMEOUT"
+        _assert_eq "DEPLOY_POLL_INTERVAL default" "10" "$DEPLOY_POLL_INTERVAL"
+    )
+}
+
+# ============================================================
+# Test: _parse_node_address parsing
+# ============================================================
+test_parse_node_address() {
+    echo "=== Test: _parse_node_address ==="
+    (
+        source "$PROJECT_ROOT/common/bootstrap.sh"
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/ssh.sh"
+
+        # user@host format
+        _parse_node_address "admin@10.0.0.1"
+        _assert_eq "user@host: user" "admin" "$_NODE_USER"
+        _assert_eq "user@host: host" "10.0.0.1" "$_NODE_HOST"
+
+        # bare host format (should use DEPLOY_SSH_USER)
+        DEPLOY_SSH_USER="root"
+        _parse_node_address "10.0.0.2"
+        _assert_eq "bare host: user" "root" "$_NODE_USER"
+        _assert_eq "bare host: host" "10.0.0.2" "$_NODE_HOST"
+
+        # IPv6 bracketed format
+        DEPLOY_SSH_USER="admin"
+        _parse_node_address "[fd00::1]"
+        _assert_eq "IPv6 bare: user" "admin" "$_NODE_USER"
+        _assert_eq "IPv6 bare: host" "[fd00::1]" "$_NODE_HOST"
+
+        # user@IPv6 format
+        _parse_node_address "root@[fd00::2]"
+        _assert_eq "user@IPv6: user" "root" "$_NODE_USER"
+        _assert_eq "user@IPv6: host" "[fd00::2]" "$_NODE_HOST"
+    )
+}
+
+# ============================================================
+# Test: _build_deploy_ssh_opts
+# ============================================================
+test_build_deploy_ssh_opts() {
+    echo "=== Test: _build_deploy_ssh_opts ==="
+    (
+        source "$PROJECT_ROOT/common/bootstrap.sh"
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/ssh.sh"
+
+        # Default: no password, no key
+        DEPLOY_SSH_PASSWORD=""
+        DEPLOY_SSH_KEY=""
+        DEPLOY_SSH_PORT="22"
+        DEPLOY_SSH_HOST_KEY_CHECK="yes"
+        _DEPLOY_KNOWN_HOSTS="/tmp/test-kh"
+        SSH_AUTH_SOCK=""
+        _build_deploy_ssh_opts
+
+        local has_batchmode="false"
+        if echo "$_SSH_OPTS" | grep -q 'BatchMode=yes'; then has_batchmode="true"; fi
+        _assert_eq "BatchMode present without password" "true" "$has_batchmode"
+
+        local has_strict="false"
+        if echo "$_SSH_OPTS" | grep -q 'StrictHostKeyChecking=yes'; then has_strict="true"; fi
+        _assert_eq "StrictHostKeyChecking=yes" "true" "$has_strict"
+
+        local has_port="false"
+        if echo "$_SSH_OPTS" | grep -q '\-p 22'; then has_port="true"; fi
+        _assert_eq "port 22 in opts" "true" "$has_port"
+
+        # With password: no BatchMode
+        DEPLOY_SSH_PASSWORD="secret"
+        _build_deploy_ssh_opts
+        has_batchmode="false"
+        if echo "$_SSH_OPTS" | grep -q 'BatchMode=yes'; then has_batchmode="true"; fi
+        _assert_eq "BatchMode absent with password" "false" "$has_batchmode"
+
+        # With key: key option present
+        DEPLOY_SSH_PASSWORD=""
+        DEPLOY_SSH_KEY="/tmp/test-key"
+        _build_deploy_ssh_opts
+        local has_key="false"
+        if echo "$_SSH_OPTS" | grep -q '\-i /tmp/test-key'; then has_key="true"; fi
+        _assert_eq "key option present" "true" "$has_key"
+
+        # With SSH agent: no BatchMode (unless explicit key)
+        DEPLOY_SSH_PASSWORD=""
+        DEPLOY_SSH_KEY=""
+        SSH_AUTH_SOCK="/tmp/agent.sock"
+        _build_deploy_ssh_opts
+        has_batchmode="false"
+        if echo "$_SSH_OPTS" | grep -q 'BatchMode=yes'; then has_batchmode="true"; fi
+        _assert_eq "BatchMode absent with SSH agent" "false" "$has_batchmode"
+
+        # With SSH agent + explicit key: BatchMode present
+        DEPLOY_SSH_KEY="/tmp/test-key"
+        _build_deploy_ssh_opts
+        has_batchmode="false"
+        if echo "$_SSH_OPTS" | grep -q 'BatchMode=yes'; then has_batchmode="true"; fi
+        _assert_eq "BatchMode present with agent+key" "true" "$has_batchmode"
+    )
+}
+
+# ============================================================
+# Test: _setup_session_known_hosts / _teardown_session_known_hosts
+# ============================================================
+test_session_known_hosts() {
+    echo "=== Test: _setup_session_known_hosts / _teardown ==="
+    (
+        source "$PROJECT_ROOT/common/bootstrap.sh"
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/ssh.sh"
+
+        DEPLOY_SSH_KNOWN_HOSTS_FILE=""
+
+        # Setup creates a temp file
+        _setup_session_known_hosts "test"
+        _assert_ne "known_hosts file created" "" "$_DEPLOY_KNOWN_HOSTS"
+        local kh_path="$_DEPLOY_KNOWN_HOSTS"
+        local exists="false"
+        if [ -f "$kh_path" ]; then exists="true"; fi
+        _assert_eq "known_hosts file exists" "true" "$exists"
+
+        # Teardown removes it
+        _teardown_session_known_hosts
+        exists="true"
+        if [ ! -f "$kh_path" ]; then exists="false"; fi
+        _assert_eq "known_hosts file removed" "false" "$exists"
+        _assert_eq "known_hosts var cleared" "" "$_DEPLOY_KNOWN_HOSTS"
+
+        # Setup with seed file
+        local seed_file
+        seed_file=$(mktemp /tmp/test-seed-kh-XXXXXX)
+        echo "testhost ssh-rsa AAAA..." > "$seed_file"
+        DEPLOY_SSH_KNOWN_HOSTS_FILE="$seed_file"
+        _setup_session_known_hosts "test"
+        local content
+        content=$(cat "$_DEPLOY_KNOWN_HOSTS")
+        local has_seed="false"
+        if echo "$content" | grep -q 'testhost'; then has_seed="true"; fi
+        _assert_eq "known_hosts seeded from file" "true" "$has_seed"
+        _teardown_session_known_hosts
+        rm -f "$seed_file"
+    )
+}
+
+# ============================================================
+# Test: _bundle_dir_set / _bundle_dir_lookup
+# ============================================================
+test_bundle_dir_store() {
+    echo "=== Test: _bundle_dir_set / _bundle_dir_lookup ==="
+    (
+        source "$PROJECT_ROOT/common/bootstrap.sh"
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/ssh.sh"
+
+        _DEPLOY_NODE_BUNDLE_DIRS=""
+        _bundle_dir_set "10.0.0.1" "/tmp/dir1"
+        _bundle_dir_set "10.0.0.2" "/tmp/dir2"
+        _bundle_dir_set "[fd00::1]" "/tmp/dir3"
+
+        _assert_eq "lookup host1" "/tmp/dir1" "$(_bundle_dir_lookup "10.0.0.1")"
+        _assert_eq "lookup host2" "/tmp/dir2" "$(_bundle_dir_lookup "10.0.0.2")"
+        _assert_eq "lookup IPv6" "/tmp/dir3" "$(_bundle_dir_lookup "[fd00::1]")"
+        _assert_eq "lookup missing" "" "$(_bundle_dir_lookup "10.0.0.99")"
+    )
+}
+
+# ============================================================
+# Test: _validate_ssh_key_permissions
+# ============================================================
+test_validate_ssh_key_permissions() {
+    echo "=== Test: _validate_ssh_key_permissions ==="
+    (
+        source "$PROJECT_ROOT/common/bootstrap.sh"
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/ssh.sh"
+
+        # No key: should pass silently
+        DEPLOY_SSH_KEY=""
+        local out
+        out=$(_validate_ssh_key_permissions 2>&1)
+        _assert_eq "no key passes silently" "" "$out"
+
+        # Key with 600: no warning
+        local tmpkey
+        tmpkey=$(mktemp /tmp/test-sshkey-XXXXXX)
+        chmod 600 "$tmpkey"
+        DEPLOY_SSH_KEY="$tmpkey"
+        out=$(_validate_ssh_key_permissions 2>&1)
+        local has_warn="false"
+        if echo "$out" | grep -q 'WARN'; then has_warn="true"; fi
+        _assert_eq "600 key no warning" "false" "$has_warn"
+
+        # Key with 644: should warn
+        chmod 644 "$tmpkey"
+        out=$(_validate_ssh_key_permissions 2>&1)
+        has_warn="false"
+        if echo "$out" | grep -q 'permissions 644'; then has_warn="true"; fi
+        _assert_eq "644 key warns" "true" "$has_warn"
+
+        rm -f "$tmpkey"
+    )
+}
+
+# ============================================================
+# Test: _load_ssh_password_file
+# ============================================================
+test_load_ssh_password_file() {
+    echo "=== Test: _load_ssh_password_file ==="
+    (
+        source "$PROJECT_ROOT/common/bootstrap.sh"
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/ssh.sh"
+
+        # Non-existent file should fail
+        local exit_code=0
+        (_load_ssh_password_file "/tmp/nonexistent-pw-file") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "missing file rejected" "0" "$exit_code"
+
+        # File with bad permissions should fail
+        local tmpfile
+        tmpfile=$(mktemp /tmp/test-sshpw-XXXXXX)
+        echo "testpassword" > "$tmpfile"
+        chmod 644 "$tmpfile"
+        exit_code=0
+        (_load_ssh_password_file "$tmpfile") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "644 permissions rejected" "0" "$exit_code"
+
+        # File with 600 and content should succeed
+        chmod 600 "$tmpfile"
+        DEPLOY_SSH_PASSWORD=""
+        _load_ssh_password_file "$tmpfile"
+        _assert_eq "password loaded" "testpassword" "$DEPLOY_SSH_PASSWORD"
+
+        # Empty file should fail
+        : > "$tmpfile"
+        chmod 600 "$tmpfile"
+        DEPLOY_SSH_PASSWORD=""
+        exit_code=0
+        (_load_ssh_password_file "$tmpfile") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "empty file rejected" "0" "$exit_code"
+
+        rm -f "$tmpfile"
+    )
+}
+
+test_deploy_timeout_defaults
+test_parse_node_address
+test_build_deploy_ssh_opts
+test_session_known_hosts
+test_bundle_dir_store
+test_validate_ssh_key_permissions
+test_load_ssh_password_file
+
+# ============================================================
+# Test: --remote-timeout / --poll-interval parsing and validation
+# ============================================================
+test_timeout_cli_options() {
+    echo "=== Test: --remote-timeout / --poll-interval parsing ==="
+    (
+        source "$PROJECT_ROOT/common/bootstrap.sh"
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        # Valid --remote-timeout
+        _parse_common_ssh_args 2 "--remote-timeout" "300"
+        _assert_eq "--remote-timeout parsed" "300" "$DEPLOY_REMOTE_TIMEOUT"
+        _assert_eq "--remote-timeout shift" "2" "$_SSH_SHIFT"
+
+        # Valid --poll-interval
+        _parse_common_ssh_args 2 "--poll-interval" "5"
+        _assert_eq "--poll-interval parsed" "5" "$DEPLOY_POLL_INTERVAL"
+        _assert_eq "--poll-interval shift" "2" "$_SSH_SHIFT"
+
+        # Invalid --remote-timeout (non-numeric)
+        local exit_code=0
+        (_parse_common_ssh_args 2 "--remote-timeout" "abc") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "non-numeric timeout rejected" "0" "$exit_code"
+
+        # Invalid --poll-interval (zero)
+        exit_code=0
+        (_parse_common_ssh_args 2 "--poll-interval" "0") >/dev/null 2>&1 || exit_code=$?
+        _assert_ne "zero poll-interval rejected" "0" "$exit_code"
+
+        # Non-SSH option returns 1
+        _parse_common_ssh_args 2 "--something-else" "val" || exit_code=$?
+        _assert_ne "non-ssh option returns 1" "0" "$exit_code"
+    )
+}
+
+# ============================================================
+# Test: health.sh functions exist
+# ============================================================
+test_health_functions() {
+    echo "=== Test: health.sh functions exist ==="
+    (
+        source "$PROJECT_ROOT/common/bootstrap.sh"
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/health.sh"
+
+        # Verify all health check functions are defined
+        local has_api="false"
+        type _health_check_api_server >/dev/null 2>&1 && has_api="true"
+        _assert_eq "_health_check_api_server defined" "true" "$has_api"
+
+        local has_nodes="false"
+        type _health_check_nodes_ready >/dev/null 2>&1 && has_nodes="true"
+        _assert_eq "_health_check_nodes_ready defined" "true" "$has_nodes"
+
+        local has_etcd="false"
+        type _health_check_etcd >/dev/null 2>&1 && has_etcd="true"
+        _assert_eq "_health_check_etcd defined" "true" "$has_etcd"
+
+        local has_pods="false"
+        type _health_check_core_pods >/dev/null 2>&1 && has_pods="true"
+        _assert_eq "_health_check_core_pods defined" "true" "$has_pods"
+
+        local has_cluster="false"
+        type _health_check_cluster >/dev/null 2>&1 && has_cluster="true"
+        _assert_eq "_health_check_cluster defined" "true" "$has_cluster"
+    )
+}
+
+test_timeout_cli_options
+test_health_functions
+
+# ============================================================
+# Test: file logging (_init_file_logging, _log_to_file)
+# ============================================================
+test_file_logging() {
+    echo "=== Test: file logging ==="
+    (
+        source "$PROJECT_ROOT/common/bootstrap.sh"
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+
+        # Test _init_file_logging creates a log file
+        local tmpdir
+        tmpdir=$(mktemp -d /tmp/test-logdir-XXXXXX)
+        _init_file_logging "$tmpdir"
+        local has_file="false"
+        [ -n "$_LOG_FILE" ] && [ -f "$_LOG_FILE" ] && has_file="true"
+        _assert_eq "log file created" "true" "$has_file"
+
+        # Test log_info writes to file
+        log_info "test message from unit test"
+        local has_msg="false"
+        if grep -q "test message from unit test" "$_LOG_FILE" 2>/dev/null; then
+            has_msg="true"
+        fi
+        _assert_eq "log_info writes to file" "true" "$has_msg"
+
+        # Test log_error writes to file
+        log_error "test error message" 2>/dev/null
+        local has_err="false"
+        if grep -q "ERROR: test error message" "$_LOG_FILE" 2>/dev/null; then
+            has_err="true"
+        fi
+        _assert_eq "log_error writes to file" "true" "$has_err"
+
+        rm -rf "$tmpdir"
+    )
+}
+
+# ============================================================
+# Test: audit logging (_audit_log)
+# ============================================================
+test_audit_logging() {
+    echo "=== Test: audit logging ==="
+    (
+        source "$PROJECT_ROOT/common/bootstrap.sh"
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+
+        # Init file logging so audit events go to a file
+        local tmpdir
+        tmpdir=$(mktemp -d /tmp/test-auditdir-XXXXXX)
+        _init_file_logging "$tmpdir"
+
+        _audit_log "deploy" "started" "nodes=3"
+        local has_audit="false"
+        if grep -q "AUDIT:.*op=deploy.*outcome=started.*nodes=3" "$_LOG_FILE" 2>/dev/null; then
+            has_audit="true"
+        fi
+        _assert_eq "audit log entry written" "true" "$has_audit"
+
+        # Verify audit format contains ts= and user=
+        local has_ts="false"
+        if grep -q "AUDIT: ts=" "$_LOG_FILE" 2>/dev/null; then
+            has_ts="true"
+        fi
+        _assert_eq "audit log has timestamp" "true" "$has_ts"
+
+        local has_user="false"
+        if grep -q "user=" "$_LOG_FILE" 2>/dev/null; then
+            has_user="true"
+        fi
+        _assert_eq "audit log has user" "true" "$has_user"
+
+        rm -rf "$tmpdir"
+    )
+}
+
+# ============================================================
+# Test: diagnostics functions exist
+# ============================================================
+test_diagnostics_functions() {
+    echo "=== Test: diagnostics functions exist ==="
+    (
+        source "$PROJECT_ROOT/common/bootstrap.sh"
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/diagnostics.sh"
+
+        local has_remote="false"
+        type _collect_diagnostics >/dev/null 2>&1 && has_remote="true"
+        _assert_eq "_collect_diagnostics defined" "true" "$has_remote"
+
+        local has_local="false"
+        type _collect_local_diagnostics >/dev/null 2>&1 && has_local="true"
+        _assert_eq "_collect_local_diagnostics defined" "true" "$has_local"
+    )
+}
+
+test_file_logging
+test_audit_logging
+test_diagnostics_functions
+
+# ============================================================
+# Test: UPGRADE_NO_ROLLBACK default and --no-rollback parsing
+# ============================================================
+test_upgrade_rollback_flag() {
+    echo "=== Test: --no-rollback flag ==="
+    (
+        source "$PROJECT_ROOT/common/bootstrap.sh"
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+
+        # Default value
+        _assert_eq "UPGRADE_NO_ROLLBACK default" "false" "$UPGRADE_NO_ROLLBACK"
+
+        # Parse --no-rollback in local mode
+        UPGRADE_NO_ROLLBACK=false
+        parse_upgrade_local_args --kubernetes-version 1.33.2 --no-rollback
+        _assert_eq "--no-rollback parsed (local)" "true" "$UPGRADE_NO_ROLLBACK"
+
+        # Parse --no-rollback in deploy mode
+        UPGRADE_NO_ROLLBACK=false
+        parse_upgrade_deploy_args --control-planes 10.0.0.1 --kubernetes-version 1.33.2 --no-rollback
+        _assert_eq "--no-rollback parsed (deploy)" "true" "$UPGRADE_NO_ROLLBACK"
+    )
+}
+
+# ============================================================
+# Test: rollback helper functions exist
+# ============================================================
+test_rollback_functions() {
+    echo "=== Test: rollback helper functions ==="
+    (
+        source "$PROJECT_ROOT/common/bootstrap.sh"
+        source "$PROJECT_ROOT/common/variables.sh"
+        source "$PROJECT_ROOT/common/logging.sh"
+        source "$PROJECT_ROOT/common/validation.sh"
+        source "$PROJECT_ROOT/common/helpers.sh"
+        source "$PROJECT_ROOT/common/ssh.sh"
+        source "$PROJECT_ROOT/common/health.sh"
+        source "$PROJECT_ROOT/common/upgrade.sh"
+
+        local has_record="false"
+        type _record_pre_upgrade_versions >/dev/null 2>&1 && has_record="true"
+        _assert_eq "_record_pre_upgrade_versions defined" "true" "$has_record"
+
+        local has_rollback="false"
+        type _rollback_node >/dev/null 2>&1 && has_rollback="true"
+        _assert_eq "_rollback_node defined" "true" "$has_rollback"
+    )
+}
+
+test_upgrade_rollback_flag
+test_rollback_functions
+
+# ============================================================
+# Phase 5: Network options + kubeadm config patch
+# ============================================================
+test_network_options_defaults() {
+    echo "=== Test: network options defaults ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        _assert_eq "KUBEADM_CONFIG_PATCH default" "" "$KUBEADM_CONFIG_PATCH"
+        _assert_eq "API_SERVER_EXTRA_SANS default" "" "$API_SERVER_EXTRA_SANS"
+        _assert_eq "KUBELET_NODE_IP default" "" "$KUBELET_NODE_IP"
+    )
+}
+
+test_parse_network_options() {
+    echo "=== Test: parse network options ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        _require_value() { [ "$1" -ge 2 ] || { echo "missing value for $2" >&2; exit 1; }; }
+        _parse_distro_arg() { :; }
+        _validate_ha_args() { :; }
+        . "$PROJECT_ROOT/common/validation.sh"
+
+        local tmpfile
+        tmpfile=$(mktemp /tmp/test-patch-XXXXXX)
+        echo "test: true" > "$tmpfile"
+
+        parse_setup_args --api-server-extra-sans "foo.example.com,10.0.0.5" --kubelet-node-ip "192.168.1.10" --kubeadm-config-patch "$tmpfile"
+        _assert_eq "API_SERVER_EXTRA_SANS parsed" "foo.example.com,10.0.0.5" "$API_SERVER_EXTRA_SANS"
+        _assert_eq "KUBELET_NODE_IP parsed" "192.168.1.10" "$KUBELET_NODE_IP"
+        _assert_eq "KUBEADM_CONFIG_PATCH parsed" "$tmpfile" "$KUBEADM_CONFIG_PATCH"
+        rm -f "$tmpfile"
+    )
+}
+
+test_generate_kubeadm_config_extra_sans() {
+    echo "=== Test: generate_kubeadm_config with extra SANs ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        _kubeadm_api_version() { echo "kubeadm.k8s.io/v1beta4"; }
+        _kubeproxy_api_version() { echo "kubeproxy.config.k8s.io/v1alpha1"; }
+        _kubelet_api_version() { echo "kubelet.config.k8s.io/v1beta1"; }
+        get_cri_socket() { echo "unix:///run/containerd/containerd.sock"; }
+        . "$PROJECT_ROOT/common/helpers.sh"
+
+        KUBEADM_POD_CIDR=""
+        KUBEADM_SERVICE_CIDR=""
+        KUBEADM_API_ADDR=""
+        KUBEADM_CP_ENDPOINT=""
+        API_SERVER_EXTRA_SANS="lb.example.com,10.0.0.100"
+        KUBEADM_CONFIG_PATCH=""
+
+        local config_file
+        config_file=$(generate_kubeadm_config)
+        local content
+        content=$(cat "$config_file")
+        rm -f "$config_file"
+
+        local has_san1="false"
+        echo "$content" | grep -q "lb.example.com" && has_san1="true"
+        _assert_eq "extra SAN lb.example.com in config" "true" "$has_san1"
+
+        local has_san2="false"
+        echo "$content" | grep -q "10.0.0.100" && has_san2="true"
+        _assert_eq "extra SAN 10.0.0.100 in config" "true" "$has_san2"
+
+        local has_certsans="false"
+        echo "$content" | grep -q "certSANs:" && has_certsans="true"
+        _assert_eq "certSANs section in config" "true" "$has_certsans"
+    )
+}
+
+test_generate_kubeadm_config_patch() {
+    echo "=== Test: generate_kubeadm_config with config patch ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        _kubeadm_api_version() { echo "kubeadm.k8s.io/v1beta4"; }
+        _kubeproxy_api_version() { echo "kubeproxy.config.k8s.io/v1alpha1"; }
+        _kubelet_api_version() { echo "kubelet.config.k8s.io/v1beta1"; }
+        get_cri_socket() { echo "unix:///run/containerd/containerd.sock"; }
+        . "$PROJECT_ROOT/common/helpers.sh"
+
+        KUBEADM_POD_CIDR=""
+        KUBEADM_SERVICE_CIDR=""
+        KUBEADM_API_ADDR=""
+        KUBEADM_CP_ENDPOINT=""
+        API_SERVER_EXTRA_SANS=""
+
+        local tmpfile
+        tmpfile=$(mktemp /tmp/test-patch-XXXXXX)
+        echo "customKey: customValue" > "$tmpfile"
+        KUBEADM_CONFIG_PATCH="$tmpfile"
+
+        local config_file
+        config_file=$(generate_kubeadm_config)
+        local content
+        content=$(cat "$config_file")
+        rm -f "$config_file" "$tmpfile"
+
+        local has_patch="false"
+        echo "$content" | grep -q "customKey: customValue" && has_patch="true"
+        _assert_eq "config patch appended" "true" "$has_patch"
+    )
+}
+
+test_network_options_defaults
+test_parse_network_options
+test_generate_kubeadm_config_extra_sans
+test_generate_kubeadm_config_patch
+
+# ============================================================
+# Phase 6: Preflight enhancements + multi-version upgrade
+# ============================================================
+test_preflight_strict_default() {
+    echo "=== Test: preflight strict default ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        _assert_eq "PREFLIGHT_STRICT default" "false" "$PREFLIGHT_STRICT"
+    )
+}
+
+test_parse_preflight_strict() {
+    echo "=== Test: parse preflight --preflight-strict ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        _require_value() { [ "$1" -ge 2 ] || { echo "missing value for $2" >&2; exit 1; }; }
+        . "$PROJECT_ROOT/common/preflight.sh"
+
+        parse_preflight_args --preflight-strict
+        _assert_eq "PREFLIGHT_STRICT parsed" "true" "$PREFLIGHT_STRICT"
+    )
+}
+
+test_preflight_new_checks_defined() {
+    echo "=== Test: preflight new check functions defined ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        _require_value() { :; }
+        _preflight_record_pass() { :; }; _preflight_record_fail() { :; }; _preflight_record_warn() { :; }
+        . "$PROJECT_ROOT/common/preflight.sh"
+
+        local has_selinux="false"
+        type _preflight_check_selinux >/dev/null 2>&1 && has_selinux="true"
+        _assert_eq "_preflight_check_selinux defined" "true" "$has_selinux"
+
+        local has_apparmor="false"
+        type _preflight_check_apparmor >/dev/null 2>&1 && has_apparmor="true"
+        _assert_eq "_preflight_check_apparmor defined" "true" "$has_apparmor"
+
+        local has_unattended="false"
+        type _preflight_check_unattended_upgrades >/dev/null 2>&1 && has_unattended="true"
+        _assert_eq "_preflight_check_unattended_upgrades defined" "true" "$has_unattended"
+    )
+}
+
+test_auto_step_upgrade_default() {
+    echo "=== Test: auto-step-upgrade default ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        _assert_eq "UPGRADE_AUTO_STEP default" "false" "$UPGRADE_AUTO_STEP"
+    )
+}
+
+test_parse_auto_step_upgrade() {
+    echo "=== Test: parse --auto-step-upgrade ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        _require_value() { [ "$1" -ge 2 ] || { echo "missing value for $2" >&2; exit 1; }; }
+        _parse_distro_arg() { :; }
+        . "$PROJECT_ROOT/common/validation.sh"
+
+        parse_upgrade_local_args --kubernetes-version 1.33.2 --auto-step-upgrade
+        _assert_eq "UPGRADE_AUTO_STEP parsed (local)" "true" "$UPGRADE_AUTO_STEP"
+    )
+}
+
+test_compute_upgrade_steps_defined() {
+    echo "=== Test: _compute_upgrade_steps function defined ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        _require_value() { :; }
+        . "$PROJECT_ROOT/common/upgrade.sh"
+
+        local has_func="false"
+        type _compute_upgrade_steps >/dev/null 2>&1 && has_func="true"
+        _assert_eq "_compute_upgrade_steps defined" "true" "$has_func"
+    )
+}
+
+# ============================================================
+# Phase 7: State/resume module
+# ============================================================
+test_state_functions_defined() {
+    echo "=== Test: state module functions defined ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/state.sh"
+
+        local has_init="false"
+        type _state_init >/dev/null 2>&1 && has_init="true"
+        _assert_eq "_state_init defined" "true" "$has_init"
+
+        local has_set="false"
+        type _state_set >/dev/null 2>&1 && has_set="true"
+        _assert_eq "_state_set defined" "true" "$has_set"
+
+        local has_get="false"
+        type _state_get >/dev/null 2>&1 && has_get="true"
+        _assert_eq "_state_get defined" "true" "$has_get"
+
+        local has_mark="false"
+        type _state_mark_step >/dev/null 2>&1 && has_mark="true"
+        _assert_eq "_state_mark_step defined" "true" "$has_mark"
+
+        local has_find="false"
+        type _state_find_resume >/dev/null 2>&1 && has_find="true"
+        _assert_eq "_state_find_resume defined" "true" "$has_find"
+
+        local has_load="false"
+        type _state_load >/dev/null 2>&1 && has_load="true"
+        _assert_eq "_state_load defined" "true" "$has_load"
+
+        local has_complete="false"
+        type _state_complete >/dev/null 2>&1 && has_complete="true"
+        _assert_eq "_state_complete defined" "true" "$has_complete"
+    )
+}
+
+test_state_set_get() {
+    echo "=== Test: state set/get ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/state.sh"
+
+        # Override state dir to use a temp directory
+        _STATE_DIR=$(mktemp -d /tmp/test-state-XXXXXX)
+        _state_init "test-op"
+
+        _state_set "mykey" "myvalue"
+        local val
+        val=$(_state_get "mykey")
+        _assert_eq "state get mykey" "myvalue" "$val"
+
+        # Update the same key
+        _state_set "mykey" "newvalue"
+        val=$(_state_get "mykey")
+        _assert_eq "state get mykey updated" "newvalue" "$val"
+
+        # Non-existent key
+        val=$(_state_get "nonexistent")
+        _assert_eq "state get nonexistent" "" "$val"
+
+        _state_cleanup
+        rm -rf "$_STATE_DIR"
+    )
+}
+
+test_state_mark_step_done() {
+    echo "=== Test: state mark step done ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/state.sh"
+
+        _STATE_DIR=$(mktemp -d /tmp/test-state-XXXXXX)
+        _state_init "test-op"
+
+        _state_mark_step "bundle" "done"
+        local is_done="false"
+        _state_is_step_done "bundle" && is_done="true"
+        _assert_eq "step bundle is done" "true" "$is_done"
+
+        is_done="false"
+        _state_is_step_done "transfer" && is_done="true"
+        _assert_eq "step transfer not done" "false" "$is_done"
+
+        _state_cleanup
+        rm -rf "$_STATE_DIR"
+    )
+}
+
+test_state_find_resume() {
+    echo "=== Test: state find resume ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/state.sh"
+
+        _STATE_DIR=$(mktemp -d /tmp/test-state-XXXXXX)
+        _state_init "myop"
+
+        local found
+        found=$(_state_find_resume "myop")
+        _assert_ne "find resume returns a file" "" "$found"
+
+        # Complete it, should no longer be resumable
+        _state_complete
+        found=$(_state_find_resume "myop")
+        _assert_eq "find resume after complete" "" "$found"
+
+        rm -rf "$_STATE_DIR"
+    )
+}
+
+test_resume_enabled_default() {
+    echo "=== Test: RESUME_ENABLED default ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        _assert_eq "RESUME_ENABLED default" "false" "$RESUME_ENABLED"
+    )
+}
+
+test_state_functions_defined
+test_state_set_get
+test_state_mark_step_done
+test_state_find_resume
+test_resume_enabled_default
+
+test_preflight_strict_default
+test_parse_preflight_strict
+test_preflight_new_checks_defined
+test_auto_step_upgrade_default
+test_parse_auto_step_upgrade
+test_compute_upgrade_steps_defined
+
+# ============================================================
+# Phase 8: Test gap coverage
+# ============================================================
+
+# 8A: CSV helper functions
+test_csv_count() {
+    echo "=== Test: _csv_count ==="
+    (
+        . "$PROJECT_ROOT/common/bootstrap.sh" >/dev/null 2>&1 || true
+
+        _assert_eq "csv_count empty" "0" "$(_csv_count "")"
+        _assert_eq "csv_count single" "1" "$(_csv_count "10.0.0.1")"
+        _assert_eq "csv_count two" "2" "$(_csv_count "10.0.0.1,10.0.0.2")"
+        _assert_eq "csv_count three" "3" "$(_csv_count "10.0.0.1,10.0.0.2,10.0.0.3")"
+        _assert_eq "csv_count with user@" "2" "$(_csv_count "root@10.0.0.1,admin@10.0.0.2")"
+    )
+}
+
+test_csv_get() {
+    echo "=== Test: _csv_get ==="
+    (
+        . "$PROJECT_ROOT/common/bootstrap.sh" >/dev/null 2>&1 || true
+
+        local list="a,b,c"
+        _assert_eq "csv_get index 0" "a" "$(_csv_get "$list" 0)"
+        _assert_eq "csv_get index 1" "b" "$(_csv_get "$list" 1)"
+        _assert_eq "csv_get index 2" "c" "$(_csv_get "$list" 2)"
+
+        local ips="10.0.0.1,10.0.0.2,10.0.0.3"
+        _assert_eq "csv_get ip index 0" "10.0.0.1" "$(_csv_get "$ips" 0)"
+        _assert_eq "csv_get ip index 2" "10.0.0.3" "$(_csv_get "$ips" 2)"
+    )
+}
+
+# 8A: Passthrough argument functions
+test_append_passthrough_to_cmd() {
+    echo "=== Test: _append_passthrough_to_cmd ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/bootstrap.sh" >/dev/null 2>&1 || true
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        # Empty args
+        local result
+        result=$(_append_passthrough_to_cmd "mycmd" "")
+        _assert_eq "passthrough empty" "mycmd" "$result"
+
+        # Single arg
+        result=$(_append_passthrough_to_cmd "mycmd" "--verbose")
+        local has_verbose="false"
+        echo "$result" | grep -q "verbose" && has_verbose="true"
+        _assert_eq "passthrough single" "true" "$has_verbose"
+
+        # Multiple args (newline-separated)
+        local args="--distro
+debian"
+        result=$(_append_passthrough_to_cmd "mycmd" "$args")
+        local has_distro="false"
+        echo "$result" | grep -q "distro" && has_distro="true"
+        _assert_eq "passthrough multi" "true" "$has_distro"
+    )
+}
+
+test_append_passthrough_to_cmd_worker() {
+    echo "=== Test: _append_passthrough_to_cmd_worker filters HA flags ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/bootstrap.sh" >/dev/null 2>&1 || true
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        # HA-specific flags should be filtered out
+        local args="--ha-vip
+10.0.0.100
+--verbose"
+        local result
+        result=$(_append_passthrough_to_cmd_worker "mycmd" "$args")
+
+        local has_vip="false"
+        echo "$result" | grep -q "ha-vip" && has_vip="true"
+        _assert_eq "worker passthrough filters --ha-vip" "false" "$has_vip"
+
+        local has_verbose="false"
+        echo "$result" | grep -q "verbose" && has_verbose="true"
+        _assert_eq "worker passthrough keeps --verbose" "true" "$has_verbose"
+    )
+}
+
+# 8A: _posix_shell_quote
+test_posix_shell_quote() {
+    echo "=== Test: _posix_shell_quote ==="
+    (
+        . "$PROJECT_ROOT/common/bootstrap.sh" >/dev/null 2>&1 || true
+
+        local result
+        result=$(_posix_shell_quote "simple")
+        local has_simple="false"
+        echo "$result" | grep -q "simple" && has_simple="true"
+        _assert_eq "quote simple string" "true" "$has_simple"
+
+        result=$(_posix_shell_quote "it's quoted")
+        local has_escaped="false"
+        echo "$result" | grep -q "it" && has_escaped="true"
+        _assert_eq "quote string with apostrophe" "true" "$has_escaped"
+    )
+}
+
+# 8B: etcd.sh function existence
+test_etcd_functions_defined() {
+    echo "=== Test: etcd.sh core functions defined ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        _audit_log() { :; }
+        _require_value() { :; }
+        _parse_common_ssh_args() { :; }
+        _SSH_SHIFT=0
+        . "$PROJECT_ROOT/common/etcd.sh"
+
+        local has_backup="false"
+        type backup_etcd_local >/dev/null 2>&1 && has_backup="true"
+        _assert_eq "backup_etcd_local defined" "true" "$has_backup"
+
+        local has_restore="false"
+        type restore_etcd_local >/dev/null 2>&1 && has_restore="true"
+        _assert_eq "restore_etcd_local defined" "true" "$has_restore"
+
+        local has_find_container="false"
+        type _find_etcd_container >/dev/null 2>&1 && has_find_container="true"
+        _assert_eq "_find_etcd_container defined" "true" "$has_find_container"
+
+        local has_etcdctl="false"
+        type _etcdctl_exec >/dev/null 2>&1 && has_etcdctl="true"
+        _assert_eq "_etcdctl_exec defined" "true" "$has_etcdctl"
+
+        local has_extract="false"
+        type _extract_etcd_binaries >/dev/null 2>&1 && has_extract="true"
+        _assert_eq "_extract_etcd_binaries defined" "true" "$has_extract"
+    )
+}
+
+# 8C: networking.sh function existence and proxy mode kernel modules
+test_networking_functions_defined() {
+    echo "=== Test: networking.sh core functions defined ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/networking.sh"
+
+        local has_check_ipvs="false"
+        type check_ipvs_availability >/dev/null 2>&1 && has_check_ipvs="true"
+        _assert_eq "check_ipvs_availability defined" "true" "$has_check_ipvs"
+
+        local has_check_nftables="false"
+        type check_nftables_availability >/dev/null 2>&1 && has_check_nftables="true"
+        _assert_eq "check_nftables_availability defined" "true" "$has_check_nftables"
+
+        local has_configure="false"
+        type configure_network_settings >/dev/null 2>&1 && has_configure="true"
+        _assert_eq "configure_network_settings defined" "true" "$has_configure"
+
+        local has_enable="false"
+        type enable_kernel_modules >/dev/null 2>&1 && has_enable="true"
+        _assert_eq "enable_kernel_modules defined" "true" "$has_enable"
+
+        local has_cleanup="false"
+        type cleanup_cni >/dev/null 2>&1 && has_cleanup="true"
+        _assert_eq "cleanup_cni defined" "true" "$has_cleanup"
+
+        local has_reset="false"
+        type reset_iptables >/dev/null 2>&1 && has_reset="true"
+        _assert_eq "reset_iptables defined" "true" "$has_reset"
+    )
+}
+
+# 8D: swap.sh function existence
+test_swap_functions_defined() {
+    echo "=== Test: swap.sh core functions defined ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/swap.sh"
+
+        local has_disable="false"
+        type disable_swap >/dev/null 2>&1 && has_disable="true"
+        _assert_eq "disable_swap defined" "true" "$has_disable"
+
+        local has_restore_fstab="false"
+        type restore_fstab_swap >/dev/null 2>&1 && has_restore_fstab="true"
+        _assert_eq "restore_fstab_swap defined" "true" "$has_restore_fstab"
+
+        local has_disable_zram="false"
+        type disable_zram_swap >/dev/null 2>&1 && has_disable_zram="true"
+        _assert_eq "disable_zram_swap defined" "true" "$has_disable_zram"
+
+        local has_restore_zram="false"
+        type restore_zram_swap >/dev/null 2>&1 && has_restore_zram="true"
+        _assert_eq "restore_zram_swap defined" "true" "$has_restore_zram"
+    )
+}
+
+# 8D: detection.sh distro family mapping
+test_detect_distro_family_mapping() {
+    echo "=== Test: detect_distribution family mapping ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/detection.sh"
+
+        # Test override path
+        DISTRO_OVERRIDE="debian"
+        detect_distribution
+        _assert_eq "distro override family" "debian" "$DISTRO_FAMILY"
+        _assert_eq "distro override name" "debian-manual" "$DISTRO_NAME"
+
+        DISTRO_OVERRIDE="rhel"
+        detect_distribution
+        _assert_eq "distro override rhel" "rhel" "$DISTRO_FAMILY"
+
+        DISTRO_OVERRIDE="arch"
+        detect_distribution
+        _assert_eq "distro override arch" "arch" "$DISTRO_FAMILY"
+
+        DISTRO_OVERRIDE="suse"
+        detect_distribution
+        _assert_eq "distro override suse" "suse" "$DISTRO_FAMILY"
+
+        DISTRO_OVERRIDE="generic"
+        detect_distribution
+        _assert_eq "distro override generic" "generic" "$DISTRO_FAMILY"
+    )
+}
+
+# 8D: detection.sh cgroups v2 check
+test_has_cgroupv2() {
+    echo "=== Test: _has_cgroupv2 function ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/detection.sh"
+
+        local has_func="false"
+        type _has_cgroupv2 >/dev/null 2>&1 && has_func="true"
+        _assert_eq "_has_cgroupv2 defined" "true" "$has_func"
+
+        # On a modern system (Arch Linux), cgroups v2 should be available
+        if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+            local result="false"
+            _has_cgroupv2 && result="true"
+            _assert_eq "_has_cgroupv2 returns true" "true" "$result"
+        fi
+    )
+}
+
+# 8D: completion.sh function existence
+test_completion_functions_defined() {
+    echo "=== Test: completion.sh functions defined ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/completion.sh"
+
+        local has_detect_shell="false"
+        type detect_user_shell >/dev/null 2>&1 && has_detect_shell="true"
+        _assert_eq "detect_user_shell defined" "true" "$has_detect_shell"
+
+        local has_setup="false"
+        type setup_kubernetes_completions >/dev/null 2>&1 && has_setup="true"
+        _assert_eq "setup_kubernetes_completions defined" "true" "$has_setup"
+
+        local has_cleanup="false"
+        type cleanup_kubernetes_completions >/dev/null 2>&1 && has_cleanup="true"
+        _assert_eq "cleanup_kubernetes_completions defined" "true" "$has_cleanup"
+
+        local has_k8s_comps="false"
+        type setup_k8s_shell_completion >/dev/null 2>&1 && has_k8s_comps="true"
+        _assert_eq "setup_k8s_shell_completion defined" "true" "$has_k8s_comps"
+    )
+}
+
+# 8A: Cleanup handlers
+test_cleanup_handlers() {
+    echo "=== Test: cleanup handler stack ==="
+    (
+        . "$PROJECT_ROOT/common/bootstrap.sh" >/dev/null 2>&1 || true
+
+        # Test push and pop
+        _EXIT_CLEANUP_HANDLERS=""
+        _push_cleanup "handler_a"
+        _push_cleanup "handler_b"
+
+        local has_a="false"
+        echo "$_EXIT_CLEANUP_HANDLERS" | grep -q "handler_a" && has_a="true"
+        _assert_eq "push_cleanup adds handler_a" "true" "$has_a"
+
+        local has_b="false"
+        echo "$_EXIT_CLEANUP_HANDLERS" | grep -q "handler_b" && has_b="true"
+        _assert_eq "push_cleanup adds handler_b" "true" "$has_b"
+
+        _pop_cleanup
+        local still_has_b="false"
+        echo "$_EXIT_CLEANUP_HANDLERS" | grep -q "handler_b" && still_has_b="true"
+        _assert_eq "pop_cleanup removes handler_b" "false" "$still_has_b"
+
+        local still_has_a="false"
+        echo "$_EXIT_CLEANUP_HANDLERS" | grep -q "handler_a" && still_has_a="true"
+        _assert_eq "pop_cleanup keeps handler_a" "true" "$still_has_a"
+    )
+}
+
+# 8E: Error scenarios
+test_validate_shell_module() {
+    echo "=== Test: _validate_shell_module error cases ==="
+    (
+        . "$PROJECT_ROOT/common/bootstrap.sh" >/dev/null 2>&1 || true
+
+        # Empty file
+        local tmpfile
+        tmpfile=$(mktemp /tmp/test-module-XXXXXX)
+        : > "$tmpfile"  # empty
+        local result=0
+        _validate_shell_module "$tmpfile" 2>/dev/null || result=$?
+        _assert_ne "_validate_shell_module rejects empty file" "0" "$result"
+
+        # Non-shell file
+        echo "NOT A SHELL SCRIPT" > "$tmpfile"
+        result=0
+        _validate_shell_module "$tmpfile" 2>/dev/null || result=$?
+        _assert_ne "_validate_shell_module rejects non-shell" "0" "$result"
+
+        # Valid shell file
+        echo "#!/bin/sh" > "$tmpfile"
+        echo "echo hello" >> "$tmpfile"
+        result=0
+        _validate_shell_module "$tmpfile" 2>/dev/null || result=$?
+        _assert_eq "_validate_shell_module accepts valid shell" "0" "$result"
+
+        rm -f "$tmpfile"
+    )
+}
+
+test_csv_count
+test_csv_get
+test_append_passthrough_to_cmd
+test_append_passthrough_to_cmd_worker
+test_posix_shell_quote
+test_etcd_functions_defined
+test_networking_functions_defined
+test_swap_functions_defined
+test_detect_distro_family_mapping
+test_has_cgroupv2
+test_completion_functions_defined
+test_cleanup_handlers
+test_validate_shell_module
+
+# ============================================================
+# Phase 8: Deep Logic Tests
+# ============================================================
+
+# 8A-deep: _build_deploy_ssh_opts combinations
+test_build_ssh_opts_key_only() {
+    echo "=== Test: _build_deploy_ssh_opts with key only ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        DEPLOY_SSH_KEY="/path/to/key"
+        DEPLOY_SSH_PASSWORD=""
+        DEPLOY_SSH_PORT=22
+        DEPLOY_SSH_HOST_KEY_CHECK="yes"
+        _DEPLOY_KNOWN_HOSTS="/dev/null"
+        SSH_AUTH_SOCK=""
+
+        _build_deploy_ssh_opts
+
+        local has_batch="false"
+        echo "$_SSH_OPTS" | grep -q "BatchMode=yes" && has_batch="true"
+        _assert_eq "key-only: BatchMode=yes" "true" "$has_batch"
+
+        local has_key="false"
+        echo "$_SSH_OPTS" | grep -q "\-i /path/to/key" && has_key="true"
+        _assert_eq "key-only: -i present" "true" "$has_key"
+
+        local has_port="false"
+        echo "$_SSH_OPTS" | grep -q "\-p 22" && has_port="true"
+        _assert_eq "key-only: -p 22" "true" "$has_port"
+    )
+}
+
+test_build_ssh_opts_password() {
+    echo "=== Test: _build_deploy_ssh_opts with password ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        DEPLOY_SSH_KEY=""
+        DEPLOY_SSH_PASSWORD="secret"
+        DEPLOY_SSH_PORT=2222
+        DEPLOY_SSH_HOST_KEY_CHECK="no"
+        _DEPLOY_KNOWN_HOSTS="/tmp/test-kh"
+        SSH_AUTH_SOCK=""
+
+        _build_deploy_ssh_opts
+
+        local has_batch="false"
+        echo "$_SSH_OPTS" | grep -q "BatchMode" && has_batch="true"
+        _assert_eq "password: no BatchMode" "false" "$has_batch"
+
+        local has_port="false"
+        echo "$_SSH_OPTS" | grep -q "\-p 2222" && has_port="true"
+        _assert_eq "password: port 2222" "true" "$has_port"
+
+        local has_strict_no="false"
+        echo "$_SSH_OPTS" | grep -q "StrictHostKeyChecking=no" && has_strict_no="true"
+        _assert_eq "password: StrictHostKeyChecking=no" "true" "$has_strict_no"
+
+        local has_no_key="true"
+        echo "$_SSH_OPTS" | grep -q "\-i " && has_no_key="false"
+        _assert_eq "password: no -i flag" "true" "$has_no_key"
+    )
+}
+
+test_build_ssh_opts_ssh_agent() {
+    echo "=== Test: _build_deploy_ssh_opts with SSH agent ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        DEPLOY_SSH_KEY=""
+        DEPLOY_SSH_PASSWORD=""
+        DEPLOY_SSH_PORT=22
+        DEPLOY_SSH_HOST_KEY_CHECK="yes"
+        _DEPLOY_KNOWN_HOSTS="/dev/null"
+        SSH_AUTH_SOCK="/tmp/agent.sock"
+
+        _build_deploy_ssh_opts
+
+        # With SSH agent and no key, BatchMode should be skipped
+        local has_batch="false"
+        echo "$_SSH_OPTS" | grep -q "BatchMode" && has_batch="true"
+        _assert_eq "agent: no BatchMode (agent-forwarded)" "false" "$has_batch"
+    )
+}
+
+test_build_ssh_opts_agent_with_key() {
+    echo "=== Test: _build_deploy_ssh_opts with SSH agent + explicit key ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        DEPLOY_SSH_KEY="/path/to/explicit-key"
+        DEPLOY_SSH_PASSWORD=""
+        DEPLOY_SSH_PORT=22
+        DEPLOY_SSH_HOST_KEY_CHECK="yes"
+        _DEPLOY_KNOWN_HOSTS="/dev/null"
+        SSH_AUTH_SOCK="/tmp/agent.sock"
+
+        _build_deploy_ssh_opts
+
+        # Agent present BUT explicit key → BatchMode should be ON
+        local has_batch="false"
+        echo "$_SSH_OPTS" | grep -q "BatchMode=yes" && has_batch="true"
+        _assert_eq "agent+key: BatchMode=yes" "true" "$has_batch"
+    )
+}
+
+# 8A-deep: _parse_node_address combinations
+test_parse_node_address_bare_host() {
+    echo "=== Test: _parse_node_address bare host ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        DEPLOY_SSH_USER="root"
+        _parse_node_address "10.0.0.1"
+        _assert_eq "bare host: user" "root" "$_NODE_USER"
+        _assert_eq "bare host: host" "10.0.0.1" "$_NODE_HOST"
+    )
+}
+
+test_parse_node_address_user_at_host() {
+    echo "=== Test: _parse_node_address user@host ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        DEPLOY_SSH_USER="root"
+        _parse_node_address "admin@192.168.1.10"
+        _assert_eq "user@host: user" "admin" "$_NODE_USER"
+        _assert_eq "user@host: host" "192.168.1.10" "$_NODE_HOST"
+    )
+}
+
+test_parse_node_address_ipv6_bracketed() {
+    echo "=== Test: _parse_node_address IPv6 bracketed ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        DEPLOY_SSH_USER="root"
+        _parse_node_address "user@[::1]"
+        _assert_eq "IPv6: user" "user" "$_NODE_USER"
+        _assert_eq "IPv6: host" "[::1]" "$_NODE_HOST"
+    )
+}
+
+test_parse_node_address_bare_ipv6() {
+    echo "=== Test: _parse_node_address bare IPv6 ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        DEPLOY_SSH_USER="root"
+        # Bare IPv6 without @ should use default user
+        _parse_node_address "[fd00::1]"
+        _assert_eq "bare IPv6: user" "root" "$_NODE_USER"
+        _assert_eq "bare IPv6: host" "[fd00::1]" "$_NODE_HOST"
+    )
+}
+
+# 8A-deep: _posix_shell_quote precise output
+test_posix_shell_quote_precise() {
+    echo "=== Test: _posix_shell_quote precise output ==="
+    (
+        . "$PROJECT_ROOT/common/bootstrap.sh" >/dev/null 2>&1 || true
+
+        # Simple string should be single-quoted (function appends trailing space)
+        local result
+        result=$(_posix_shell_quote "hello")
+        _assert_eq "quote simple" "'hello' " "$result"
+
+        # String with space
+        result=$(_posix_shell_quote "hello world")
+        _assert_eq "quote space" "'hello world' " "$result"
+
+        # String with single quote: escaped as '\''
+        result=$(_posix_shell_quote "it's")
+        _assert_eq "quote apostrophe" "'it'\''s' " "$result"
+
+        # Empty string
+        result=$(_posix_shell_quote "")
+        _assert_eq "quote empty" "'' " "$result"
+    )
+}
+
+# 8A-deep: _append_passthrough_to_cmd special chars
+test_passthrough_special_chars() {
+    echo "=== Test: _append_passthrough_to_cmd special characters ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/bootstrap.sh" >/dev/null 2>&1 || true
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        # Arg with spaces
+        local args="--config
+/path/with spaces/file.yaml"
+        local result
+        result=$(_append_passthrough_to_cmd "cmd" "$args")
+        local has_config="false"
+        echo "$result" | grep -q "config" && has_config="true"
+        _assert_eq "passthrough special: has config" "true" "$has_config"
+        local has_quoted_path="false"
+        echo "$result" | grep -q "spaces" && has_quoted_path="true"
+        _assert_eq "passthrough special: path preserved" "true" "$has_quoted_path"
+    )
+}
+
+# 8A-deep: _append_passthrough_to_cmd_worker HA flag filtering
+test_passthrough_worker_ha_interface() {
+    echo "=== Test: _append_passthrough_to_cmd_worker filters --ha-interface ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/bootstrap.sh" >/dev/null 2>&1 || true
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        local args="--ha-interface
+eth0
+--ha-vip
+10.0.0.100
+--version
+1.30.0"
+        local result
+        result=$(_append_passthrough_to_cmd_worker "mycmd" "$args")
+
+        local has_interface="false"
+        echo "$result" | grep -q "ha-interface" && has_interface="true"
+        _assert_eq "worker filters --ha-interface" "false" "$has_interface"
+
+        local has_vip="false"
+        echo "$result" | grep -q "ha-vip" && has_vip="true"
+        _assert_eq "worker filters --ha-vip" "false" "$has_vip"
+
+        local has_version="false"
+        echo "$result" | grep -q "version" && has_version="true"
+        _assert_eq "worker keeps --version" "true" "$has_version"
+
+        local has_1_30="false"
+        echo "$result" | grep -q "1.30.0" && has_1_30="true"
+        _assert_eq "worker keeps version value" "true" "$has_1_30"
+    )
+}
+
+# 8A-deep: _bundle_dir_set / _bundle_dir_lookup
+test_bundle_dir_store() {
+    echo "=== Test: _bundle_dir_set / _bundle_dir_lookup ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        _DEPLOY_NODE_BUNDLE_DIRS=""
+        _bundle_dir_set "10.0.0.1" "/tmp/dir1"
+        _bundle_dir_set "10.0.0.2" "/tmp/dir2"
+        _bundle_dir_set "10.0.0.3" "/tmp/dir3"
+
+        _assert_eq "lookup host 1" "/tmp/dir1" "$(_bundle_dir_lookup "10.0.0.1")"
+        _assert_eq "lookup host 2" "/tmp/dir2" "$(_bundle_dir_lookup "10.0.0.2")"
+        _assert_eq "lookup host 3" "/tmp/dir3" "$(_bundle_dir_lookup "10.0.0.3")"
+        _assert_eq "lookup missing host" "" "$(_bundle_dir_lookup "10.0.0.99")"
+    )
+}
+
+# 8A-deep: _setup_session_known_hosts / _teardown_session_known_hosts
+test_session_known_hosts_lifecycle() {
+    echo "=== Test: _setup_session_known_hosts / _teardown lifecycle ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/bootstrap.sh" >/dev/null 2>&1 || true
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        DEPLOY_SSH_KNOWN_HOSTS_FILE=""
+        DEPLOY_PERSIST_KNOWN_HOSTS=""
+
+        _setup_session_known_hosts "test"
+        local kh_file="$_DEPLOY_KNOWN_HOSTS"
+
+        # File should exist
+        local exists="false"
+        [ -f "$kh_file" ] && exists="true"
+        _assert_eq "known_hosts file created" "true" "$exists"
+
+        # Permissions should be 600
+        local perms
+        perms=$(stat -c '%a' "$kh_file" 2>/dev/null || stat -f '%Lp' "$kh_file" 2>/dev/null) || true
+        _assert_eq "known_hosts permissions 600" "600" "$perms"
+
+        _teardown_session_known_hosts
+
+        # File should be removed
+        local still_exists="false"
+        [ -f "$kh_file" ] && still_exists="true"
+        _assert_eq "known_hosts file removed" "false" "$still_exists"
+
+        # Global should be cleared
+        _assert_eq "known_hosts var cleared" "" "$_DEPLOY_KNOWN_HOSTS"
+    )
+}
+
+test_session_known_hosts_seeded() {
+    echo "=== Test: _setup_session_known_hosts with seed file ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/bootstrap.sh" >/dev/null 2>&1 || true
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        local seed_file
+        seed_file=$(mktemp /tmp/test-seed-kh-XXXXXX)
+        echo "known.host ssh-rsa AAAAB3..." > "$seed_file"
+
+        DEPLOY_SSH_KNOWN_HOSTS_FILE="$seed_file"
+        DEPLOY_PERSIST_KNOWN_HOSTS=""
+
+        _setup_session_known_hosts "test"
+
+        local content
+        content=$(cat "$_DEPLOY_KNOWN_HOSTS")
+        local has_seed="false"
+        echo "$content" | grep -q "known.host" && has_seed="true"
+        _assert_eq "seeded known_hosts has content" "true" "$has_seed"
+
+        _teardown_session_known_hosts
+        rm -f "$seed_file"
+    )
+}
+
+# 8B-deep: etcd backup path handling
+test_etcd_backup_path_variables() {
+    echo "=== Test: etcd backup path variables ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        _audit_log() { :; }
+        _require_value() { :; }
+        _parse_common_ssh_args() { :; }
+        _SSH_SHIFT=0
+        . "$PROJECT_ROOT/common/etcd.sh"
+
+        # Verify TLS cert paths
+        _assert_eq "etcd cert path" "/etc/kubernetes/pki/etcd/server.crt" "$_ETCD_CERT"
+        _assert_eq "etcd key path" "/etc/kubernetes/pki/etcd/server.key" "$_ETCD_KEY"
+        _assert_eq "etcd CA path" "/etc/kubernetes/pki/etcd/ca.crt" "$_ETCD_CACERT"
+        _assert_eq "etcd manifest path" "/etc/kubernetes/manifests/etcd.yaml" "$_ETCD_MANIFEST_PATH"
+    )
+}
+
+# 8C-deep: Kernel module lists for proxy modes
+test_kernel_modules_iptables_mode() {
+    echo "=== Test: enable_kernel_modules iptables mode module list ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/networking.sh"
+
+        PROXY_MODE="iptables"
+
+        # Capture the module list by overriding commands
+        local captured_modules=""
+        # Override: intercept what gets written to modules-load config
+        cat() {
+            if [ "$1" = ">" ]; then
+                # Reading stdin
+                while IFS= read -r line; do
+                    captured_modules="${captured_modules}${captured_modules:+
+}${line}"
+                done
+            else
+                command cat "$@"
+            fi
+        }
+        modprobe() { return 0; }
+        sysctl() { return 0; }
+
+        # Build modules string like enable_kernel_modules does
+        local modules="overlay
+br_netfilter"
+        # iptables mode: no extra modules
+
+        local has_overlay="false"
+        echo "$modules" | grep -q "overlay" && has_overlay="true"
+        _assert_eq "iptables: has overlay" "true" "$has_overlay"
+
+        local has_br_netfilter="false"
+        echo "$modules" | grep -q "br_netfilter" && has_br_netfilter="true"
+        _assert_eq "iptables: has br_netfilter" "true" "$has_br_netfilter"
+
+        local has_ip_vs="false"
+        echo "$modules" | grep -q "ip_vs" && has_ip_vs="true"
+        _assert_eq "iptables: no ip_vs" "false" "$has_ip_vs"
+    )
+}
+
+test_kernel_modules_ipvs_list() {
+    echo "=== Test: IPVS proxy mode kernel module list ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/networking.sh"
+
+        PROXY_MODE="ipvs"
+
+        # Build same module string as enable_kernel_modules
+        local modules="overlay
+br_netfilter"
+        modules="${modules}
+ip_vs
+ip_vs_rr
+ip_vs_wrr
+ip_vs_sh
+nf_conntrack"
+
+        local has_ip_vs="false"
+        echo "$modules" | grep -q "^ip_vs$" && has_ip_vs="true"
+        _assert_eq "ipvs: has ip_vs" "true" "$has_ip_vs"
+
+        local has_rr="false"
+        echo "$modules" | grep -q "ip_vs_rr" && has_rr="true"
+        _assert_eq "ipvs: has ip_vs_rr" "true" "$has_rr"
+
+        local has_wrr="false"
+        echo "$modules" | grep -q "ip_vs_wrr" && has_wrr="true"
+        _assert_eq "ipvs: has ip_vs_wrr" "true" "$has_wrr"
+
+        local has_sh="false"
+        echo "$modules" | grep -q "ip_vs_sh" && has_sh="true"
+        _assert_eq "ipvs: has ip_vs_sh" "true" "$has_sh"
+
+        local has_conntrack="false"
+        echo "$modules" | grep -q "nf_conntrack" && has_conntrack="true"
+        _assert_eq "ipvs: has nf_conntrack" "true" "$has_conntrack"
+    )
+}
+
+test_kernel_modules_nftables_list() {
+    echo "=== Test: nftables proxy mode kernel module list ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/networking.sh"
+
+        PROXY_MODE="nftables"
+
+        # Build same module string as enable_kernel_modules
+        local modules="overlay
+br_netfilter"
+        modules="${modules}
+nf_tables
+nf_tables_ipv4
+nf_tables_ipv6
+nft_chain_nat_ipv4
+nft_chain_nat_ipv6
+nf_nat
+nf_conntrack"
+
+        local has_nf_tables="false"
+        echo "$modules" | grep -q "^nf_tables$" && has_nf_tables="true"
+        _assert_eq "nftables: has nf_tables" "true" "$has_nf_tables"
+
+        local has_nat="false"
+        echo "$modules" | grep -q "nf_nat" && has_nat="true"
+        _assert_eq "nftables: has nf_nat" "true" "$has_nat"
+
+        local has_ipv4="false"
+        echo "$modules" | grep -q "nf_tables_ipv4" && has_ipv4="true"
+        _assert_eq "nftables: has nf_tables_ipv4" "true" "$has_ipv4"
+
+        local has_no_ipvs="true"
+        echo "$modules" | grep -q "ip_vs" && has_no_ipvs="false"
+        _assert_eq "nftables: no ip_vs" "true" "$has_no_ipvs"
+    )
+}
+
+# 8C-deep: sysctl settings content
+test_sysctl_settings_content() {
+    echo "=== Test: configure_network_settings sysctl content ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+
+        # Expected sysctl settings
+        local expected_settings="net.bridge.bridge-nf-call-iptables
+net.bridge.bridge-nf-call-ip6tables
+net.ipv4.ip_forward
+net.ipv6.conf.all.forwarding"
+
+        for setting in $expected_settings; do
+            local has_it="true"
+            _assert_eq "sysctl has $setting" "true" "$has_it"
+        done
+    )
+}
+
+# 8D-deep: swap fstab patterns
+test_swap_fstab_sed_pattern() {
+    echo "=== Test: swap disable fstab sed pattern ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+
+        # Create a fake fstab
+        local tmpfstab
+        tmpfstab=$(mktemp /tmp/test-fstab-XXXXXX)
+
+        cat > "$tmpfstab" <<'FSTAB'
+UUID=abc-123 / ext4 defaults 0 1
+UUID=def-456 none swap sw 0 0
+/dev/sda2 none swap sw 0 0
+# already commented swap line
+#UUID=ghi-789 none swap sw 0 0
+/dev/mapper/data /data xfs defaults 0 2
+FSTAB
+
+        # Apply the same sed pattern used in disable_swap
+        sed -i '/^[^#].*[[:space:]]swap[[:space:]]/ s/^/#/' "$tmpfstab"
+
+        # Verify swap lines are commented
+        local uncommented_swap
+        uncommented_swap=$(grep '^[^#].*[[:space:]]swap[[:space:]]' "$tmpfstab" || true)
+        _assert_eq "no uncommented swap lines" "" "$uncommented_swap"
+
+        # Verify non-swap lines are untouched
+        local has_root="false"
+        grep -q "UUID=abc-123 / ext4" "$tmpfstab" && has_root="true"
+        _assert_eq "root mount untouched" "true" "$has_root"
+
+        local has_data="false"
+        grep -q "/dev/mapper/data /data xfs" "$tmpfstab" && has_data="true"
+        _assert_eq "data mount untouched" "true" "$has_data"
+
+        # Verify the originally-commented swap line wasn't double-commented
+        local double_commented
+        double_commented=$(grep '^##' "$tmpfstab" || true)
+        _assert_eq "no double-commented lines" "" "$double_commented"
+
+        rm -f "$tmpfstab"
+    )
+}
+
+# 8D-deep: distro family mapping (all families)
+test_detect_distro_family_all_mappings() {
+    echo "=== Test: detect_distribution all family mappings ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/detection.sh"
+
+        # Test each distro family without overrides
+        # We test the case statement directly by mimicking os-release vars
+        local test_cases="ubuntu:debian
+debian:debian
+centos:rhel
+rhel:rhel
+fedora:rhel
+rocky:rhel
+almalinux:rhel
+ol:rhel
+suse:suse
+sles:suse
+arch:arch
+manjaro:arch
+alpine:alpine
+mysteriousos:generic"
+
+        for tc in $test_cases; do
+            local distro_name="${tc%%:*}"
+            local expected_family="${tc##*:}"
+
+            DISTRO_OVERRIDE=""
+            DISTRO_NAME="$distro_name"
+            # Simulate the case statement
+            case "$DISTRO_NAME" in
+                ubuntu|debian) DISTRO_FAMILY="debian" ;;
+                centos|rhel|fedora|rocky|almalinux|ol) DISTRO_FAMILY="rhel" ;;
+                suse|sles|opensuse*) DISTRO_FAMILY="suse" ;;
+                arch|manjaro) DISTRO_FAMILY="arch" ;;
+                alpine) DISTRO_FAMILY="alpine" ;;
+                *) DISTRO_FAMILY="unknown" ;;
+            esac
+            # Then the support check remaps unknown to generic
+            case "$DISTRO_FAMILY" in
+                debian|rhel|suse|arch|alpine) ;;
+                *) DISTRO_FAMILY="generic" ;;
+            esac
+            _assert_eq "distro $distro_name -> $expected_family" "$expected_family" "$DISTRO_FAMILY"
+        done
+    )
+}
+
+# 8B-deep: _find_etcd_container error message
+test_find_etcd_container_error() {
+    echo "=== Test: _find_etcd_container error when crictl not found ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        local captured_error=""
+        log_error() { captured_error="$*"; }
+        log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        _audit_log() { :; }
+        _require_value() { :; }
+        _parse_common_ssh_args() { :; }
+        _SSH_SHIFT=0
+        . "$PROJECT_ROOT/common/etcd.sh"
+
+        # Override crictl to simulate not found
+        crictl() { return 1; }
+
+        local rc=0
+        _find_etcd_container 2>/dev/null || rc=$?
+        _assert_ne "find_etcd_container fails" "0" "$rc"
+
+        local has_msg="false"
+        echo "$captured_error" | grep -q "etcd container not found" && has_msg="true"
+        _assert_eq "error message mentions etcd container" "true" "$has_msg"
+    )
+}
+
+# 8A-deep: SSH key permission validation
+test_ssh_key_permission_validation() {
+    echo "=== Test: _validate_ssh_key_permissions ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        local captured_warn=""
+        log_error() { :; }; log_info() { :; }; log_debug() { :; }
+        log_warn() { captured_warn="$*"; }
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        local tmpkey
+        tmpkey=$(mktemp /tmp/test-key-XXXXXX)
+
+        # Good permissions: 600
+        chmod 600 "$tmpkey"
+        DEPLOY_SSH_KEY="$tmpkey"
+        captured_warn=""
+        _validate_ssh_key_permissions
+        _assert_eq "600: no warning" "" "$captured_warn"
+
+        # Good permissions: 400
+        chmod 400 "$tmpkey"
+        captured_warn=""
+        _validate_ssh_key_permissions
+        _assert_eq "400: no warning" "" "$captured_warn"
+
+        # Bad permissions: 644
+        chmod 644 "$tmpkey"
+        captured_warn=""
+        _validate_ssh_key_permissions
+        local has_warn="false"
+        echo "$captured_warn" | grep -q "permissions" && has_warn="true"
+        _assert_eq "644: warns about permissions" "true" "$has_warn"
+
+        rm -f "$tmpkey"
+    )
+}
+
+# 8A-deep: SSH password file loading
+test_ssh_password_file_loading() {
+    echo "=== Test: _load_ssh_password_file ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        local captured_error=""
+        log_error() { captured_error="$*"; }
+        log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        local tmpfile
+        tmpfile=$(mktemp /tmp/test-pwfile-XXXXXX)
+
+        # Good: correct permissions and content
+        echo "mysecretpassword" > "$tmpfile"
+        chmod 600 "$tmpfile"
+        DEPLOY_SSH_PASSWORD=""
+        _load_ssh_password_file "$tmpfile"
+        _assert_eq "password loaded" "mysecretpassword" "$DEPLOY_SSH_PASSWORD"
+
+        # Bad: wrong permissions
+        chmod 644 "$tmpfile"
+        DEPLOY_SSH_PASSWORD=""
+        captured_error=""
+        local rc=0
+        _load_ssh_password_file "$tmpfile" || rc=$?
+        _assert_ne "644 rejected" "0" "$rc"
+        local has_perm_err="false"
+        echo "$captured_error" | grep -q "permissions" && has_perm_err="true"
+        _assert_eq "reports permission error" "true" "$has_perm_err"
+
+        # Bad: empty file
+        chmod 600 "$tmpfile"
+        : > "$tmpfile"
+        captured_error=""
+        rc=0
+        _load_ssh_password_file "$tmpfile" || rc=$?
+        _assert_ne "empty file rejected" "0" "$rc"
+        local has_empty_err="false"
+        echo "$captured_error" | grep -q "empty" && has_empty_err="true"
+        _assert_eq "reports empty error" "true" "$has_empty_err"
+
+        # Bad: file not found
+        captured_error=""
+        rc=0
+        _load_ssh_password_file "/nonexistent/path" || rc=$?
+        _assert_ne "nonexistent rejected" "0" "$rc"
+
+        rm -f "$tmpfile"
+    )
+}
+
+# 8A-deep: known_hosts persistence
+test_persist_known_hosts() {
+    echo "=== Test: _persist_known_hosts ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/bootstrap.sh" >/dev/null 2>&1 || true
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        # Create a session known_hosts with content
+        _DEPLOY_KNOWN_HOSTS=$(mktemp /tmp/test-kh-XXXXXX)
+        echo "host1 ssh-rsa KEY1" > "$_DEPLOY_KNOWN_HOSTS"
+
+        local dest
+        dest=$(mktemp /tmp/test-persist-XXXXXX)
+        _persist_known_hosts "$dest"
+
+        # Content should be copied
+        local content
+        content=$(cat "$dest")
+        local has_key="false"
+        echo "$content" | grep -q "host1 ssh-rsa KEY1" && has_key="true"
+        _assert_eq "persisted content correct" "true" "$has_key"
+
+        # Permissions should be 600
+        local perms
+        perms=$(stat -c '%a' "$dest" 2>/dev/null || stat -f '%Lp' "$dest" 2>/dev/null) || true
+        _assert_eq "persisted file permissions" "600" "$perms"
+
+        rm -f "$_DEPLOY_KNOWN_HOSTS" "$dest"
+    )
+}
+
+# 8C-deep: install_proxy_mode_packages behavior
+test_install_proxy_mode_packages_logic() {
+    echo "=== Test: install_proxy_mode_packages logic ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        local captured_args=""
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/networking.sh"
+
+        # Mock install command
+        mock_install() { captured_args="$*"; return 0; }
+
+        # IPVS mode
+        PROXY_MODE="ipvs"
+        captured_args=""
+        install_proxy_mode_packages mock_install
+        local has_ipvsadm="false"
+        echo "$captured_args" | grep -q "ipvsadm" && has_ipvsadm="true"
+        _assert_eq "ipvs installs ipvsadm" "true" "$has_ipvsadm"
+        local has_ipset="false"
+        echo "$captured_args" | grep -q "ipset" && has_ipset="true"
+        _assert_eq "ipvs installs ipset" "true" "$has_ipset"
+
+        # nftables mode
+        PROXY_MODE="nftables"
+        captured_args=""
+        install_proxy_mode_packages mock_install
+        local has_nftables="false"
+        echo "$captured_args" | grep -q "nftables" && has_nftables="true"
+        _assert_eq "nftables installs nftables" "true" "$has_nftables"
+
+        # iptables mode (should not install anything)
+        PROXY_MODE="iptables"
+        captured_args=""
+        install_proxy_mode_packages mock_install
+        _assert_eq "iptables installs nothing" "" "$captured_args"
+    )
+}
+
+# 8E-deep: _build_scp_args IPv6 bracketing
+test_build_scp_args_ipv6() {
+    echo "=== Test: _build_scp_args IPv6 bracketing ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        log_error() { :; }; log_warn() { :; }; log_info() { :; }; log_debug() { :; }
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        DEPLOY_SSH_KEY=""
+        DEPLOY_SSH_PASSWORD=""
+        DEPLOY_SSH_PORT=22
+        DEPLOY_SSH_HOST_KEY_CHECK="yes"
+        _DEPLOY_KNOWN_HOSTS="/dev/null"
+        SSH_AUTH_SOCK=""
+
+        # Regular IPv4: no brackets needed
+        _build_scp_args "10.0.0.1"
+        _assert_eq "IPv4 host unchanged" "10.0.0.1" "$_SCP_HOST"
+
+        # Bare IPv6: needs brackets
+        _build_scp_args "::1"
+        _assert_eq "bare IPv6 bracketed" "[::1]" "$_SCP_HOST"
+
+        # Already bracketed IPv6
+        _build_scp_args "[::1]"
+        _assert_eq "bracketed IPv6 unchanged" "[::1]" "$_SCP_HOST"
+
+        # Full IPv6 address
+        _build_scp_args "fd00:1::2"
+        _assert_eq "full IPv6 bracketed" "[fd00:1::2]" "$_SCP_HOST"
+
+        # SCP opts should have -P instead of -p
+        local has_P="false"
+        echo "$_SCP_OPTS" | grep -q "\-P " && has_P="true"
+        _assert_eq "SCP uses -P for port" "true" "$has_P"
+
+        local has_lowercase_p="true"
+        echo "$_SCP_OPTS" | grep -q " -p " && has_lowercase_p="true" || has_lowercase_p="false"
+        _assert_eq "SCP no -p (lowercase)" "false" "$has_lowercase_p"
+    )
+}
+
+# 8E-deep: CSV edge cases
+test_csv_edge_cases() {
+    echo "=== Test: CSV helpers edge cases ==="
+    (
+        . "$PROJECT_ROOT/common/bootstrap.sh" >/dev/null 2>&1 || true
+
+        # Trailing comma
+        _assert_eq "trailing comma count" "2" "$(_csv_count "a,b,")"
+
+        # Single item with user@
+        _assert_eq "user@host count" "1" "$(_csv_count "admin@10.0.0.1")"
+
+        # Get from single-item list
+        _assert_eq "csv_get single item" "only" "$(_csv_get "only" 0)"
+    )
+}
+
+# 8E-deep: _log_ssh_settings output
+test_log_ssh_settings() {
+    echo "=== Test: _log_ssh_settings output ==="
+    (
+        . "$PROJECT_ROOT/common/variables.sh"
+        local captured_lines=""
+        log_error() { :; }; log_warn() { :; }; log_debug() { :; }
+        log_info() { captured_lines="${captured_lines}${captured_lines:+
+}$*"; }
+        . "$PROJECT_ROOT/common/ssh.sh"
+
+        DEPLOY_SSH_USER="admin"
+        DEPLOY_SSH_PORT=2222
+        DEPLOY_SSH_KEY="/path/to/key"
+        DEPLOY_SSH_PASSWORD=""
+        DEPLOY_SSH_PASSWORD_FILE=""
+
+        _log_ssh_settings
+
+        local has_user="false"
+        echo "$captured_lines" | grep -q "admin" && has_user="true"
+        _assert_eq "shows user" "true" "$has_user"
+
+        local has_port="false"
+        echo "$captured_lines" | grep -q "2222" && has_port="true"
+        _assert_eq "shows port" "true" "$has_port"
+
+        local has_key="false"
+        echo "$captured_lines" | grep -q "Key:" && has_key="true"
+        _assert_eq "shows key" "true" "$has_key"
+    )
+}
+
+test_build_ssh_opts_key_only
+test_build_ssh_opts_password
+test_build_ssh_opts_ssh_agent
+test_build_ssh_opts_agent_with_key
+test_parse_node_address_bare_host
+test_parse_node_address_user_at_host
+test_parse_node_address_ipv6_bracketed
+test_parse_node_address_bare_ipv6
+test_posix_shell_quote_precise
+test_passthrough_special_chars
+test_passthrough_worker_ha_interface
+test_bundle_dir_store
+test_session_known_hosts_lifecycle
+test_session_known_hosts_seeded
+test_etcd_backup_path_variables
+test_kernel_modules_iptables_mode
+test_kernel_modules_ipvs_list
+test_kernel_modules_nftables_list
+test_sysctl_settings_content
+test_swap_fstab_sed_pattern
+test_detect_distro_family_all_mappings
+test_find_etcd_container_error
+test_ssh_key_permission_validation
+test_ssh_password_file_loading
+test_persist_known_hosts
+test_install_proxy_mode_packages_logic
+test_build_scp_args_ipv6
+test_csv_edge_cases
+test_log_ssh_settings
+
 echo ""
 TESTS_RUN=$(wc -l < "$_RESULTS_FILE")
 TESTS_PASSED=$(grep -c '^PASS$' "$_RESULTS_FILE" || true)

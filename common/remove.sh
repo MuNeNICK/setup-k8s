@@ -99,6 +99,7 @@ remove_cluster() {
     # Confirmation prompt
     _confirm_remove
 
+    _audit_log "remove" "started" "nodes=${node_count}"
     log_info "Removing ${node_count} node(s) from the cluster"
 
     # Parse control-plane address
@@ -121,16 +122,7 @@ remove_cluster() {
     fi
 
     # Create session-scoped known_hosts
-    if [ -n "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ] && [ -f "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
-        _DEPLOY_KNOWN_HOSTS=$(mktemp /tmp/remove-known-hosts-XXXXXX)
-        chmod 600 "$_DEPLOY_KNOWN_HOSTS"
-        cp "$DEPLOY_SSH_KNOWN_HOSTS_FILE" "$_DEPLOY_KNOWN_HOSTS"
-    else
-        _DEPLOY_KNOWN_HOSTS=$(mktemp /tmp/remove-known-hosts-XXXXXX)
-        chmod 600 "$_DEPLOY_KNOWN_HOSTS"
-    fi
-    _cleanup_remove_known_hosts() { rm -f "$_DEPLOY_KNOWN_HOSTS"; }
-    _push_cleanup _cleanup_remove_known_hosts
+    _setup_session_known_hosts "remove"
 
     local _step=0
 
@@ -206,6 +198,11 @@ remove_cluster() {
         _i=$((_i + 1))
     done
 
+    # --- Post-remove health check ---
+    _parse_node_address "$REMOVE_CONTROL_PLANE"
+    log_info ""
+    _health_check_cluster "$_NODE_USER" "$_NODE_HOST" --post || true
+
     # --- Step 3: Summary ---
     log_info ""
     log_info "=== Remove Summary ==="
@@ -223,15 +220,16 @@ remove_cluster() {
     log_info "=========================="
 
     # Clean up known_hosts
-    _cleanup_remove_known_hosts
+    _teardown_session_known_hosts
     _pop_cleanup
-    _DEPLOY_KNOWN_HOSTS=""
 
     if [ "$remove_failed" = true ]; then
+        _audit_log "remove" "failed" "failed=${failed_nodes}"
         log_error "Some node removals failed. Check logs above."
         return 1
     fi
 
+    _audit_log "remove" "completed" "removed=${removed_nodes}"
     log_info "All nodes removed successfully!"
     return 0
 }

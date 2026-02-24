@@ -7,6 +7,15 @@ LOG_LEVEL="${LOG_LEVEL:-1}"
 # Dry-run mode
 DRY_RUN="${DRY_RUN:-false}"
 
+# File logging directory (empty = disabled)
+LOG_DIR="${LOG_DIR:-}"
+
+# Audit syslog (send audit events to syslog via logger)
+_AUDIT_SYSLOG="${_AUDIT_SYSLOG:-false}"
+
+# Collect diagnostics on failure
+COLLECT_DIAGNOSTICS="${COLLECT_DIAGNOSTICS:-false}"
+
 # Default values for global variables
 K8S_VERSION=""
 ACTION="${ACTION:-}"  # init or join (set by subcommand)
@@ -50,8 +59,10 @@ DEPLOY_SSH_USER="root"
 DEPLOY_SSH_PORT="22"
 DEPLOY_SSH_KEY=""
 DEPLOY_SSH_PASSWORD="${DEPLOY_SSH_PASSWORD:-}"
+DEPLOY_SSH_PASSWORD_FILE=""
 DEPLOY_SSH_KNOWN_HOSTS_FILE=""
 DEPLOY_SSH_HOST_KEY_CHECK="${DEPLOY_SSH_HOST_KEY_CHECK:-yes}"
+DEPLOY_PERSIST_KNOWN_HOSTS=""
 DEPLOY_PASSTHROUGH_ARGS=""
 
 # Upgrade subcommand
@@ -59,6 +70,8 @@ UPGRADE_TARGET_VERSION=""            # MAJOR.MINOR.PATCH (e.g., 1.33.2)
 UPGRADE_FIRST_CONTROL_PLANE=false    # kubeadm upgrade apply (first CP) vs kubeadm upgrade node
 UPGRADE_SKIP_DRAIN=false             # Skip drain/uncordon in remote mode
 UPGRADE_PASSTHROUGH_ARGS=""          # Arguments to forward to remote nodes
+UPGRADE_NO_ROLLBACK=false            # Disable automatic rollback on failure
+UPGRADE_AUTO_STEP=false              # Automatically step through minor versions
 
 # Remove subcommand
 REMOVE_CONTROL_PLANE=""              # remove: CP node (user@ip)
@@ -77,11 +90,19 @@ STATUS_OUTPUT_FORMAT="text"   # output format: text or wide
 PREFLIGHT_MODE="init"
 PREFLIGHT_CRI="containerd"
 PREFLIGHT_PROXY_MODE="iptables"
+PREFLIGHT_STRICT=false  # Treat WARN as FAIL in preflight checks
 
 # Renew subcommand
 RENEW_CERTS="all"
 RENEW_CHECK_ONLY=false
 RENEW_PASSTHROUGH_ARGS=""
+
+# kubeadm config patch file (appended to generated config)
+KUBEADM_CONFIG_PATCH=""
+# Extra SANs for API server certificate
+API_SERVER_EXTRA_SANS=""
+# Kubelet node-ip override
+KUBELET_NODE_IP=""
 
 # Version constants (overridable via environment)
 KUBE_VIP_VERSION="${KUBE_VIP_VERSION:-v0.8.9}"
@@ -92,8 +113,16 @@ CONTAINERD_VERSION="${CONTAINERD_VERSION:-2.0.4}"
 RUNC_VERSION="${RUNC_VERSION:-1.2.5}"
 CNI_PLUGINS_VERSION="${CNI_PLUGINS_VERSION:-1.6.2}"
 CRIO_VERSION="${CRIO_VERSION:-1.32.0}"
+# Timeout for remote operations (seconds)
+DEPLOY_REMOTE_TIMEOUT="${DEPLOY_REMOTE_TIMEOUT:-600}"
+# Polling interval for remote operations (seconds)
+DEPLOY_POLL_INTERVAL="${DEPLOY_POLL_INTERVAL:-10}"
+
 # Bundle module list: bootstrap + _COMMON_MODULES (defined in bootstrap.sh)
 BUNDLE_COMMON_MODULES="bootstrap ${_COMMON_MODULES:-}"
+
+# Resume support
+RESUME_ENABLED=false  # Resume from a previous interrupted operation
 
 # Cleanup options
 REMOVE_HELM=false  # Remove Helm during cleanup (opt-in via --remove-helm)
