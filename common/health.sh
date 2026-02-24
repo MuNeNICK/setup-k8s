@@ -62,6 +62,30 @@ _health_check_nodes_ready() {
     return 0
 }
 
+# Verify that the expected number of nodes are registered in the cluster.
+# Usage: _verify_node_count <user> <host> <expected_count>
+_verify_node_count() {
+    local user="$1" host="$2" expected="$3"
+    local pfx=""
+    [ "$user" != "root" ] && pfx="sudo -n "
+
+    local nodes_output
+    nodes_output=$(_deploy_ssh "$user" "$host" "${pfx}kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes --no-headers" 2>/dev/null) || true
+    if [ -z "$nodes_output" ]; then
+        log_error "Could not retrieve node list for node count verification"
+        return 1
+    fi
+
+    local actual
+    actual=$(echo "$nodes_output" | wc -l | tr -d '[:space:]')
+    if [ "$actual" -ne "$expected" ]; then
+        log_error "Node count mismatch: expected ${expected}, got ${actual}"
+        return 1
+    fi
+    log_info "Node count verified: ${actual}/${expected}"
+    return 0
+}
+
 # Check etcd cluster health and quorum.
 # Usage: _health_check_etcd <user> <host>
 _health_check_etcd() {

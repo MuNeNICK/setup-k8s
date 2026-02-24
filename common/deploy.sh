@@ -471,6 +471,10 @@ deploy_cluster() {
     log_info ""
     _health_check_cluster "$cp1_user" "$cp1_host" --post || true
 
+    # Verify expected node count (fatal if mismatch)
+    local node_count_ok=true
+    _verify_node_count "$cp1_user" "$cp1_host" "$all_count" || node_count_ok=false
+
     # --- Step 8: Clean up remote bundle directories ---
     _step=$((_step + 1))
     log_info "Step ${_step}/${total_steps}: Cleaning up remote bundle directories..."
@@ -518,10 +522,16 @@ deploy_cluster() {
     log_info "  2. Verify: kubectl get nodes"
     log_info "=========================="
 
-    if [ "$worker_failed" = true ]; then
+    if [ "$worker_failed" = true ] || [ "$node_count_ok" = false ]; then
         _state_set "status" "failed"
-        _audit_log "deploy" "failed" "some worker joins failed"
-        log_error "Some worker joins failed. Check logs above."
+        if [ "$worker_failed" = true ]; then
+            _audit_log "deploy" "failed" "some worker joins failed"
+            log_error "Some worker joins failed. Check logs above."
+        fi
+        if [ "$node_count_ok" = false ]; then
+            _audit_log "deploy" "failed" "node count mismatch"
+            log_error "Not all nodes registered. Check logs above."
+        fi
         return 1
     fi
 
