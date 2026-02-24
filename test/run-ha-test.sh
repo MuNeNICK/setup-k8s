@@ -384,7 +384,8 @@ _fo_cleanup_all() {
 # Start a VM with static IP on Docker network (same pattern as run-deploy-test.sh)
 _fo_start_vm() {
     local idx=$1 static_ip=$2 host_ssh_port=$3
-    local container_name="k8s-ha-fo-cp$((idx+1))-${DISTRO}-$(date +%s)"
+    local container_name
+    container_name="k8s-ha-fo-cp$((idx+1))-${DISTRO}-$(date +%s)"
     local vm_data_dir="$VM_DATA_DIR/ha-cp$((idx+1))"
     mkdir -p "$vm_data_dir"
 

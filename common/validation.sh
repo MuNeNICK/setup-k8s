@@ -352,6 +352,7 @@ _parse_common_ssh_args() {
             ;;
         --persist-known-hosts)
             _require_value "$argc" "$arg" "$next"
+            # shellcheck disable=SC2034 # used by ssh.sh
             DEPLOY_PERSIST_KNOWN_HOSTS="$next"
             _SSH_SHIFT=2
             ;;
@@ -361,6 +362,7 @@ _parse_common_ssh_args() {
                 log_error "--remote-timeout must be a positive integer (seconds)"
                 exit 1
             fi
+            # shellcheck disable=SC2034 # used by ssh.sh
             DEPLOY_REMOTE_TIMEOUT="$next"
             _SSH_SHIFT=2
             ;;
@@ -370,6 +372,7 @@ _parse_common_ssh_args() {
                 log_error "--poll-interval must be a positive integer (seconds)"
                 exit 1
             fi
+            # shellcheck disable=SC2034 # used by ssh.sh
             DEPLOY_POLL_INTERVAL="$next"
             _SSH_SHIFT=2
             ;;
@@ -643,16 +646,19 @@ parse_setup_args() {
                 ;;
             --kubeadm-config-patch)
                 _require_value $# "$1" "${2:-}"
+                # shellcheck disable=SC2034 # used by helpers.sh
                 KUBEADM_CONFIG_PATCH="$2"
                 shift 2
                 ;;
             --api-server-extra-sans)
                 _require_value $# "$1" "${2:-}"
+                # shellcheck disable=SC2034 # used by helpers.sh
                 API_SERVER_EXTRA_SANS="$2"
                 shift 2
                 ;;
             --kubelet-node-ip)
                 _require_value $# "$1" "${2:-}"
+                # shellcheck disable=SC2034 # used by helpers.sh
                 KUBELET_NODE_IP="$2"
                 shift 2
                 ;;

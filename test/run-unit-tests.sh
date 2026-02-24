@@ -3361,7 +3361,9 @@ test_session_known_hosts_seeded() {
         seed_file=$(mktemp /tmp/test-seed-kh-XXXXXX)
         echo "known.host ssh-rsa AAAAB3..." > "$seed_file"
 
+        # shellcheck disable=SC2034 # used by _setup_session_known_hosts
         DEPLOY_SSH_KNOWN_HOSTS_FILE="$seed_file"
+        # shellcheck disable=SC2034 # used by _teardown_session_known_hosts
         DEPLOY_PERSIST_KNOWN_HOSTS=""
 
         _setup_session_known_hosts "test"
@@ -3839,8 +3841,10 @@ test_build_scp_args_ipv6() {
         DEPLOY_SSH_KEY=""
         DEPLOY_SSH_PASSWORD=""
         DEPLOY_SSH_PORT=22
+        # shellcheck disable=SC2034 # used by _build_deploy_ssh_opts
         DEPLOY_SSH_HOST_KEY_CHECK="yes"
         _DEPLOY_KNOWN_HOSTS="/dev/null"
+        # shellcheck disable=SC2034 # used by _build_deploy_ssh_opts
         SSH_AUTH_SOCK=""
 
         # Regular IPv4: no brackets needed
@@ -3898,10 +3902,12 @@ test_log_ssh_settings() {
 }$*"; }
         . "$PROJECT_ROOT/common/ssh.sh"
 
+        # shellcheck disable=SC2034 # used by _log_ssh_settings
         DEPLOY_SSH_USER="admin"
         DEPLOY_SSH_PORT=2222
         DEPLOY_SSH_KEY="/path/to/key"
         DEPLOY_SSH_PASSWORD=""
+        # shellcheck disable=SC2034 # used by _log_ssh_settings
         DEPLOY_SSH_PASSWORD_FILE=""
 
         _log_ssh_settings

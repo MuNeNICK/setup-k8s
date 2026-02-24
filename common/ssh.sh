@@ -252,7 +252,7 @@ _deploy_exec_remote() {
 
     # Poll for completion
     local elapsed=0 _last_poll_err=""
-    while [ $elapsed -lt $DEPLOY_REMOTE_TIMEOUT ]; do
+    while [ "$elapsed" -lt "$DEPLOY_REMOTE_TIMEOUT" ]; do
         sleep "$DEPLOY_POLL_INTERVAL"
         elapsed=$((elapsed + DEPLOY_POLL_INTERVAL))
 
@@ -268,7 +268,7 @@ _deploy_exec_remote() {
         fi
     done
 
-    if [ $elapsed -ge $DEPLOY_REMOTE_TIMEOUT ]; then
+    if [ "$elapsed" -ge "$DEPLOY_REMOTE_TIMEOUT" ]; then
         log_error "[$host] Timeout after ${DEPLOY_REMOTE_TIMEOUT}s: $desc"
         [ -n "$_last_poll_err" ] && log_error "[$host] Last poll error: $_last_poll_err"
         log_error "[$host] Remote log:"

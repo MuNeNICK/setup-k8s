@@ -398,7 +398,8 @@ _rollback_node() {
     log_warn "  [${host}] Attempting rollback to v${pre_version}..."
 
     # Downgrade packages to pre-upgrade version
-    local rollback_cmd="${pfx}sh ${bundle_path} upgrade --kubernetes-version $(_posix_shell_quote "$pre_version")"
+    local rollback_cmd
+    rollback_cmd="${pfx}sh ${bundle_path} upgrade --kubernetes-version $(_posix_shell_quote "$pre_version")"
     rollback_cmd=$(_append_upgrade_passthrough "$rollback_cmd" "$UPGRADE_PASSTHROUGH_ARGS")
 
     if _deploy_exec_remote "$user" "$host" "rollback" "$rollback_cmd"; then
