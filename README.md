@@ -30,8 +30,7 @@ curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sudo sh
 curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sh -s -- \
   deploy \
   --control-planes root@192.168.1.10 \
-  --workers root@192.168.1.11,root@192.168.1.12 \
-  --ssh-key ~/.ssh/id_rsa
+  --workers root@192.168.1.11,root@192.168.1.12
 ```
 
 ### Deploy HA Cluster
@@ -40,8 +39,7 @@ curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sh -s -
   deploy \
   --control-planes root@192.168.1.10,root@192.168.1.11,root@192.168.1.12 \
   --workers root@192.168.1.20 \
-  --ha-vip 192.168.1.100 \
-  --ssh-key ~/.ssh/id_rsa
+  --ha-vip 192.168.1.100
 ```
 
 ### Cleanup

@@ -227,15 +227,15 @@ deploy_cluster() {
     log_info "Deploying Kubernetes cluster: ${cp_count} control-plane(s), ${w_count} worker(s)"
 
     # Inform about SSH host key policy
-    if [ "${DEPLOY_SSH_HOST_KEY_CHECK}" = "yes" ] && [ -z "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
+    if [ "${DEPLOY_SSH_HOST_KEY_CHECK}" = "accept-new" ]; then
+        log_info "SSH host key check: accept-new (TOFU). New keys are accepted on first connect;"
+        log_info "subsequent connections reject changed keys. For stricter security, use:"
+        log_info "  --ssh-known-hosts known_hosts"
+    elif [ "${DEPLOY_SSH_HOST_KEY_CHECK}" = "yes" ] && [ -z "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
         log_info "SSH strict host key checking is enabled."
         log_info "Provide known_hosts with --ssh-known-hosts to proceed:"
         log_info "  ssh-keyscan -H <node-ip> >> known_hosts  # collect fingerprints"
         log_info "  setup-k8s.sh deploy --ssh-known-hosts known_hosts ..."
-    elif [ "${DEPLOY_SSH_HOST_KEY_CHECK}" = "accept-new" ]; then
-        log_info "SSH host key check: accept-new (TOFU). New keys are accepted on first connect;"
-        log_info "subsequent connections reject changed keys. For stricter security, use:"
-        log_info "  --ssh-known-hosts known_hosts"
     fi
 
     # Create session-scoped known_hosts for MITM detection within this deploy

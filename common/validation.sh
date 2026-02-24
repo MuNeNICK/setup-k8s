@@ -382,6 +382,11 @@ _parse_common_ssh_args() {
 
 # Validate common SSH arguments (user, key, known_hosts, sshpass, port)
 _validate_common_ssh_args() {
+    # Auto-discover SSH key if not explicitly specified
+    if type _auto_discover_ssh_key >/dev/null 2>&1; then
+        _auto_discover_ssh_key
+    fi
+
     # Validate SSH user if specified
     if [ -n "$DEPLOY_SSH_USER" ] && ! echo "$DEPLOY_SSH_USER" | grep -qE '^[a-zA-Z_][a-zA-Z0-9_.-]*$'; then
         log_error "Invalid SSH user: $DEPLOY_SSH_USER"
@@ -689,11 +694,11 @@ show_deploy_help() {
     echo "  --workers IPs           Comma-separated list of worker nodes (user@ip or ip)"
     echo "  --ssh-user USER         Default SSH user (default: root)"
     echo "  --ssh-port PORT         SSH port (default: 22)"
-    echo "  --ssh-key PATH          Path to SSH private key"
+    echo "  --ssh-key PATH          Path to SSH private key (auto-discovered from ~/.ssh/ when omitted)"
     echo "  --ssh-password PASS     SSH password (requires sshpass; prefer --ssh-password-file)"
     echo "  --ssh-password-file PATH  Read SSH password from file (mode 0600 required)"
     echo "  --ssh-known-hosts FILE  Pre-seeded known_hosts for strict host key verification"
-    echo "  --ssh-host-key-check MODE  SSH host key policy: yes, no, or accept-new (default: yes)"
+    echo "  --ssh-host-key-check MODE  SSH host key policy: yes, no, or accept-new (default: accept-new)"
     echo "  --persist-known-hosts PATH  Save session known_hosts to file for reuse"
     echo "  --remote-timeout SECS   Remote operation timeout in seconds (default: 600)"
     echo "  --poll-interval SECS    Remote operation poll interval in seconds (default: 10)"
@@ -868,7 +873,7 @@ show_upgrade_help() {
     echo "    --workers IPs             Comma-separated worker nodes (user@ip or ip)"
     echo "    --ssh-user USER           Default SSH user (default: root)"
     echo "    --ssh-port PORT           SSH port (default: 22)"
-    echo "    --ssh-key PATH            Path to SSH private key"
+    echo "    --ssh-key PATH            Path to SSH private key (auto-discovered from ~/.ssh/ when omitted)"
     echo "    --ssh-password PASS       SSH password (requires sshpass; prefer DEPLOY_SSH_PASSWORD env var)"
     echo "    --ssh-known-hosts FILE    Pre-seeded known_hosts for host key verification"
     echo "    --ssh-host-key-check MODE SSH host key policy: yes, no, or accept-new (default: yes)"
@@ -1060,7 +1065,7 @@ show_remove_help() {
     echo "  --force                   Skip confirmation prompt"
     echo "  --ssh-user USER           Default SSH user (default: root)"
     echo "  --ssh-port PORT           SSH port (default: 22)"
-    echo "  --ssh-key PATH            Path to SSH private key"
+    echo "  --ssh-key PATH            Path to SSH private key (auto-discovered from ~/.ssh/ when omitted)"
     echo "  --ssh-password PASS       SSH password (requires sshpass; prefer DEPLOY_SSH_PASSWORD env var)"
     echo "  --ssh-known-hosts FILE    Pre-seeded known_hosts for host key verification"
     echo "  --ssh-host-key-check MODE SSH host key policy: yes, no, or accept-new (default: yes)"
@@ -1224,10 +1229,10 @@ show_backup_help() {
     echo "    --snapshot-path PATH    Local download path for snapshot"
     echo "    --ssh-user USER         Default SSH user (default: root)"
     echo "    --ssh-port PORT         SSH port (default: 22)"
-    echo "    --ssh-key PATH          Path to SSH private key"
+    echo "    --ssh-key PATH          Path to SSH private key (auto-discovered from ~/.ssh/ when omitted)"
     echo "    --ssh-password PASS     SSH password (requires sshpass; prefer DEPLOY_SSH_PASSWORD env var)"
     echo "    --ssh-known-hosts FILE  Pre-seeded known_hosts for host key verification"
-    echo "    --ssh-host-key-check MODE  SSH host key policy: yes, no, or accept-new (default: yes)"
+    echo "    --ssh-host-key-check MODE  SSH host key policy: yes, no, or accept-new (default: accept-new)"
     echo "    --remote-timeout SECS   Remote operation timeout in seconds (default: 600)"
     echo "    --poll-interval SECS    Remote operation poll interval in seconds (default: 10)"
     echo "    --dry-run               Show backup plan and exit"
@@ -1270,10 +1275,10 @@ show_restore_help() {
     echo "  Optional:"
     echo "    --ssh-user USER         Default SSH user (default: root)"
     echo "    --ssh-port PORT         SSH port (default: 22)"
-    echo "    --ssh-key PATH          Path to SSH private key"
+    echo "    --ssh-key PATH          Path to SSH private key (auto-discovered from ~/.ssh/ when omitted)"
     echo "    --ssh-password PASS     SSH password (requires sshpass; prefer DEPLOY_SSH_PASSWORD env var)"
     echo "    --ssh-known-hosts FILE  Pre-seeded known_hosts for host key verification"
-    echo "    --ssh-host-key-check MODE  SSH host key policy: yes, no, or accept-new (default: yes)"
+    echo "    --ssh-host-key-check MODE  SSH host key policy: yes, no, or accept-new (default: accept-new)"
     echo "    --remote-timeout SECS   Remote operation timeout in seconds (default: 600)"
     echo "    --poll-interval SECS    Remote operation poll interval in seconds (default: 10)"
     echo "    --dry-run               Show restore plan and exit"
@@ -1478,7 +1483,7 @@ show_renew_help() {
     echo "    --check-only              Only check certificate expiration (no renewal)"
     echo "    --ssh-user USER           Default SSH user (default: root)"
     echo "    --ssh-port PORT           SSH port (default: 22)"
-    echo "    --ssh-key PATH            Path to SSH private key"
+    echo "    --ssh-key PATH            Path to SSH private key (auto-discovered from ~/.ssh/ when omitted)"
     echo "    --ssh-password PASS       SSH password (requires sshpass; prefer DEPLOY_SSH_PASSWORD env var)"
     echo "    --ssh-known-hosts FILE    Pre-seeded known_hosts for host key verification"
     echo "    --ssh-host-key-check MODE SSH host key policy: yes, no, or accept-new (default: yes)"

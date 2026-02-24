@@ -112,13 +112,13 @@ remove_cluster() {
     _DEPLOY_ALL_NODES="${REMOVE_CONTROL_PLANE},${REMOVE_NODES}"
 
     # Inform about SSH host key policy
-    if [ "${DEPLOY_SSH_HOST_KEY_CHECK}" = "yes" ] && [ -z "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
+    if [ "${DEPLOY_SSH_HOST_KEY_CHECK}" = "accept-new" ]; then
+        log_info "SSH host key check: accept-new (TOFU)."
+    elif [ "${DEPLOY_SSH_HOST_KEY_CHECK}" = "yes" ] && [ -z "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
         log_info "SSH strict host key checking is enabled."
         log_info "Provide known_hosts with --ssh-known-hosts to proceed:"
         log_info "  ssh-keyscan -H <node-ip> >> known_hosts"
         log_info "  setup-k8s.sh remove --ssh-known-hosts known_hosts ..."
-    elif [ "${DEPLOY_SSH_HOST_KEY_CHECK}" = "accept-new" ]; then
-        log_info "SSH host key check: accept-new (TOFU)."
     fi
 
     # Create session-scoped known_hosts

@@ -661,17 +661,14 @@ The file must have mode 0600 or stricter.
 
 ### Known Hosts Persistence
 
-Save discovered SSH host keys for reuse across sessions:
+Save discovered SSH host keys for reuse across sessions. Since the default host key policy is `accept-new` (TOFU), keys are automatically accepted on first connect:
 
 ```bash
-# First run: discover and save host keys
+# First run: host keys are accepted automatically (accept-new is the default)
 setup-k8s.sh deploy --control-planes 10.0.0.1 \
-  --ssh-host-key-check accept-new \
-  --persist-known-hosts ./known_hosts \
-  --ssh-key ~/.ssh/id_rsa
+  --persist-known-hosts ./known_hosts
 
-# Subsequent runs: reuse saved host keys
+# Subsequent runs: reuse saved host keys with strict checking
 setup-k8s.sh upgrade --control-planes 10.0.0.1 \
-  --ssh-known-hosts ./known_hosts \
-  --ssh-key ~/.ssh/id_rsa
+  --ssh-known-hosts ./known_hosts
 ```

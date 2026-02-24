@@ -441,6 +441,34 @@ _validate_ssh_key_permissions() {
     esac
 }
 
+# --- SSH key auto-discovery ---
+
+# Auto-discover SSH private key from the invoking user's ~/.ssh/ directory.
+# Searches: id_ed25519, id_rsa, id_ecdsa (in order of preference).
+# Only sets DEPLOY_SSH_KEY if not already specified and a key file is found.
+_auto_discover_ssh_key() {
+    # Skip if already explicitly set
+    [ -n "$DEPLOY_SSH_KEY" ] && return 0
+
+    # Determine the SSH directory of the original (pre-sudo) user
+    local ssh_home=""
+    if [ -n "${SUDO_USER:-}" ] && type get_user_home >/dev/null 2>&1; then
+        ssh_home="$(get_user_home "$SUDO_USER")"
+    else
+        ssh_home="${HOME:-}"
+    fi
+    [ -z "$ssh_home" ] && return 0
+
+    local key_name
+    for key_name in id_ed25519 id_rsa id_ecdsa; do
+        if [ -f "${ssh_home}/.ssh/${key_name}" ]; then
+            DEPLOY_SSH_KEY="${ssh_home}/.ssh/${key_name}"
+            log_info "SSH key auto-discovered: $DEPLOY_SSH_KEY"
+            return 0
+        fi
+    done
+}
+
 # --- SSH password file support ---
 
 # Load SSH password from a file (validates permissions).

@@ -70,11 +70,11 @@ These options are shared across all remote subcommands: `deploy`, `upgrade`, `re
 |--------|-------------|---------|---------|
 | `--ssh-user USER` | Default SSH user | `root` | `--ssh-user ubuntu` |
 | `--ssh-port PORT` | SSH port | `22` | `--ssh-port 2222` |
-| `--ssh-key PATH` | Path to SSH private key | — | `--ssh-key ~/.ssh/id_rsa` |
+| `--ssh-key PATH` | Path to SSH private key (auto-discovered from `~/.ssh/` when omitted: `id_ed25519` > `id_rsa` > `id_ecdsa`) | auto-discover | `--ssh-key ~/.ssh/id_rsa` |
 | `--ssh-password PASS` | SSH password (requires sshpass; prefer `--ssh-password-file` or `DEPLOY_SSH_PASSWORD` env var) | — | `--ssh-password secret` |
 | `--ssh-password-file PATH` | Read SSH password from file (file must have mode 0600) | — | `--ssh-password-file /run/secrets/ssh-pass` |
 | `--ssh-known-hosts FILE` | Pre-seeded known_hosts file for SSH host key verification (implies `--ssh-host-key-check yes`) | — | `--ssh-known-hosts ~/.ssh/known_hosts` |
-| `--ssh-host-key-check MODE` | SSH host key verification policy (`yes`, `no`, or `accept-new`) | `yes` | `--ssh-host-key-check accept-new` |
+| `--ssh-host-key-check MODE` | SSH host key verification policy (`yes`, `no`, or `accept-new`) | `accept-new` | `--ssh-host-key-check yes` |
 | `--persist-known-hosts PATH` | Save session known_hosts to file after operation (reusable with `--ssh-known-hosts` next time) | — | `--persist-known-hosts ./known_hosts` |
 | `--remote-timeout SECS` | Timeout for remote operations in seconds | `600` | `--remote-timeout 900` |
 | `--poll-interval SECS` | Poll interval for remote operation progress in seconds | `10` | `--poll-interval 5` |

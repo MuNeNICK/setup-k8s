@@ -3926,6 +3926,88 @@ test_log_ssh_settings() {
     )
 }
 
+# ============================================================
+# Test: SSH host key check default is accept-new
+# ============================================================
+test_ssh_host_key_check_default() {
+    echo "=== Test: SSH host key check default ==="
+    (
+        # Source variables.sh with a clean state
+        unset DEPLOY_SSH_HOST_KEY_CHECK
+        source "$PROJECT_ROOT/common/variables.sh"
+        _assert_eq "DEPLOY_SSH_HOST_KEY_CHECK default is accept-new" "accept-new" "$DEPLOY_SSH_HOST_KEY_CHECK"
+    )
+    (
+        # Ensure environment variable override still works
+        DEPLOY_SSH_HOST_KEY_CHECK="yes"
+        source "$PROJECT_ROOT/common/variables.sh"
+        _assert_eq "DEPLOY_SSH_HOST_KEY_CHECK respects env override" "yes" "$DEPLOY_SSH_HOST_KEY_CHECK"
+    )
+}
+
+# ============================================================
+# Test: SSH key auto-discovery
+# ============================================================
+test_auto_discover_ssh_key() {
+    echo "=== Test: SSH key auto-discovery ==="
+
+    # Setup: create temp dir with fake SSH keys
+    local tmpdir
+    tmpdir=$(mktemp -d)
+
+    # Stub get_user_home so we don't need real user lookup
+    get_user_home() { echo "$tmpdir"; }
+
+    # Stub log_info to suppress output
+    log_info() { :; }
+
+    (
+        # Test 1: Explicit key is not overridden
+        source "$PROJECT_ROOT/common/ssh.sh"
+        DEPLOY_SSH_KEY="/explicit/path"
+        _auto_discover_ssh_key
+        _assert_eq "explicit key is preserved" "/explicit/path" "$DEPLOY_SSH_KEY"
+    )
+
+    (
+        # Test 2: ed25519 is preferred
+        mkdir -p "$tmpdir/.ssh"
+        touch "$tmpdir/.ssh/id_ed25519"
+        touch "$tmpdir/.ssh/id_rsa"
+        touch "$tmpdir/.ssh/id_ecdsa"
+
+        source "$PROJECT_ROOT/common/ssh.sh"
+        DEPLOY_SSH_KEY=""
+        HOME="$tmpdir"
+        _auto_discover_ssh_key
+        _assert_eq "ed25519 preferred" "$tmpdir/.ssh/id_ed25519" "$DEPLOY_SSH_KEY"
+    )
+
+    (
+        # Test 3: Falls back to rsa when ed25519 is absent
+        rm -f "$tmpdir/.ssh/id_ed25519"
+
+        source "$PROJECT_ROOT/common/ssh.sh"
+        DEPLOY_SSH_KEY=""
+        HOME="$tmpdir"
+        _auto_discover_ssh_key
+        _assert_eq "rsa fallback" "$tmpdir/.ssh/id_rsa" "$DEPLOY_SSH_KEY"
+    )
+
+    (
+        # Test 4: No key found, DEPLOY_SSH_KEY stays empty
+        rm -rf "$tmpdir/.ssh"
+
+        source "$PROJECT_ROOT/common/ssh.sh"
+        DEPLOY_SSH_KEY=""
+        HOME="$tmpdir"
+        _auto_discover_ssh_key
+        _assert_eq "no key found leaves empty" "" "$DEPLOY_SSH_KEY"
+    )
+
+    rm -rf "$tmpdir"
+}
+
 test_build_ssh_opts_key_only
 test_build_ssh_opts_password
 test_build_ssh_opts_ssh_agent
@@ -3955,6 +4037,8 @@ test_install_proxy_mode_packages_logic
 test_build_scp_args_ipv6
 test_csv_edge_cases
 test_log_ssh_settings
+test_ssh_host_key_check_default
+test_auto_discover_ssh_key
 
 echo ""
 TESTS_RUN=$(wc -l < "$_RESULTS_FILE")

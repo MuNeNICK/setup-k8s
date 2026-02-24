@@ -95,10 +95,10 @@ Options (deploy):
   --workers IPs           Comma-separated worker nodes (user@ip or ip)
   --ssh-user USER         Default SSH user (default: root)
   --ssh-port PORT         SSH port (default: 22)
-  --ssh-key PATH          Path to SSH private key
+  --ssh-key PATH          Path to SSH private key (auto-discovered from ~/.ssh/ when omitted)
   --ssh-password PASS     SSH password (requires sshpass)
   --ssh-known-hosts FILE  known_hosts file for host key verification (recommended)
-  --ssh-host-key-check MODE  SSH host key policy: yes, no, or accept-new (default: yes)
+  --ssh-host-key-check MODE  SSH host key policy: yes, no, or accept-new (default: accept-new)
   --ha-vip ADDRESS        VIP for HA (required when >1 control-plane)
 
   Run 'setup-k8s.sh deploy --help' for deploy-specific details.
