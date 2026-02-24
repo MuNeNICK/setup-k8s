@@ -287,7 +287,7 @@ upgrade_dry_run() {
     log_info "  Default user: $DEPLOY_SSH_USER"
     log_info "  Port: $DEPLOY_SSH_PORT"
     [ -n "$DEPLOY_SSH_KEY" ] && log_info "  Key: $DEPLOY_SSH_KEY"
-    [ -n "$DEPLOY_SSH_PASSWORD" ] && log_info "  Auth: password (sshpass)"
+    [ -n "$DEPLOY_SSH_PASSWORD" ] && log_info "  Auth: password"
     log_info ""
 
     log_info "Orchestration Plan:"

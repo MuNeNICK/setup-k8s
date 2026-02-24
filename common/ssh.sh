@@ -9,6 +9,33 @@ _DEPLOY_KNOWN_HOSTS=""
 _DEPLOY_ALL_NODES=""
 _DEPLOY_NODE_BUNDLE_DIRS=""
 
+# --- SSH_ASKPASS infrastructure ---
+
+_DEPLOY_ASKPASS_SCRIPT=""
+
+# Create a temporary SSH_ASKPASS script that echoes the password.
+# Called once during SSH session setup; cleaned up by _teardown_ssh_askpass.
+_setup_ssh_askpass() {
+    [ -n "$_DEPLOY_ASKPASS_SCRIPT" ] && return 0
+    _DEPLOY_ASKPASS_SCRIPT=$(mktemp /tmp/.setup-k8s-askpass-XXXXXX)
+    cat > "$_DEPLOY_ASKPASS_SCRIPT" <<'ASKPASS_EOF'
+#!/bin/sh
+echo "$DEPLOY_SSH_PASSWORD"
+ASKPASS_EOF
+    chmod 700 "$_DEPLOY_ASKPASS_SCRIPT"
+}
+
+_teardown_ssh_askpass() {
+    [ -n "$_DEPLOY_ASKPASS_SCRIPT" ] && rm -f "$_DEPLOY_ASKPASS_SCRIPT"
+    _DEPLOY_ASKPASS_SCRIPT=""
+}
+
+# Run a command with SSH_ASKPASS enabled for password authentication.
+# Usage: _with_askpass <command...>
+_with_askpass() {
+    SSH_ASKPASS="$_DEPLOY_ASKPASS_SCRIPT" SSH_ASKPASS_REQUIRE=force DEPLOY_SSH_PASSWORD="$DEPLOY_SSH_PASSWORD" setsid -w "$@"
+}
+
 # --- SSH Infrastructure ---
 
 # Build SSH options string (space-separated, no arrays)
@@ -17,7 +44,7 @@ _build_deploy_ssh_opts() {
     local known_hosts="${_DEPLOY_KNOWN_HOSTS:-/dev/null}"
     local host_key_policy="${DEPLOY_SSH_HOST_KEY_CHECK:-yes}"
     _SSH_OPTS="-o StrictHostKeyChecking=$host_key_policy -o UserKnownHostsFile=$known_hosts -o LogLevel=ERROR -o ConnectTimeout=10"
-    # Prevent interactive prompts in automated mode (BatchMode not used with sshpass)
+    # Prevent interactive prompts in automated mode (BatchMode not used with password auth)
     if [ -z "$DEPLOY_SSH_PASSWORD" ]; then
         # If SSH agent is available and no explicit key/password, skip BatchMode
         # to allow agent-based auth that may prompt for key passphrase
@@ -48,7 +75,7 @@ _deploy_ssh() {
 
     if [ -n "$DEPLOY_SSH_PASSWORD" ]; then
         # shellcheck disable=SC2086 # intentional word splitting on SSH opts
-        SSHPASS="$DEPLOY_SSH_PASSWORD" sshpass -e ssh $_SSH_OPTS -- "${user}@${ssh_host}" "$@"
+        _with_askpass ssh $_SSH_OPTS -- "${user}@${ssh_host}" "$@"
     else
         # shellcheck disable=SC2086 # intentional word splitting on SSH opts
         ssh $_SSH_OPTS -- "${user}@${ssh_host}" "$@"
@@ -75,10 +102,10 @@ _build_scp_args() {
     esac
 }
 
-# Run scp with optional sshpass
+# Run scp with optional password auth
 _run_scp() {
     if [ -n "$DEPLOY_SSH_PASSWORD" ]; then
-        SSHPASS="$DEPLOY_SSH_PASSWORD" sshpass -e scp "$@"
+        _with_askpass scp "$@"
     else
         scp "$@"
     fi
@@ -315,10 +342,13 @@ _setup_session_known_hosts() {
     if [ -n "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ] && [ -f "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
         cp "$DEPLOY_SSH_KNOWN_HOSTS_FILE" "$_DEPLOY_KNOWN_HOSTS"
     fi
+    if [ -n "$DEPLOY_SSH_PASSWORD" ]; then
+        _setup_ssh_askpass
+    fi
     _push_cleanup _teardown_session_known_hosts
 }
 
-# Clean up session-scoped known_hosts file.
+# Clean up session-scoped known_hosts file and askpass script.
 # Persists to DEPLOY_PERSIST_KNOWN_HOSTS path if set.
 # Usage: _teardown_session_known_hosts
 _teardown_session_known_hosts() {
@@ -327,6 +357,7 @@ _teardown_session_known_hosts() {
     fi
     rm -f "$_DEPLOY_KNOWN_HOSTS"
     _DEPLOY_KNOWN_HOSTS=""
+    _teardown_ssh_askpass
 }
 
 # --- Bundle generation and transfer ---
@@ -418,7 +449,7 @@ _log_ssh_settings() {
     log_info "  Default user: $DEPLOY_SSH_USER"
     log_info "  Port: $DEPLOY_SSH_PORT"
     [ -n "$DEPLOY_SSH_KEY" ] && log_info "  Key: $DEPLOY_SSH_KEY"
-    [ -n "$DEPLOY_SSH_PASSWORD" ] && log_info "  Auth: password (sshpass)"
+    [ -n "$DEPLOY_SSH_PASSWORD" ] && log_info "  Auth: password"
     if [ -n "${DEPLOY_SSH_PASSWORD_FILE:-}" ]; then
         log_info "  Auth: password file"
     fi
