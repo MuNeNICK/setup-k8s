@@ -450,10 +450,11 @@ _auto_discover_ssh_key() {
     # Skip if already explicitly set
     [ -n "$DEPLOY_SSH_KEY" ] && return 0
 
-    # Determine the SSH directory of the original (pre-sudo) user
+    # Determine the home directory of the original (pre-sudo) user
     local ssh_home=""
-    if [ -n "${SUDO_USER:-}" ] && type get_user_home >/dev/null 2>&1; then
-        ssh_home="$(get_user_home "$SUDO_USER")"
+    if [ -n "${SUDO_USER:-}" ]; then
+        ssh_home="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)" || true
+        [ -z "$ssh_home" ] && ssh_home="/home/$SUDO_USER"
     else
         ssh_home="${HOME:-}"
     fi
