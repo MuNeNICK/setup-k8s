@@ -49,17 +49,11 @@ _SETUP_BUNDLE=""
 _CLOUD_INIT_USER_DATA=""
 
 _generic_cleanup() {
-    if [ -n "$_WATCHDOG_PID" ]; then
-        kill "$_WATCHDOG_PID" >/dev/null 2>&1 || true
-    fi
-    if [ -n "$_VM_CONTAINER_NAME" ]; then
-        log_info "Stopping container $_VM_CONTAINER_NAME..."
-        docker stop "$_VM_CONTAINER_NAME" >/dev/null 2>&1 || true
-    fi
-    cleanup_ssh_key
-    rm -f "$_SETUP_BUNDLE" "$_CLOUD_INIT_USER_DATA"
+    _cleanup_vm_container "$_WATCHDOG_PID" "$_VM_CONTAINER_NAME"
     _WATCHDOG_PID=""
     _VM_CONTAINER_NAME=""
+    cleanup_ssh_key
+    rm -f "$_SETUP_BUNDLE" "$_CLOUD_INIT_USER_DATA"
 }
 
 show_help() {

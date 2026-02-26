@@ -81,6 +81,5 @@ setup_containerd_generic() {
     # Start containerd before configuring (containerd config default needs the binary running)
     _service_start containerd
 
-    configure_containerd_toml
-    configure_crictl
+    _finalize_containerd_setup
 }

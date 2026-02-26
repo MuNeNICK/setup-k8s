@@ -2,41 +2,40 @@
 
 # Certificate renewal module: renew or check kubeadm-managed certificates.
 # Wraps `kubeadm certs renew` and `kubeadm certs check-expiration`.
+#
+# === Sections ===
+# 1. Certificate validation helpers         (~line 8)
+# 2. Local renewal (renew_certs_local)       (~line 55)
+# 3. Dry-run display                        (~line 172)
+# 4. Remote orchestration (renew_cluster)    (~line 218)
+# 5. CLI parsing & help                     (~line 288)
 
 # Valid certificate names for kubeadm certs renew
 _VALID_CERT_NAMES="apiserver apiserver-kubelet-client front-proxy-client apiserver-etcd-client etcd-healthcheck-client etcd-peer etcd-server admin.conf controller-manager.conf scheduler.conf super-admin.conf"
 
 # Validate certificate names in RENEW_CERTS.
 # Usage: _validate_cert_names
+_validate_single_cert_name() {
+    local cert_name="$1"
+    local valid=false
+    for known in $_VALID_CERT_NAMES; do
+        if [ "$cert_name" = "$known" ]; then
+            valid=true
+            break
+        fi
+    done
+    if [ "$valid" = false ]; then
+        log_error "Unknown certificate name: '$cert_name'"
+        log_error "Valid names: $_VALID_CERT_NAMES"
+        return 1
+    fi
+}
+
 _validate_cert_names() {
     if [ "$RENEW_CERTS" = "all" ]; then
         return 0
     fi
-
-    _old_ifs="$IFS"; IFS=','
-    for cert_name in $RENEW_CERTS; do
-        IFS="$_old_ifs"
-        cert_name="${cert_name#"${cert_name%%[![:space:]]*}"}"
-        cert_name="${cert_name%"${cert_name##*[![:space:]]}"}"
-        if [ -z "$cert_name" ]; then
-            continue
-        fi
-        local valid=false
-        for known in $_VALID_CERT_NAMES; do
-            if [ "$cert_name" = "$known" ]; then
-                valid=true
-                break
-            fi
-        done
-        if [ "$valid" = false ]; then
-            log_error "Unknown certificate name: '$cert_name'"
-            log_error "Valid names: $_VALID_CERT_NAMES"
-            return 1
-        fi
-        IFS=','
-    done
-    IFS="$_old_ifs"
-    return 0
+    _csv_for_each "$RENEW_CERTS" _validate_single_cert_name
 }
 
 # Check if any etcd certificates are included in the renewal set.
@@ -45,17 +44,13 @@ _has_etcd_certs() {
     if [ "$RENEW_CERTS" = "all" ]; then
         return 0
     fi
-    _old_ifs="$IFS"; IFS=','
-    for cert_name in $RENEW_CERTS; do
-        IFS="$_old_ifs"
-        case "$cert_name" in
-            etcd-*) return 0 ;;
-            apiserver-etcd-client) return 0 ;;
+    _is_etcd_cert() {
+        case "$1" in
+            etcd-*|apiserver-etcd-client) return 0 ;;
+            *) return 1 ;;
         esac
-        IFS=','
-    done
-    IFS="$_old_ifs"
-    return 1
+    }
+    _csv_any "$RENEW_CERTS" _is_etcd_cert
 }
 
 # Restart control-plane static pod components after certificate renewal.
@@ -142,22 +137,15 @@ renew_certs_local() {
             return 1
         fi
     else
-        _old_ifs="$IFS"; IFS=','
-        for cert_name in $RENEW_CERTS; do
-            IFS="$_old_ifs"
-            cert_name="${cert_name#"${cert_name%%[![:space:]]*}"}"
-            cert_name="${cert_name%"${cert_name##*[![:space:]]}"}"
-            [ -z "$cert_name" ] && continue
-            log_info "Renewing certificate: $cert_name..."
-            if ! kubeadm certs renew "$cert_name"; then
-                log_error "Failed to renew certificate: $cert_name"
-                _audit_log "renew" "failed" "reason=kubeadm_renew_failed cert=${cert_name}"
-                IFS="$_old_ifs"
+        _renew_single_cert() {
+            log_info "Renewing certificate: $1..."
+            if ! kubeadm certs renew "$1"; then
+                log_error "Failed to renew certificate: $1"
+                _audit_log "renew" "failed" "reason=kubeadm_renew_failed cert=$1"
                 return 1
             fi
-            IFS=','
-        done
-        IFS="$_old_ifs"
+        }
+        _csv_for_each "$RENEW_CERTS" _renew_single_cert || return 1
     fi
 
     # Restart control-plane components
@@ -223,23 +211,6 @@ renew_dry_run() {
 
 # --- Remote orchestration ---
 
-# Global state for remote cleanup handlers
-_RENEW_REMOTE_NODES=""
-_RENEW_REMOTE_DIRS=""
-
-_cleanup_renew_remote_dirs() {
-    if [ -n "$_RENEW_REMOTE_DIRS" ] && [ -n "$_RENEW_REMOTE_NODES" ]; then
-        local i=0
-        printf '%s\n' "$_RENEW_REMOTE_NODES" | while IFS= read -r node; do
-            i=$((i + 1))
-            local rdir
-            rdir=$(printf '%s\n' "$_RENEW_REMOTE_DIRS" | sed -n "${i}p")
-            [ -z "$rdir" ] && continue
-            _parse_node_address "$node"
-            _deploy_ssh "$_NODE_USER" "$_NODE_HOST" "rm -rf '$rdir'" >/dev/null 2>&1 || true
-        done
-    fi
-}
 renew_cluster() {
     local cp_count
     cp_count=$(_csv_count "$DEPLOY_CONTROL_PLANES")
@@ -250,48 +221,15 @@ renew_cluster() {
     fi
     log_info ""
 
-    # Setup known_hosts
-    _setup_session_known_hosts "renew"
-
     # Step 1: Check SSH connectivity to all nodes
     log_info "Step 1: Checking SSH connectivity..."
-    local _i=0
-    _old_ifs="$IFS"; IFS=','
-    for node in $DEPLOY_CONTROL_PLANES; do
-        IFS="$_old_ifs"
-        _i=$((_i + 1))
-        _parse_node_address "$node"
-        local _ssh_err
-        if ! _ssh_err=$(_deploy_ssh "$_NODE_USER" "$_NODE_HOST" "echo ok" 2>&1 >/dev/null); then
-            log_error "SSH connection failed: ${_NODE_USER}@${_NODE_HOST}:${DEPLOY_SSH_PORT}"
-            [ -n "$_ssh_err" ] && log_error "  ${_ssh_err}"
-            return 1
-        fi
-        log_info "  [${_NODE_HOST}] SSH OK"
+    if ! _init_remote_session "renew" "$DEPLOY_CONTROL_PLANES"; then
+        return 1
+    fi
 
-        # Pre-check sudo for non-root users
-        if [ "$_NODE_USER" != "root" ]; then
-            if ! _deploy_ssh "$_NODE_USER" "$_NODE_HOST" "sudo -n true" >/dev/null 2>&1; then
-                log_error "sudo -n failed -- NOPASSWD sudo required for ${_NODE_USER}@${_NODE_HOST}"
-                return 1
-            fi
-        fi
-        IFS=','
-    done
-    IFS="$_old_ifs"
-
-    # Step 2: Generate bundle
-    log_info "Step 2: Generating bundle..."
-    local bundle_path
-    bundle_path=$(mktemp /tmp/setup-k8s-renew-XXXXXX)
-    chmod 600 "$bundle_path"
-    generate_deploy_bundle "$bundle_path"
-
-    # Step 3: Transfer bundle and execute on each node sequentially
-    log_info "Step 3: Renewing certificates on each node sequentially..."
+    # Step 2: Transfer bundle and execute on each node sequentially
+    log_info "Step 2: Renewing certificates on each node sequentially..."
     local success_count=0 fail_count=0
-    _RENEW_REMOTE_NODES=""
-    _RENEW_REMOTE_DIRS=""
 
     _i=0
     _old_ifs="$IFS"; IFS=','
@@ -302,54 +240,25 @@ renew_cluster() {
         log_info ""
         log_info "--- Node $_i/$cp_count: ${_NODE_HOST} ---"
 
-        # Create remote temp directory
-        local rdir
-        rdir=$(_deploy_ssh "$_NODE_USER" "$_NODE_HOST" "d=\$(mktemp -d) && chmod 700 \"\$d\" && echo \"\$d\"") || true
-        rdir=$(echo "$rdir" | tr -d '[:space:]')
-        if [ -z "$rdir" ]; then
-            log_error "Failed to create remote temp directory on ${_NODE_HOST}"
-            fail_count=$((fail_count + 1))
-            IFS=','
-            continue
+        local bundle_path
+        if ! bundle_path=$(_transfer_bundle_to_node "$_NODE_USER" "$_NODE_HOST" "renew"); then
+            fail_count=$((fail_count + 1)); IFS=','; continue
         fi
-        _RENEW_REMOTE_NODES="${_RENEW_REMOTE_NODES}${_RENEW_REMOTE_NODES:+
-}${node}"
-        _RENEW_REMOTE_DIRS="${_RENEW_REMOTE_DIRS}${_RENEW_REMOTE_DIRS:+
-}${rdir}"
+        local rdir; rdir=$(dirname "$bundle_path")
 
-        # Transfer bundle
-        if ! _deploy_scp "$bundle_path" "$_NODE_USER" "$_NODE_HOST" "${rdir}/setup-k8s.sh"; then
-            log_error "Failed to transfer bundle to ${_NODE_HOST}"
-            fail_count=$((fail_count + 1))
-            IFS=','
-            continue
-        fi
+        local sudo_pfx; sudo_pfx=$(_sudo_prefix "$_NODE_USER")
+        local cmd="${sudo_pfx}sh ${bundle_path} renew"
+        [ -n "$RENEW_PASSTHROUGH_ARGS" ] && cmd=$(_append_passthrough_to_cmd "$cmd" "$RENEW_PASSTHROUGH_ARGS")
 
-        # Execute renewal
-        local sudo_pfx=""
-        [ "$_NODE_USER" != "root" ] && sudo_pfx="sudo -n "
-        local cmd="${sudo_pfx}sh ${rdir}/setup-k8s.sh renew"
-        if [ -n "$RENEW_PASSTHROUGH_ARGS" ]; then
-            cmd=$(_append_passthrough_to_cmd "$cmd" "$RENEW_PASSTHROUGH_ARGS")
-        fi
-
-        if _deploy_exec_remote "$_NODE_USER" "$_NODE_HOST" "cert renew" "$cmd"; then
+        if _run_remote_on_node "$_NODE_USER" "$_NODE_HOST" "cert renew" "$rdir" "$cmd"; then
             success_count=$((success_count + 1))
         else
             log_error "Certificate renewal failed on ${_NODE_HOST}"
             fail_count=$((fail_count + 1))
         fi
-
-        # Cleanup remote temp directory
-        _deploy_ssh "$_NODE_USER" "$_NODE_HOST" "rm -rf '$rdir'" >/dev/null 2>&1 || true
         IFS=','
     done
     IFS="$_old_ifs"
-    rm -f "$bundle_path"
-
-    # Clear remote state (already cleaned up inline)
-    _RENEW_REMOTE_NODES=""
-    _RENEW_REMOTE_DIRS=""
 
     # Cleanup known_hosts
     _teardown_session_known_hosts
@@ -368,4 +277,131 @@ renew_cluster() {
     fi
     log_info "Certificate renewal complete!"
     return 0
+}
+
+# === Renew argument parsing (moved from lib/validation.sh) ===
+
+# Help message for renew
+show_renew_help() {
+    echo "Usage: $0 renew [options]"
+    echo ""
+    echo "Renew or check Kubernetes certificates on control-plane nodes."
+    echo ""
+    echo "Local mode (run on a control-plane node with sudo):"
+    echo "  Optional:"
+    echo "    --certs CERTS             Certificates to renew: 'all' or comma-separated list. Default: all"
+    echo "    --check-only              Only check certificate expiration (no renewal)"
+    echo "    --distro FAMILY           Override distro family detection"
+    _show_help_footer "    " "Show renewal plan and exit"
+    echo ""
+    echo "Remote mode (from local machine via SSH):"
+    echo "  Required:"
+    echo "    --control-planes IPs      Comma-separated control-plane nodes (user@ip or ip)"
+    echo ""
+    echo "  Optional:"
+    echo "    --certs CERTS             Certificates to renew: 'all' or comma-separated list. Default: all"
+    echo "    --check-only              Only check certificate expiration (no renewal)"
+    _show_common_ssh_help "    "
+    _show_help_footer "    " "Show renewal plan and exit"
+    echo ""
+    echo "Valid certificate names:"
+    echo "  apiserver, apiserver-kubelet-client, front-proxy-client,"
+    echo "  apiserver-etcd-client, etcd-healthcheck-client, etcd-peer,"
+    echo "  etcd-server, admin.conf, controller-manager.conf,"
+    echo "  scheduler.conf, super-admin.conf"
+    echo ""
+    echo "Examples:"
+    echo "  # Local: check expiration only"
+    echo "  sudo $0 renew --check-only"
+    echo ""
+    echo "  # Local: renew all certificates"
+    echo "  sudo $0 renew"
+    echo ""
+    echo "  # Local: renew specific certificates"
+    echo "  sudo $0 renew --certs apiserver,apiserver-kubelet-client"
+    echo ""
+    echo "  # Remote: renew all certificates on multiple control-plane nodes"
+    echo "  $0 renew --control-planes 10.0.0.1,10.0.0.2 --ssh-key ~/.ssh/id_rsa"
+    exit "${1:-0}"
+}
+
+# Parse a single renew-specific option common to local and deploy modes.
+# Sets _RENEW_ARG_SHIFT. Returns 0 if handled, 1 if not.
+_RENEW_ARG_SHIFT=0
+_parse_renew_common_arg() {
+    local argc=$1 arg="$2" next="${3:-}"
+    _RENEW_ARG_SHIFT=0
+    case "$arg" in
+        --certs)
+            _require_value "$argc" "$arg" "$next"
+            RENEW_CERTS="$next"
+            _RENEW_ARG_SHIFT=2
+            ;;
+        --check-only)
+            RENEW_CHECK_ONLY=true
+            _RENEW_ARG_SHIFT=1
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+# Parse command line arguments for renew (local mode)
+parse_renew_local_args() {
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --help|-h) show_renew_help ;;
+            *)
+                if _parse_renew_common_arg $# "$1" "${2:-}"; then
+                    shift "$_RENEW_ARG_SHIFT"
+                elif _is_distro_flag "$1"; then
+                    _parse_distro_flag $# "$1" "${2:-}"
+                    shift "$_DISTRO_SHIFT"
+                else
+                    log_error "Unknown renew option: $1"
+                    show_renew_help 1
+                fi
+                ;;
+        esac
+    done
+}
+
+# Parse command line arguments for renew (remote/deploy mode)
+parse_renew_deploy_args() {
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --help|-h) show_renew_help ;;
+            --distro)
+                _require_value $# "$1" "${2:-}"
+                RENEW_PASSTHROUGH_ARGS=$(_passthrough_add_pair "$RENEW_PASSTHROUGH_ARGS" "$1" "$2")
+                shift 2
+                ;;
+            *)
+                if _parse_renew_common_arg $# "$1" "${2:-}"; then
+                    # Add passthrough for deploy mode
+                    if [ "$_RENEW_ARG_SHIFT" -eq 2 ]; then
+                        RENEW_PASSTHROUGH_ARGS=$(_passthrough_add_pair "$RENEW_PASSTHROUGH_ARGS" "$1" "$2")
+                    else
+                        RENEW_PASSTHROUGH_ARGS=$(_passthrough_add_flag "$RENEW_PASSTHROUGH_ARGS" "$1")
+                    fi
+                    shift "$_RENEW_ARG_SHIFT"
+                elif _parse_remote_ssh_args $# "$1" "${2:-}"; then
+                    shift "$_REMOTE_SSH_SHIFT"
+                else
+                    log_error "Unknown renew option: $1"
+                    show_renew_help 1
+                fi
+                ;;
+        esac
+    done
+}
+
+# Validate renew deploy arguments
+validate_renew_deploy_args() {
+    # --control-planes is required
+    if [ -z "$DEPLOY_CONTROL_PLANES" ]; then
+        log_error "--control-planes is required for remote renew"
+        exit 1
+    fi
+
+    _validate_remote_node_args
 }

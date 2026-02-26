@@ -29,12 +29,7 @@ VM_DATA_DIR="${VM_DATA_DIR:-$SCRIPT_DIR/data}"
 DISTRO="${DISTRO:-ubuntu-2404}"
 FROM_VERSION=""  # MAJOR.MINOR for deploy (e.g., 1.32)
 TO_VERSION=""    # MAJOR.MINOR.PATCH for upgrade (e.g., 1.33.2)
-VM_MEMORY="${VM_MEMORY:-4096}"
-VM_CPUS="${VM_CPUS:-2}"
-VM_DISK_SIZE="${VM_DISK_SIZE:-40G}"
-
-TIMEOUT_TOTAL=1200
-SSH_READY_TIMEOUT=300
+# Common defaults from vm_harness.sh: VM_MEMORY, VM_CPUS, VM_DISK_SIZE, TIMEOUT_TOTAL, SSH_READY_TIMEOUT
 
 # Docker network
 DOCKER_NETWORK="${DOCKER_NETWORK:-k8s-upgrade-net-$$}"
@@ -42,18 +37,11 @@ DOCKER_SUBNET="${DOCKER_SUBNET:-172.30.0.0/24}"
 CP_DOCKER_IP="${CP_DOCKER_IP:-172.30.0.10}"
 WORKER_DOCKER_IP="${WORKER_DOCKER_IP:-172.30.0.20}"
 
-# SSH settings
+# SSH settings & cleanup state
 SSH_KEY_DIR=""
-SSH_BASE_OPTS=(-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5)
-SSH_OPTS=("${SSH_BASE_OPTS[@]}")
-LOGIN_USER="user"
-
-# Cleanup state
-_CP_CONTAINER_NAME=""
+_init_test_defaults
 _WORKER_CONTAINER_NAME=""
-_CP_WATCHDOG_PID=""
 _WORKER_WATCHDOG_PID=""
-_CP_SSH_PORT=""
 _WORKER_SSH_PORT=""
 
 show_help() {
@@ -79,85 +67,6 @@ Examples:
   $0 --from-version 1.32 --to-version 1.33.2          # explicit versions
   $0 --distro debian-12 --from-version 1.32 --to-version 1.33.2
 EOF
-}
-
-# --- VM infrastructure (same pattern as run-deploy-test.sh) ---
-
-setup_docker_network() {
-    log_info "Creating Docker network: $DOCKER_NETWORK ($DOCKER_SUBNET)"
-    docker network rm "$DOCKER_NETWORK" >/dev/null 2>&1 || true
-    docker network create --subnet "$DOCKER_SUBNET" "$DOCKER_NETWORK" >/dev/null
-    log_success "Docker network created"
-}
-
-cleanup_docker_network() {
-    if docker network inspect "$DOCKER_NETWORK" >/dev/null 2>&1; then
-        log_info "Removing Docker network: $DOCKER_NETWORK"
-        docker network rm "$DOCKER_NETWORK" >/dev/null 2>&1 || true
-    fi
-}
-
-_cleanup_all() {
-    _cleanup_vm_container "$_CP_WATCHDOG_PID" "$_CP_CONTAINER_NAME"
-    _CP_WATCHDOG_PID=""
-    _CP_CONTAINER_NAME=""
-    _cleanup_vm_container "$_WORKER_WATCHDOG_PID" "$_WORKER_CONTAINER_NAME"
-    _WORKER_WATCHDOG_PID=""
-    _WORKER_CONTAINER_NAME=""
-    cleanup_docker_network
-    cleanup_ssh_key
-}
-
-start_vm() {
-    local container_name=$1 static_ip=$2 host_ssh_port=$3 data_subdir=$4
-
-    local vm_data_dir="$VM_DATA_DIR/$data_subdir"
-    mkdir -p "$vm_data_dir"
-
-    log_info "Starting VM: $container_name (IP: $static_ip, SSH port: $host_ssh_port)"
-    docker run -d --rm \
-        --name "$container_name" \
-        --label "managed-by=k8s-upgrade-test" \
-        --network "$DOCKER_NETWORK" --ip "$static_ip" \
-        --device /dev/kvm:/dev/kvm \
-        -v "$vm_data_dir:/data" \
-        -p "${host_ssh_port}:2222" \
-        -e "DISTRO=$DISTRO" \
-        -e "GUEST_NAME=$container_name" \
-        -e "SSH_PUBKEY=$(cat "$SSH_KEY_DIR/id_test.pub")" \
-        -e "PORT_FWD=6443:6443,10250:10250" \
-        -e "NO_CONSOLE=1" \
-        -e "MEMORY=$VM_MEMORY" \
-        -e "CPUS=$VM_CPUS" \
-        -e "DISK_SIZE=$VM_DISK_SIZE" \
-        "$DOCKER_VM_RUNNER_IMAGE" >/dev/null
-    log_success "Container $container_name started"
-}
-
-wait_for_vm_ready() {
-    local container_name=$1 host_ssh_port=$2 label=$3
-    wait_for_cloud_init "$container_name" "$SSH_READY_TIMEOUT" "$label" || return 1
-    wait_for_ssh "$host_ssh_port" "$LOGIN_USER" "$SSH_READY_TIMEOUT" "$label" || return 1
-}
-
-setup_root_ssh() {
-    local host_ssh_port=$1 label=$2
-
-    log_info "[$label] Setting up root SSH access..."
-    ssh "${SSH_OPTS[@]}" -p "$host_ssh_port" "$LOGIN_USER@localhost" \
-        "sudo mkdir -p /root/.ssh && sudo cp ~/.ssh/authorized_keys /root/.ssh/ && sudo chmod 700 /root/.ssh && sudo chmod 600 /root/.ssh/authorized_keys" >/dev/null 2>&1
-
-    if ssh "${SSH_OPTS[@]}" -p "$host_ssh_port" "root@localhost" "echo ok" >/dev/null 2>&1; then
-        log_success "[$label] Root SSH access ready"
-    else
-        log_error "[$label] Root SSH access failed"
-        return 1
-    fi
-}
-
-vm_ssh_root() {
-    local port=$1; shift
-    ssh "${SSH_OPTS[@]}" -p "$port" "root@localhost" "$@"
 }
 
 # --- Version resolution ---
@@ -204,51 +113,23 @@ resolve_upgrade_versions() {
 # --- Main test logic ---
 
 run_upgrade_test() {
-    local ts
-    ts=$(date +%s)
-    local cp_container="k8s-upgrade-cp-${DISTRO}-${ts}"
-    local worker_container="k8s-upgrade-w-${DISTRO}-${ts}"
-    local log_file
-    log_file="results/logs/upgrade-${DISTRO}-$(date +%Y%m%d-%H%M%S).log"
+    _test_preamble "upgrade" "$DISTRO"
+    local cp_container="k8s-upgrade-cp-${DISTRO}-${_TEST_TS}"
+    local worker_container="k8s-upgrade-w-${DISTRO}-${_TEST_TS}"
+    local log_file="$_TEST_LOG_FILE"
 
-    log_info "=== Upgrade Subcommand E2E Test ==="
-    log_info "Distribution: $DISTRO"
     log_info "VM resources: memory=${VM_MEMORY}MB cpus=${VM_CPUS} disk=${VM_DISK_SIZE}"
     log_info "Docker network: $DOCKER_NETWORK ($DOCKER_SUBNET)"
     log_info "CP: $CP_DOCKER_IP, Worker: $WORKER_DOCKER_IP"
-    mkdir -p results/logs "$VM_DATA_DIR"
 
-    cleanup_orphaned_containers "k8s-upgrade-test"
-
-    trap '_cleanup_all' EXIT INT TERM HUP
+    trap '_cleanup_cp_worker' EXIT INT TERM HUP
 
     # --- Step 1: Resolve versions ---
     resolve_upgrade_versions || return 1
     log_info "Upgrade path: v${FROM_VERSION} -> v${TO_VERSION}"
 
-    # --- Step 2: Setup infrastructure ---
-    setup_docker_network
-    setup_ssh_key
-
-    _CP_SSH_PORT=$(find_free_port)
-    _WORKER_SSH_PORT=$(find_free_port)
-
-    # --- Step 3: Start VMs ---
-    start_vm "$cp_container" "$CP_DOCKER_IP" "$_CP_SSH_PORT" "upgrade-cp"
-    _CP_CONTAINER_NAME="$cp_container"
-    _CP_WATCHDOG_PID=$(_start_vm_container_watchdog "$$" "$cp_container")
-
-    start_vm "$worker_container" "$WORKER_DOCKER_IP" "$_WORKER_SSH_PORT" "upgrade-worker"
-    _WORKER_CONTAINER_NAME="$worker_container"
-    _WORKER_WATCHDOG_PID=$(_start_vm_container_watchdog "$$" "$worker_container")
-
-    # --- Step 4: Wait for VMs ---
-    wait_for_vm_ready "$cp_container" "$_CP_SSH_PORT" "CP"
-    wait_for_vm_ready "$worker_container" "$_WORKER_SSH_PORT" "Worker"
-
-    # --- Step 5: Setup root SSH ---
-    setup_root_ssh "$_CP_SSH_PORT" "CP"
-    setup_root_ssh "$_WORKER_SSH_PORT" "Worker"
+    # --- Setup VM environment ---
+    create_cp_worker_env "$cp_container" "$worker_container" "upgrade-cp" "upgrade-worker" "k8s-upgrade-test" "k8s-upgrade-test"
 
     # ===================================================================
     # Phase 1: Deploy cluster with FROM_VERSION
@@ -268,11 +149,7 @@ run_upgrade_test() {
     log_info "Deploy command: ${deploy_cmd[*]}"
 
     local deploy_exit_code=0
-    if timeout "$TIMEOUT_TOTAL" "${deploy_cmd[@]}" 2>&1 | tee "$log_file"; then
-        deploy_exit_code=0
-    else
-        deploy_exit_code=$?
-    fi
+    run_with_timeout deploy_exit_code "$log_file" "${deploy_cmd[@]}"
 
     if [ "$deploy_exit_code" -ne 0 ]; then
         log_error "Deploy failed with exit code $deploy_exit_code. Cannot proceed with upgrade test."
@@ -302,11 +179,7 @@ run_upgrade_test() {
     log_info "Upgrade command: ${upgrade_cmd[*]}"
 
     local upgrade_exit_code=0
-    if timeout "$TIMEOUT_TOTAL" "${upgrade_cmd[@]}" 2>&1 | tee -a "$log_file"; then
-        upgrade_exit_code=0
-    else
-        upgrade_exit_code=$?
-    fi
+    run_with_timeout upgrade_exit_code "$log_file" "${upgrade_cmd[@]}"
 
     # ===================================================================
     # Phase 3: Verification
@@ -390,38 +263,16 @@ run_upgrade_test() {
     # ===================================================================
     echo ""
     log_info "Log file: $log_file"
-    if [ "$all_pass" = true ]; then
-        log_success "=== UPGRADE TEST PASSED ==="
-        _cleanup_all
-        trap - EXIT INT TERM HUP
-        return 0
-    else
-        log_error "=== UPGRADE TEST FAILED ==="
-        log_info "=== DIAGNOSTICS ==="
-        log_info "CP kubeadm version: $cp_kubeadm_ver"
-        log_info "CP kubelet version: $cp_kubelet_ver"
-        log_info "Worker kubelet version: $worker_kubelet_ver"
-        log_info "CP container logs (last 20 lines):"
-        docker logs "$cp_container" 2>&1 | tail -20 || true
-        log_info "Worker container logs (last 20 lines):"
-        docker logs "$worker_container" 2>&1 | tail -20 || true
-        log_info "=== END DIAGNOSTICS ==="
-        _cleanup_all
-        trap - EXIT INT TERM HUP
-        return 1
-    fi
+    _test_result "UPGRADE" "$all_pass" _cleanup_cp_worker "$cp_container" "$_CP_SSH_PORT"
 }
 
 # --- Parse args ---
 while [[ $# -gt 0 ]]; do
+    if _parse_common_test_args "$@"; then shift "$SHIFT_COUNT"; continue; fi
     case $1 in
         --help|-h) show_help; exit 0 ;;
-        --distro) _require_arg $# "$1"; DISTRO="$2"; shift 2 ;;
         --from-version) _require_arg $# "$1"; FROM_VERSION="$2"; shift 2 ;;
         --to-version) _require_arg $# "$1"; TO_VERSION="$2"; shift 2 ;;
-        --memory) _require_arg $# "$1"; VM_MEMORY="$2"; shift 2 ;;
-        --cpus) _require_arg $# "$1"; VM_CPUS="$2"; shift 2 ;;
-        --disk-size) _require_arg $# "$1"; VM_DISK_SIZE="$2"; shift 2 ;;
         *) log_error "Unknown option: $1"; show_help; exit 1 ;;
     esac
 done

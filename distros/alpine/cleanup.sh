@@ -31,13 +31,8 @@ cleanup_alpine() {
     hash -r
 
     # Verify cleanup
-    local remaining=0
-    for pkg in kubeadm kubelet kubectl cri-o; do
-        if apk info -e "$pkg" >/dev/null 2>&1; then
-            log_warn "Package still installed: $pkg"
-            remaining=1
-        fi
-    done
+    local remaining
+    remaining=$(_verify_packages_removed "apk info -e" kubeadm kubelet kubectl cri-o)
     _verify_cleanup $remaining \
         "/etc/default/kubelet" \
         "/etc/local.d/k8s-shared-mount.start"

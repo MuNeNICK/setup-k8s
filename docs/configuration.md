@@ -278,14 +278,14 @@ Orchestrate backup/restore from a local machine via SSH. The script generates a 
 # Backup (downloads snapshot to local machine)
 curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sh -s -- \
   backup \
-  --control-plane root@192.168.1.10 \
+  --control-planes root@192.168.1.10 \
   --ssh-key ~/.ssh/id_rsa \
   --snapshot-path ./etcd-snapshot.db
 
 # Restore (uploads snapshot and restores on remote node)
 curl -fsSL https://github.com/MuNeNICK/setup-k8s/raw/main/setup-k8s.sh | sh -s -- \
   restore \
-  --control-plane root@192.168.1.10 \
+  --control-planes root@192.168.1.10 \
   --ssh-key ~/.ssh/id_rsa \
   --snapshot-path ./etcd-snapshot.db
 ```

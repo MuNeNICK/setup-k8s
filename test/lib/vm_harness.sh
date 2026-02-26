@@ -86,6 +86,27 @@ _cleanup_vm_container() {
     fi
 }
 
+# Single CP cleanup (backup, renew tests)
+_cleanup_single_cp() {
+    _cleanup_vm_container "$_CP_WATCHDOG_PID" "$_CP_CONTAINER_NAME"
+    _CP_WATCHDOG_PID=""
+    _CP_CONTAINER_NAME=""
+    cleanup_docker_network
+    cleanup_ssh_key
+}
+
+# CP + Worker cleanup (deploy, upgrade tests)
+_cleanup_cp_worker() {
+    _cleanup_vm_container "$_CP_WATCHDOG_PID" "$_CP_CONTAINER_NAME"
+    _CP_WATCHDOG_PID=""
+    _CP_CONTAINER_NAME=""
+    _cleanup_vm_container "$_WORKER_WATCHDOG_PID" "$_WORKER_CONTAINER_NAME"
+    _WORKER_WATCHDOG_PID=""
+    _WORKER_CONTAINER_NAME=""
+    cleanup_docker_network
+    cleanup_ssh_key
+}
+
 # Stop orphaned containers by label (shared across test runners)
 # Usage: cleanup_orphaned_containers <label>
 cleanup_orphaned_containers() {
@@ -106,14 +127,15 @@ _generate_bundle() {
     local project_root
     project_root="$(cd "$(dirname "$entry_script")" && pwd)"
 
-    # Source bootstrap (provides _COMMON_MODULES, _generate_bundle_core) and
-    # variables (provides BUNDLE_COMMON_MODULES derived from _COMMON_MODULES)
+    # Source bootstrap (provides _COMMON_MODULES), variables (provides
+    # BUNDLE_COMMON_MODULES), and bundle (provides _generate_bundle_core)
     if ! type -t _generate_bundle_core &>/dev/null; then
         # Save caller's EXIT trap (bootstrap.sh unconditionally sets its own)
         local _saved_exit_trap
         _saved_exit_trap=$(trap -p EXIT)
-        source "${project_root}/common/bootstrap.sh"
-        source "${project_root}/common/variables.sh"
+        source "${project_root}/lib/bootstrap.sh"
+        source "${project_root}/lib/variables.sh"
+        source "${project_root}/lib/bundle.sh"
         # Restore caller's EXIT trap (or clear bootstrap's if caller had none)
         if [ -n "$_saved_exit_trap" ]; then
             eval "$_saved_exit_trap"
@@ -266,4 +288,247 @@ vm_ssh() {
 vm_scp() {
     local local_path=$1 remote_path=$2
     scp "${SSH_OPTS[@]}" -P "$SSH_PORT" "$local_path" "${LOGIN_USER}@localhost:${remote_path}"
+}
+
+# --- Shared Docker network and VM lifecycle helpers ---
+
+# Create Docker network for VM tests (requires DOCKER_NETWORK, DOCKER_SUBNET)
+setup_docker_network() {
+    log_info "Creating Docker network: $DOCKER_NETWORK ($DOCKER_SUBNET)"
+    docker network rm "$DOCKER_NETWORK" >/dev/null 2>&1 || true
+    docker network create --subnet "$DOCKER_SUBNET" "$DOCKER_NETWORK" >/dev/null
+    log_success "Docker network created"
+}
+
+# Remove Docker network if it exists
+cleanup_docker_network() {
+    if docker network inspect "$DOCKER_NETWORK" >/dev/null 2>&1; then
+        log_info "Removing Docker network: $DOCKER_NETWORK"
+        docker network rm "$DOCKER_NETWORK" >/dev/null 2>&1 || true
+    fi
+}
+
+# Start a VM container with static IP on the Docker network
+# Usage: start_vm <container_name> <static_ip> <host_ssh_port> <data_subdir> [label]
+start_vm() {
+    local container_name=$1 static_ip=$2 host_ssh_port=$3 data_subdir=$4
+    local label="${5:-managed-by=k8s-test}"
+
+    local vm_data_dir="$VM_DATA_DIR/$data_subdir"
+    mkdir -p "$vm_data_dir"
+
+    log_info "Starting VM: $container_name (IP: $static_ip, SSH port: $host_ssh_port)"
+    docker run -d --rm \
+        --name "$container_name" \
+        --label "$label" \
+        --network "$DOCKER_NETWORK" --ip "$static_ip" \
+        --device /dev/kvm:/dev/kvm \
+        -v "$vm_data_dir:/data" \
+        -p "${host_ssh_port}:2222" \
+        -e "DISTRO=$DISTRO" \
+        -e "GUEST_NAME=$container_name" \
+        -e "SSH_PUBKEY=$(cat "$SSH_KEY_DIR/id_test.pub")" \
+        -e "PORT_FWD=6443:6443,10250:10250" \
+        -e "NO_CONSOLE=1" \
+        -e "MEMORY=$VM_MEMORY" \
+        -e "CPUS=$VM_CPUS" \
+        -e "DISK_SIZE=$VM_DISK_SIZE" \
+        "$DOCKER_VM_RUNNER_IMAGE" >/dev/null
+    log_success "Container $container_name started"
+}
+
+# Wait for cloud-init + SSH to become ready on a VM
+# Usage: wait_for_vm_ready <container_name> <host_ssh_port> <label>
+wait_for_vm_ready() {
+    local container_name=$1 host_ssh_port=$2 label=$3
+    wait_for_cloud_init "$container_name" "$SSH_READY_TIMEOUT" "$label" || return 1
+    wait_for_ssh "$host_ssh_port" "$LOGIN_USER" "$SSH_READY_TIMEOUT" "$label" || return 1
+}
+
+# Setup root SSH access on a VM (copy user's authorized_keys to root)
+# Usage: setup_root_ssh <host_ssh_port> <label>
+setup_root_ssh() {
+    local host_ssh_port=$1 label=$2
+
+    log_info "[$label] Setting up root SSH access..."
+    ssh "${SSH_OPTS[@]}" -p "$host_ssh_port" "$LOGIN_USER@localhost" \
+        "sudo mkdir -p /root/.ssh && sudo cp ~/.ssh/authorized_keys /root/.ssh/ && sudo chmod 700 /root/.ssh && sudo chmod 600 /root/.ssh/authorized_keys" >/dev/null 2>&1
+
+    if ssh "${SSH_OPTS[@]}" -p "$host_ssh_port" "root@localhost" "echo ok" >/dev/null 2>&1; then
+        log_success "[$label] Root SSH access ready"
+    else
+        log_error "[$label] Root SSH access failed"
+        return 1
+    fi
+}
+
+# SSH to a VM as root
+# Usage: vm_ssh_root <port> <command...>
+vm_ssh_root() {
+    local port=$1; shift
+    ssh "${SSH_OPTS[@]}" -p "$port" "root@localhost" "$@"
+}
+
+# --- Common test defaults ---
+: "${DOCKER_VM_RUNNER_IMAGE:=ghcr.io/munenick/docker-vm-runner:latest}"
+: "${VM_MEMORY:=4096}"
+: "${VM_CPUS:=2}"
+: "${VM_DISK_SIZE:=40G}"
+: "${TIMEOUT_TOTAL:=1200}"
+: "${SSH_READY_TIMEOUT:=300}"
+
+# --- Scenario environment helpers ---
+# These set up complete VM environments for common test scenarios.
+# Callers must define: DOCKER_NETWORK, DOCKER_SUBNET, CP_DOCKER_IP,
+#   VM_DATA_DIR, DISTRO, SSH_KEY_DIR, SSH_BASE_OPTS, SSH_OPTS, LOGIN_USER
+# After calling, callers have: _CP_CONTAINER_NAME, _CP_WATCHDOG_PID, _CP_SSH_PORT
+#   (and _WORKER_* equivalents for create_cp_worker_env)
+
+# Create a single control-plane VM environment.
+# Usage: create_single_cp_env <container_name> <data_subdir> <managed_by_label> <orphan_label>
+create_single_cp_env() {
+    local container_name=$1 data_subdir=$2 managed_by_label=$3 orphan_label=$4
+
+    cleanup_orphaned_containers "$orphan_label"
+    setup_docker_network
+    setup_ssh_key
+
+    _CP_SSH_PORT=$(find_free_port)
+
+    start_vm "$container_name" "$CP_DOCKER_IP" "$_CP_SSH_PORT" "$data_subdir" "managed-by=$managed_by_label"
+    _CP_CONTAINER_NAME="$container_name"
+    _CP_WATCHDOG_PID=$(_start_vm_container_watchdog "$$" "$container_name")
+
+    wait_for_vm_ready "$container_name" "$_CP_SSH_PORT" "CP"
+    setup_root_ssh "$_CP_SSH_PORT" "CP"
+}
+
+# Create a control-plane + worker VM environment.
+# Usage: create_cp_worker_env <cp_name> <worker_name> <cp_data> <worker_data> <managed_by> <orphan_label>
+# Requires: WORKER_DOCKER_IP defined by caller
+create_cp_worker_env() {
+    local cp_name=$1 worker_name=$2 cp_data=$3 worker_data=$4 managed_by=$5 orphan_label=$6
+
+    cleanup_orphaned_containers "$orphan_label"
+    setup_docker_network
+    setup_ssh_key
+
+    _CP_SSH_PORT=$(find_free_port)
+    _WORKER_SSH_PORT=$(find_free_port)
+
+    start_vm "$cp_name" "$CP_DOCKER_IP" "$_CP_SSH_PORT" "$cp_data" "managed-by=$managed_by"
+    _CP_CONTAINER_NAME="$cp_name"
+    _CP_WATCHDOG_PID=$(_start_vm_container_watchdog "$$" "$cp_name")
+
+    start_vm "$worker_name" "$WORKER_DOCKER_IP" "$_WORKER_SSH_PORT" "$worker_data" "managed-by=$managed_by"
+    _WORKER_CONTAINER_NAME="$worker_name"
+    _WORKER_WATCHDOG_PID=$(_start_vm_container_watchdog "$$" "$worker_name")
+
+    wait_for_vm_ready "$cp_name" "$_CP_SSH_PORT" "CP"
+    wait_for_vm_ready "$worker_name" "$_WORKER_SSH_PORT" "Worker"
+
+    setup_root_ssh "$_CP_SSH_PORT" "CP"
+    setup_root_ssh "$_WORKER_SSH_PORT" "Worker"
+}
+
+# Common arg parser for --distro, --k8s-version, --memory, --cpus, --disk-size
+# Returns 0 and shifts args if handled; returns 1 for unknown args (caller handles).
+# Usage: _parse_common_test_args "$@" && shift $SHIFT_COUNT
+_parse_common_test_args() {
+    SHIFT_COUNT=0
+    case "${1:-}" in
+        --distro) _require_arg $# "$1"; DISTRO="$2"; SHIFT_COUNT=2 ;;
+        --k8s-version) _require_arg $# "$1"; K8S_VERSION="$2"; SHIFT_COUNT=2 ;;
+        --memory) _require_arg $# "$1"; VM_MEMORY="$2"; SHIFT_COUNT=2 ;;
+        --cpus) _require_arg $# "$1"; VM_CPUS="$2"; SHIFT_COUNT=2 ;;
+        --disk-size) _require_arg $# "$1"; VM_DISK_SIZE="$2"; SHIFT_COUNT=2 ;;
+        *) return 1 ;;
+    esac
+    return 0
+}
+
+# --- Common E2E test boilerplate helpers ---
+
+# Initialize common test defaults (called at file top level of each test).
+_init_test_defaults() {
+    SSH_BASE_OPTS=(-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
+                   -o LogLevel=ERROR -o ConnectTimeout=5)
+    SSH_OPTS=("${SSH_BASE_OPTS[@]}")
+    LOGIN_USER="user"
+    _CP_CONTAINER_NAME=""
+    _CP_WATCHDOG_PID=""
+    _CP_SSH_PORT=""
+}
+
+# Generate test preamble: timestamp, log file, banner.
+# Usage: _test_preamble <test_name> <distro>
+# Sets: _TEST_TS, _TEST_LOG_FILE
+_test_preamble() {
+    local test_name="$1" distro="$2"
+    _TEST_TS=$(date +%s)
+    _TEST_LOG_FILE="results/logs/${test_name}-${distro}-$(date +%Y%m%d-%H%M%S).log"
+    log_info "=== ${test_name} E2E Test ==="
+    log_info "Distro: $distro"
+    mkdir -p results/logs "$VM_DATA_DIR"
+}
+
+# Evaluate test result and handle cleanup/diagnostics.
+# Usage: _test_result <test_name> <all_pass> <cleanup_fn> [diag_container] [diag_port]
+_test_result() {
+    local test_name="$1" all_pass="$2" cleanup_fn="$3"
+    local diag_container="${4:-}" diag_port="${5:-}"
+    if [ "$all_pass" = true ]; then
+        log_success "=== ${test_name} TEST PASSED ==="
+        "$cleanup_fn"; trap - EXIT INT TERM HUP
+        return 0
+    else
+        log_error "=== ${test_name} TEST FAILED ==="
+        if [ -n "$diag_container" ] && [ -n "$diag_port" ]; then
+            collect_vm_diagnostics "$diag_container" "$diag_port" || true
+        fi
+        "$cleanup_fn"; trap - EXIT INT TERM HUP
+        return 1
+    fi
+}
+
+# --- Common E2E test helpers ---
+
+# Timeout-guarded command execution. Sets the named variable to the exit code.
+# Usage: run_with_timeout <var_name> <log_file> <command...>
+run_with_timeout() {
+    local _var_name=$1 _log_file=$2; shift 2
+    local _exit_code=0
+    if timeout "$TIMEOUT_TOTAL" "$@" 2>&1 | tee -a "$_log_file"; then _exit_code=0
+    else _exit_code=$?; [ "$_exit_code" -eq 124 ] && log_error "Timed out after ${TIMEOUT_TOTAL}s"; fi
+    eval "${_var_name}=${_exit_code}"
+}
+
+# Wait for the Kubernetes API server to become ready via SSH.
+# Usage: wait_for_api_ready <port> [max_attempts] [interval]
+wait_for_api_ready() {
+    local port=$1 max=${2:-20} interval=${3:-5} i=0
+    while [ $i -lt "$max" ]; do
+        vm_ssh_root "$port" "kubectl get nodes --kubeconfig=/etc/kubernetes/admin.conf" >/dev/null 2>&1 && return 0
+        sleep "$interval"; i=$((i + 1))
+    done; return 1
+}
+
+# Record a check result. Sets all_pass=false on failure.
+# Usage: check_pass <num> <description> <result_bool>
+check_pass() {
+    local num=$1 desc="$2" result="$3"
+    if [ "$result" = "true" ]; then log_success "CHECK ${num}: ${desc}"
+    else log_error "CHECK ${num}: ${desc}"; all_pass=false; fi
+}
+
+# Collect diagnostics from VMs for debugging test failures.
+# Usage: collect_vm_diagnostics <container_name> <port> [port2] ...
+collect_vm_diagnostics() {
+    local cname=$1; shift
+    log_info "=== DIAGNOSTICS ==="
+    log_info "$cname logs (last 20 lines):"; docker logs "$cname" 2>&1 | tail -20 || true
+    for port in "$@"; do
+        log_info "Ports ($port):"; vm_ssh_root "$port" "ss -tlnp | grep -E '6443|10250'" 2>/dev/null || true
+    done
+    log_info "=== END DIAGNOSTICS ==="
 }

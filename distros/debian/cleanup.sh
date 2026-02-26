@@ -28,14 +28,8 @@ cleanup_debian() {
     rm -f /etc/apt/keyrings/crio-apt-keyring.gpg
     
     # Verify cleanup
-    local remaining=0
-    local remaining_pkgs
-    remaining_pkgs=$(dpkg -l | grep -E "[[:space:]](kubeadm|kubelet|kubectl|kubernetes-cni|cri-o)[[:space:]]" || true)
-    if [ -n "$remaining_pkgs" ]; then
-        log_warn "Some Kubernetes packages still remain:"
-        echo "$remaining_pkgs"
-        remaining=1
-    fi
+    local remaining
+    remaining=$(_verify_packages_removed "dpkg -s" kubeadm kubelet kubectl kubernetes-cni cri-o)
     _verify_cleanup $remaining \
         "/etc/apt/sources.list.d/kubernetes.list" \
         "/etc/apt/keyrings/kubernetes-apt-keyring.gpg" \

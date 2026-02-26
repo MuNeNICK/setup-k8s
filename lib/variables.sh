@@ -74,13 +74,13 @@ UPGRADE_NO_ROLLBACK=false            # Disable automatic rollback on failure
 UPGRADE_AUTO_STEP=false              # Automatically step through minor versions
 
 # Remove subcommand
-REMOVE_CONTROL_PLANE=""              # remove: CP node (user@ip)
+REMOVE_CONTROL_PLANES=""             # remove: CP node (user@ip)
 REMOVE_NODES=""                      # remove: target nodes (comma-separated)
 REMOVE_PASSTHROUGH_ARGS=""           # remove: args to forward
 
 # Backup/Restore subcommand
 ETCD_SNAPSHOT_PATH=""         # snapshot file path (backup: output, restore: input)
-ETCD_CONTROL_PLANE=""         # remote mode: target control-plane node (user@ip or ip)
+ETCD_CONTROL_PLANES=""        # remote mode: target control-plane node (user@ip or ip)
 ETCD_PASSTHROUGH_ARGS=""      # arguments to forward to remote nodes
 
 # Status subcommand

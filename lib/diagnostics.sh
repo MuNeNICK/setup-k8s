@@ -7,8 +7,7 @@
 # Usage: _collect_diagnostics <user> <host> <output_dir>
 _collect_diagnostics() {
     local user="$1" host="$2" output_dir="$3"
-    local pfx=""
-    [ "$user" != "root" ] && pfx="sudo -n "
+    local pfx; pfx=$(_sudo_prefix "$user")
 
     log_info "Collecting diagnostics from ${host}..."
     mkdir -p "$output_dir" 2>/dev/null || true

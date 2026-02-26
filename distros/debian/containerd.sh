@@ -19,6 +19,5 @@ setup_containerd_debian() {
     apt-get install -y containerd.io
     
     # Configure containerd
-    configure_containerd_toml
-    configure_crictl
+    _finalize_containerd_setup
 }

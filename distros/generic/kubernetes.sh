@@ -65,7 +65,7 @@ ExecStart=
 ExecStart=/usr/local/bin/kubelet $KUBELET_KUBECONFIG_ARGS $KUBELET_CONFIG_ARGS $KUBELET_KUBEADM_ARGS $KUBELET_EXTRA_ARGS
 DROPIN
             _service_reload
-            _service_enable kubelet
+            _enable_and_start_kubelet
             ;;
         openrc)
             cat > /etc/init.d/kubelet <<'INITD'
@@ -99,7 +99,7 @@ start_pre() {
 }
 INITD
             chmod +x /etc/init.d/kubelet
-            _service_enable kubelet
+            _enable_and_start_kubelet
             ;;
     esac
 }

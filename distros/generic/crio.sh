@@ -108,7 +108,5 @@ setup_crio_generic() {
     _install_crio_generic
     _install_crio_service_generic
 
-    _service_enable crio
-    _service_start crio
-    configure_crictl
+    _finalize_crio_setup
 }

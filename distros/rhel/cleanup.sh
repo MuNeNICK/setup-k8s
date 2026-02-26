@@ -1,8 +1,5 @@
 #!/bin/sh
 
-# Cached RHEL package manager detection (also defined in dependencies.sh)
-_rhel_pkg_mgr() { echo "${_RHEL_PKG_MGR:=$(command -v dnf >/dev/null 2>&1 && echo dnf || echo yum)}"; }
-
 # RHEL/CentOS/Fedora specific cleanup
 cleanup_rhel() {
     log_info "Performing RHEL/CentOS/Fedora specific cleanup..."
@@ -30,14 +27,8 @@ cleanup_rhel() {
     $PKG_MGR clean all
 
     # Verify cleanup
-    local remaining=0
-    local remaining_pkgs
-    remaining_pkgs=$($PKG_MGR list installed 2>&1 | grep -E "^(kubeadm|kubelet|kubectl|kubernetes-cni|cri-o)\." || true)
-    if [ -n "$remaining_pkgs" ]; then
-        log_warn "Some Kubernetes packages still remain:"
-        echo "$remaining_pkgs"
-        remaining=1
-    fi
+    local remaining
+    remaining=$(_verify_packages_removed "rpm -q" kubeadm kubelet kubectl kubernetes-cni cri-o)
     _verify_cleanup $remaining \
         "/etc/yum.repos.d/kubernetes.repo" \
         "/etc/default/kubelet"

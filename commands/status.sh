@@ -27,7 +27,7 @@ Output (wide mode, additionally):
   - Cluster info (API server endpoint, Pod/Service CIDR)
   - etcd health check
 EOF
-    exit 0
+    exit "${1:-0}"
 }
 
 # --- Argument parsing ---
@@ -36,7 +36,7 @@ parse_status_args() {
     while [ $# -gt 0 ]; do
         case "$1" in
             --output)
-                _require_value $# "$1"
+                _require_value $# "$1" "${2:-}"
                 STATUS_OUTPUT_FORMAT="$2"
                 case "$STATUS_OUTPUT_FORMAT" in
                     text|wide) ;;
@@ -144,17 +144,13 @@ status_local() {
             # etcd health (requires root typically, but try)
             log_info ""
             log_info "--- etcd Health ---"
-            if type _find_etcd_container >/dev/null 2>&1; then
-                local etcd_cid
-                if etcd_cid=$(_find_etcd_container 2>/dev/null); then
-                    local etcd_health
-                    etcd_health=$(_etcdctl_exec "$etcd_cid" endpoint health 2>&1) || etcd_health="(error checking health)"
-                    log_info "  $etcd_health"
-                else
-                    log_info "  etcd container not found (not a control-plane node or not running)"
-                fi
+            local etcd_cid
+            if etcd_cid=$(_find_etcd_container 2>/dev/null); then
+                local etcd_health
+                etcd_health=$(_etcdctl_exec "$etcd_cid" endpoint health 2>&1) || etcd_health="(error checking health)"
+                log_info "  $etcd_health"
             else
-                log_info "  etcd module not loaded (skipped)"
+                log_info "  etcd container not found (not a control-plane node or not running)"
             fi
         fi
     else

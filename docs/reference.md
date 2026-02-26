@@ -123,7 +123,7 @@ Options for the `remove` subcommand. Removes nodes from an existing cluster via 
 | Option | Description | Default | Example |
 |--------|-------------|---------|---------|
 | `--control-planes IPs` | Control-plane node to orchestrate from | — (required) | `--control-planes 10.0.0.1` |
-| `--remove-nodes IPs` | Comma-separated nodes to remove | — (required) | `--remove-nodes 10.0.0.3,10.0.0.4` |
+| `--workers IPs` | Comma-separated nodes to remove | — (required) | `--workers 10.0.0.3,10.0.0.4` |
 
 ### Backup Options (local mode)
 
@@ -139,7 +139,7 @@ Options for the `backup` subcommand when orchestrating remotely via SSH.
 
 | Option | Description | Default | Example |
 |--------|-------------|---------|---------|
-| `--control-plane IP` | Target control-plane node (user@ip or ip) | — (required) | `--control-plane root@10.0.0.1` |
+| `--control-planes IP` | Target control-plane node (user@ip or ip) | — (required) | `--control-planes root@10.0.0.1` |
 | `--snapshot-path PATH` | Local path to save the downloaded snapshot | `/var/lib/etcd-backup/snapshot-YYYYMMDD-HHMMSS.db` | `--snapshot-path ./snap.db` |
 
 ### Restore Options (local mode)
@@ -156,7 +156,7 @@ Options for the `restore` subcommand when orchestrating remotely via SSH.
 
 | Option | Description | Default | Example |
 |--------|-------------|---------|---------|
-| `--control-plane IP` | Target control-plane node (user@ip or ip) | — (required) | `--control-plane root@10.0.0.1` |
+| `--control-planes IP` | Target control-plane node (user@ip or ip) | — (required) | `--control-planes root@10.0.0.1` |
 | `--snapshot-path PATH` | Local snapshot file to upload and restore | — (required) | `--snapshot-path ./snap.db` |
 
 ### Renew Options (local mode)
@@ -212,3 +212,4 @@ Checks performed: CPU count (>= 2), memory (>= 1700 MB), disk space, required po
 | `--force` | Skip confirmation prompt | — | `--force` |
 | `--preserve-cni` | Preserve CNI configurations | — | `--preserve-cni` |
 | `--remove-helm` | Remove Helm binary and configuration | — | `--remove-helm` |
+| `--dry-run` | Show cleanup plan and exit | — | `--dry-run` |

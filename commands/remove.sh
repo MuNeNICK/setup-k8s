@@ -7,7 +7,7 @@ remove_dry_run() {
     log_info "=== Remove Dry-Run Plan ==="
     log_info ""
 
-    _parse_node_address "$REMOVE_CONTROL_PLANE"
+    _parse_node_address "$REMOVE_CONTROL_PLANES"
     log_info "Control-Plane (orchestrator): ${_NODE_USER}@${_NODE_HOST}"
     log_info ""
 
@@ -24,11 +24,7 @@ remove_dry_run() {
     done
     log_info ""
 
-    log_info "SSH Settings:"
-    log_info "  Default user: $DEPLOY_SSH_USER"
-    log_info "  Port: $DEPLOY_SSH_PORT"
-    [ -n "$DEPLOY_SSH_KEY" ] && log_info "  Key: $DEPLOY_SSH_KEY"
-    [ -n "$DEPLOY_SSH_PASSWORD" ] && log_info "  Auth: password"
+    _log_ssh_settings
     log_info ""
 
     log_info "Orchestration Plan:"
@@ -53,10 +49,6 @@ remove_dry_run() {
 
 # Confirmation prompt for remove
 _confirm_remove() {
-    if [ "$FORCE" = true ]; then
-        return 0
-    fi
-
     local node_count
     node_count=$(_csv_count "$REMOVE_NODES")
 
@@ -70,25 +62,7 @@ _confirm_remove() {
         _i=$((_i + 1))
     done
     echo ""
-    echo "Are you sure you want to continue? (y/N)"
-    if [ -t 0 ]; then
-        read -r response
-    elif [ -r /dev/tty ]; then
-        read -r response < /dev/tty || {
-            log_error "Non-interactive environment detected. Use --force to skip confirmation."
-            exit 1
-        }
-    else
-        log_error "Non-interactive environment detected. Use --force to skip confirmation."
-        exit 1
-    fi
-    case "$response" in
-        [yY]) ;;
-        *)
-            echo "Operation cancelled."
-            exit 0
-            ;;
-    esac
+    _confirm_destructive_action
 }
 
 # Main remove orchestration (remote mode)
@@ -103,44 +77,16 @@ remove_cluster() {
     log_info "Removing ${node_count} node(s) from the cluster"
 
     # Parse control-plane address
-    _parse_node_address "$REMOVE_CONTROL_PLANE"
+    _parse_node_address "$REMOVE_CONTROL_PLANES"
     local cp_user="$_NODE_USER" cp_host="$_NODE_HOST"
-    local sudo_pfx=""
-    [ "$cp_user" != "root" ] && sudo_pfx="sudo -n "
-
-    # Build combined node list for SSH connectivity and _get_node_name
-    _DEPLOY_ALL_NODES="${REMOVE_CONTROL_PLANE},${REMOVE_NODES}"
-
-    # Inform about SSH host key policy
-    if [ "${DEPLOY_SSH_HOST_KEY_CHECK}" = "accept-new" ]; then
-        log_info "SSH host key check: accept-new (TOFU)."
-    elif [ "${DEPLOY_SSH_HOST_KEY_CHECK}" = "yes" ] && [ -z "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
-        log_info "SSH strict host key checking is enabled."
-        log_info "Provide known_hosts with --ssh-known-hosts to proceed:"
-        log_info "  ssh-keyscan -H <node-ip> >> known_hosts"
-        log_info "  setup-k8s.sh remove --ssh-known-hosts known_hosts ..."
-    fi
-
-    # Create session-scoped known_hosts
-    _setup_session_known_hosts "remove"
+    local sudo_pfx; sudo_pfx=$(_sudo_prefix "$cp_user")
 
     local _step=0
 
     # --- Step 1: SSH connectivity check ---
     _step=$((_step + 1))
     log_info "Step ${_step}: Checking SSH connectivity..."
-    local _conn_nodes="" _i=0
-    local all_count
-    all_count=$(_csv_count "$_DEPLOY_ALL_NODES")
-    while [ "$_i" -lt "$all_count" ]; do
-        local _n
-        _n=$(_csv_get "$_DEPLOY_ALL_NODES" "$_i")
-        _conn_nodes="${_conn_nodes} ${_n}"
-        _i=$((_i + 1))
-    done
-    # shellcheck disable=SC2086 # intentional word splitting
-    if ! _check_ssh_connectivity $_conn_nodes; then
-        log_error "SSH connectivity check failed. Aborting remove."
+    if ! _init_remote_session "remove" "${REMOVE_CONTROL_PLANES},${REMOVE_NODES}"; then
         return 1
     fi
 
@@ -156,8 +102,7 @@ remove_cluster() {
         node=$(_csv_get "$REMOVE_NODES" "$_i")
         _parse_node_address "$node"
         local node_user="$_NODE_USER" node_host="$_NODE_HOST"
-        local node_sudo=""
-        [ "$node_user" != "root" ] && node_sudo="sudo -n "
+        local node_sudo; node_sudo=$(_sudo_prefix "$node_user")
 
         log_info ""
         log_info "  [${node_host}] Processing node removal..."
@@ -199,7 +144,7 @@ remove_cluster() {
     done
 
     # --- Post-remove health check ---
-    _parse_node_address "$REMOVE_CONTROL_PLANE"
+    _parse_node_address "$REMOVE_CONTROL_PLANES"
     log_info ""
     _health_check_cluster "$_NODE_USER" "$_NODE_HOST" --post || true
 
@@ -207,7 +152,7 @@ remove_cluster() {
     log_info ""
     log_info "=== Remove Summary ==="
     log_info ""
-    _parse_node_address "$REMOVE_CONTROL_PLANE"
+    _parse_node_address "$REMOVE_CONTROL_PLANES"
     log_info "Control-Plane: ${_NODE_USER}@${_NODE_HOST}"
     log_info ""
     if [ -n "$removed_nodes" ]; then
@@ -232,4 +177,101 @@ remove_cluster() {
     _audit_log "remove" "completed" "removed=${removed_nodes}"
     log_info "All nodes removed successfully!"
     return 0
+}
+
+# === Remove argument parsing (moved from lib/validation.sh) ===
+
+# Help message for remove
+show_remove_help() {
+    echo "Usage: $0 remove [options]"
+    echo ""
+    echo "Remove nodes from a Kubernetes cluster (drain, delete, reset)."
+    echo ""
+    echo "Required:"
+    echo "  --control-planes IP       Control-plane node to run drain/delete from (user@ip or ip)"
+    echo "  --workers IPs             Comma-separated list of nodes to remove (user@ip or ip)"
+    echo ""
+    echo "Optional:"
+    echo "  --force                   Skip confirmation prompt"
+    _show_common_ssh_help "  "
+    _show_help_footer "  " "Show removal plan and exit"
+    echo ""
+    echo "Examples:"
+    echo "  $0 remove --control-planes root@10.0.0.1 --workers root@10.0.0.2,root@10.0.0.3"
+    echo "  $0 remove --control-planes 10.0.0.1 --workers 10.0.0.2 --force"
+    exit "${1:-0}"
+}
+
+# Parse command line arguments for remove
+parse_remove_args() {
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --help|-h)
+                show_remove_help
+                ;;
+            --control-planes)
+                _require_value $# "$1" "${2:-}"
+                REMOVE_CONTROL_PLANES="$2"
+                shift 2
+                ;;
+            --workers)
+                _require_value $# "$1" "${2:-}"
+                REMOVE_NODES="$2"
+                shift 2
+                ;;
+            --force)
+                # shellcheck disable=SC2034 # used by lib/validation.sh
+                FORCE=true
+                shift
+                ;;
+            *)
+                if _is_common_ssh_flag "$1"; then
+                    _parse_common_ssh_args $# "$1" "${2:-}"
+                    shift "$_SSH_SHIFT"
+                else
+                    log_error "Unknown remove option: $1"
+                    show_remove_help 1
+                fi
+                ;;
+        esac
+    done
+}
+
+# Validate remove arguments
+validate_remove_args() {
+    # --control-planes is required
+    if [ -z "$REMOVE_CONTROL_PLANES" ]; then
+        log_error "--control-planes is required for remove"
+        exit 1
+    fi
+
+    # --workers is required
+    if [ -z "$REMOVE_NODES" ]; then
+        log_error "--workers is required for remove"
+        exit 1
+    fi
+
+    # Normalize node list
+    REMOVE_NODES=$(_normalize_node_list "$REMOVE_NODES")
+    if [ -z "$REMOVE_NODES" ]; then
+        log_error "--workers contains no valid node addresses"
+        exit 1
+    fi
+
+    _validate_common_ssh_args
+
+    # Validate all addresses (CP + nodes)
+    local all_addrs="${REMOVE_CONTROL_PLANES},${REMOVE_NODES}"
+    _validate_node_addresses "$all_addrs"
+
+    # Safety: prevent removing the CP node itself
+    local cp_host="${REMOVE_CONTROL_PLANES#*@}"
+    _check_not_cp_self() {
+        local node_host="${1#*@}"
+        if [ "$node_host" = "$cp_host" ]; then
+            log_error "Cannot remove the control-plane node itself (${cp_host}). Use 'cleanup' on the node instead."
+            exit 1
+        fi
+    }
+    _csv_for_each "$REMOVE_NODES" _check_not_cp_self
 }

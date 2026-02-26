@@ -69,6 +69,5 @@ setup_containerd_rhel() {
     fi
     
     # Configure containerd
-    configure_containerd_toml
-    configure_crictl
+    _finalize_containerd_setup
 }

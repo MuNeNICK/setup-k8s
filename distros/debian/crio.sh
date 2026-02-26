@@ -6,7 +6,7 @@ setup_crio_debian() {
 
     # Determine K8s minor series (e.g., 1.32)
     local crio_series
-    crio_series=$(echo "$K8S_VERSION" | awk -F. '{print $1"."$2}')
+    crio_series=$(_k8s_minor_version "$K8S_VERSION")
     
     log_info "Installing CRI-O v${crio_series}..."
 
@@ -41,25 +41,8 @@ setup_crio_debian() {
     apt-get install -y cri-o
     
     # Ensure CRI-O config uses systemd cgroups and modern pause image
-    mkdir -p /etc/crio/crio.conf.d
-    cat > /etc/crio/crio.conf.d/02-kubernetes.conf <<CRIOCONF
-[crio.runtime]
-cgroup_manager = "systemd"
+    _write_crio_config "02-kubernetes.conf" "systemd"
 
-[crio.image]
-pause_image = "registry.k8s.io/pause:${PAUSE_IMAGE_VERSION}"
-CRIOCONF
-
-    # Reload and start CRI-O
-    _service_reload
-    _service_enable crio
-    _service_start crio || {
-        log_error "Failed to start CRI-O service"
-        systemctl status crio --no-pager 2>/dev/null || true
-        journalctl -u crio -n 100 --no-pager 2>/dev/null || true
-        return 1
-    }
-
-    # Configure crictl to talk to CRI-O
-    configure_crictl
+    # Start CRI-O and configure crictl
+    _finalize_crio_setup
 }

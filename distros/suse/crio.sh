@@ -6,7 +6,7 @@ setup_crio_suse() {
 
     # Determine CRI-O version series matching K8s (e.g., 1.32)
     local crio_series
-    crio_series=$(echo "$K8S_VERSION" | awk -F. '{print $1"."$2}')
+    crio_series=$(_k8s_minor_version "$K8S_VERSION")
 
     # Add CRI-O repository (same pkgs.k8s.io RPM endpoint used by RHEL)
     log_info "Adding CRI-O v${crio_series} repository..."
@@ -19,11 +19,5 @@ setup_crio_suse() {
         log_error "CRI-O installation failed. It may require specific repositories on your SUSE version."
         return 1
     fi
-    _service_reload
-    _service_enable crio
-    if ! _service_start crio; then
-        log_error "Failed to start CRI-O service."
-        return 1
-    fi
-    configure_crictl
+    _finalize_crio_setup
 }

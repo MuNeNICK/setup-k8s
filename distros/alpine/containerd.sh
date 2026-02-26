@@ -9,6 +9,5 @@ setup_containerd_alpine() {
     _service_enable containerd
     _service_start containerd
 
-    configure_containerd_toml
-    configure_crictl
+    _finalize_containerd_setup
 }

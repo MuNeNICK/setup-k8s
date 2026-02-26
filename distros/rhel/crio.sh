@@ -5,7 +5,7 @@ setup_crio_rhel() {
     log_info "Setting up CRI-O for RHEL-based distribution..."
     # Determine K8s minor series (e.g., 1.32)
     local crio_series
-    crio_series=$(echo "$K8S_VERSION" | awk -F. '{print $1"."$2}')
+    crio_series=$(_k8s_minor_version "$K8S_VERSION")
 
     local PKG_MGR
     PKG_MGR=$(_rhel_pkg_mgr)
@@ -36,12 +36,5 @@ EOF
     }
 
     # Ensure CRI-O runs and configure crictl
-    _service_reload
-    _service_enable crio
-    _service_start crio || {
-        log_error "Failed to start CRI-O service"
-        systemctl status crio --no-pager 2>/dev/null || true
-        return 1
-    }
-    configure_crictl
+    _finalize_crio_setup
 }

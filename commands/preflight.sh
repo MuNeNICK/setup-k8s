@@ -2,6 +2,13 @@
 
 # Preflight check module: verify system requirements before init/join.
 # Runs all checks and reports a summary. Root required for port/module checks.
+#
+# === Sections ===
+# 1. CLI parsing & help                     (~line 8)
+# 2. Result tracking                        (~line 85)
+# 3. Individual check functions              (~line 106)
+# 4. Orchestration (preflight_local)         (~line 352)
+# 5. Dry-run display                        (~line 401)
 
 # --- Help ---
 
@@ -35,7 +42,7 @@ Checks performed:
   - Existing cluster detection (init only)
   - Network connectivity to dl.k8s.io (warning only)
 EOF
-    exit 0
+    exit "${1:-0}"
 }
 
 # --- Argument parsing ---
@@ -44,7 +51,7 @@ parse_preflight_args() {
     while [ $# -gt 0 ]; do
         case "$1" in
             --mode)
-                _require_value $# "$1"
+                _require_value $# "$1" "${2:-}"
                 PREFLIGHT_MODE="$2"
                 case "$PREFLIGHT_MODE" in
                     init|join) ;;
@@ -56,12 +63,12 @@ parse_preflight_args() {
                 shift 2
                 ;;
             --cri)
-                _require_value $# "$1"
+                _require_value $# "$1" "${2:-}"
                 PREFLIGHT_CRI="$2"
                 shift 2
                 ;;
             --proxy-mode)
-                _require_value $# "$1"
+                _require_value $# "$1" "${2:-}"
                 PREFLIGHT_PROXY_MODE="$2"
                 shift 2
                 ;;

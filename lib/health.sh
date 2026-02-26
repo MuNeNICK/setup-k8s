@@ -7,8 +7,7 @@
 # Usage: _health_check_api_server <user> <host>
 _health_check_api_server() {
     local user="$1" host="$2"
-    local pfx=""
-    [ "$user" != "root" ] && pfx="sudo -n "
+    local pfx; pfx=$(_sudo_prefix "$user")
 
     log_info "  Checking API server responsiveness..."
     if _deploy_ssh "$user" "$host" "${pfx}kubectl --kubeconfig=/etc/kubernetes/admin.conf get --raw /readyz" >/dev/null 2>&1; then
@@ -24,8 +23,7 @@ _health_check_api_server() {
 # Usage: _health_check_nodes_ready <user> <host>
 _health_check_nodes_ready() {
     local user="$1" host="$2"
-    local pfx=""
-    [ "$user" != "root" ] && pfx="sudo -n "
+    local pfx; pfx=$(_sudo_prefix "$user")
 
     log_info "  Checking node readiness..."
     local nodes_output
@@ -66,8 +64,7 @@ _health_check_nodes_ready() {
 # Usage: _verify_node_count <user> <host> <expected_count>
 _verify_node_count() {
     local user="$1" host="$2" expected="$3"
-    local pfx=""
-    [ "$user" != "root" ] && pfx="sudo -n "
+    local pfx; pfx=$(_sudo_prefix "$user")
 
     local nodes_output
     nodes_output=$(_deploy_ssh "$user" "$host" "${pfx}kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes --no-headers" 2>/dev/null) || true
@@ -90,8 +87,7 @@ _verify_node_count() {
 # Usage: _health_check_etcd <user> <host>
 _health_check_etcd() {
     local user="$1" host="$2"
-    local pfx=""
-    [ "$user" != "root" ] && pfx="sudo -n "
+    local pfx; pfx=$(_sudo_prefix "$user")
 
     log_info "  Checking etcd health..."
 
@@ -111,8 +107,7 @@ _health_check_etcd() {
 # Usage: _health_check_core_pods <user> <host>
 _health_check_core_pods() {
     local user="$1" host="$2"
-    local pfx=""
-    [ "$user" != "root" ] && pfx="sudo -n "
+    local pfx; pfx=$(_sudo_prefix "$user")
 
     log_info "  Checking core kube-system pods..."
     local pods_output

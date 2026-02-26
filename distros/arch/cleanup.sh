@@ -47,13 +47,8 @@ cleanup_arch() {
     hash -r
 
     # Verify cleanup
-    local remaining=0
-    for pkg in kubeadm-bin kubeadm kubelet-bin kubelet kubectl-bin kubectl cri-o; do
-        if pacman -Qi "$pkg" >/dev/null 2>&1; then
-            log_warn "Package still installed: $pkg"
-            remaining=1
-        fi
-    done
+    local remaining
+    remaining=$(_verify_packages_removed "pacman -Qi" kubeadm-bin kubeadm kubelet-bin kubelet kubectl-bin kubectl cri-o)
     for binary in kubeadm kubectl kubelet; do
         if [ -f "/usr/local/bin/$binary" ] || command -v "$binary" >/dev/null 2>&1; then
             log_warn "$binary still exists in PATH"

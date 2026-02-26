@@ -8,6 +8,5 @@ setup_containerd_arch() {
     pacman -S --noconfirm containerd
     
     # Configure containerd
-    configure_containerd_toml
-    configure_crictl
+    _finalize_containerd_setup
 }

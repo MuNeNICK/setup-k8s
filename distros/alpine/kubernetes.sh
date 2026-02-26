@@ -21,14 +21,14 @@ setup_kubernetes_alpine() {
             kubelet-openrc
     fi
 
-    _service_enable kubelet
+    _enable_and_start_kubelet
 }
 
 # Upgrade kubeadm to a specific MAJOR.MINOR.PATCH version
 upgrade_kubeadm_alpine() {
     local target="$1"
     local minor
-    minor=$(_version_minor "$target")
+    minor=$(_k8s_minor_version "$target")
 
     log_info "Upgrading kubeadm to v${target}..."
     if ! apk add --no-cache "kubeadm=~${minor}" 2>/dev/null; then
@@ -42,7 +42,7 @@ upgrade_kubeadm_alpine() {
 upgrade_kubelet_kubectl_alpine() {
     local target="$1"
     local minor
-    minor=$(_version_minor "$target")
+    minor=$(_k8s_minor_version "$target")
 
     log_info "Upgrading kubelet and kubectl to v${target}..."
     if ! apk add --no-cache \

@@ -1,20 +1,20 @@
 #!/bin/sh
 
+# Configure Kubernetes zypper repository for a given MAJOR.MINOR version.
+# Usage: _configure_k8s_zypper_repo <version>
+_configure_k8s_zypper_repo() {
+    local ver="$1"
+    rpm --import "https://pkgs.k8s.io/core:/stable:/v${ver}/rpm/repodata/repomd.xml.key"
+    zypper removerepo kubernetes 2>/dev/null || true
+    zypper addrepo --gpgcheck "https://pkgs.k8s.io/core:/stable:/v${ver}/rpm/" kubernetes
+    zypper --non-interactive refresh
+}
+
 # Setup Kubernetes for SUSE
 setup_kubernetes_suse() {
     log_info "Setting up Kubernetes for SUSE-based distribution..."
-    
-    # Import GPG key for Kubernetes repository
-    rpm --import "https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/rpm/repodata/repomd.xml.key"
 
-    # Remove existing Kubernetes repository if present (idempotent re-runs)
-    zypper removerepo kubernetes 2>/dev/null || true
-
-    # Add Kubernetes repository with GPG check enabled
-    zypper addrepo --gpgcheck "https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/rpm/" kubernetes
-    
-    # Install Kubernetes components (non-interactive mode)
-    zypper --non-interactive refresh
+    _configure_k8s_zypper_repo "$K8S_VERSION"
 
     # Remove SUSE-distro kubernetes packages that may have been pulled in as CRI-O
     # dependencies (e.g., kubernetes1.24-*) to avoid file conflicts with pkgs.k8s.io packages
@@ -37,21 +37,17 @@ setup_kubernetes_suse() {
     zypper addlock kubelet kubeadm kubectl || log_warn "zypper addlock failed, packages are not pinned"
 
     # Enable and start kubelet
-    _service_enable kubelet
-    _service_start kubelet
+    _enable_and_start_kubelet
 }
 
 # Upgrade kubeadm to a specific MAJOR.MINOR.PATCH version
 upgrade_kubeadm_suse() {
     local target="$1"
     local minor
-    minor=$(_version_minor "$target")
+    minor=$(_k8s_minor_version "$target")
 
     log_info "Updating Kubernetes zypper repository to v${minor}..."
-    rpm --import "https://pkgs.k8s.io/core:/stable:/v${minor}/rpm/repodata/repomd.xml.key"
-    zypper removerepo kubernetes 2>/dev/null || true
-    zypper addrepo --gpgcheck "https://pkgs.k8s.io/core:/stable:/v${minor}/rpm/" kubernetes
-    zypper --non-interactive refresh
+    _configure_k8s_zypper_repo "$minor"
 
     zypper removelock kubeadm 2>/dev/null || true
     zypper --non-interactive install --allow-vendor-change --replacefiles -y kubeadm

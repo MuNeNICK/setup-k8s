@@ -27,13 +27,7 @@ cleanup_suse() {
     zypper removerepo cri-o || true
     
     # Verify cleanup
-    local remaining=0
-    local remaining_pkgs
-    remaining_pkgs=$(zypper search -i 2>&1 | grep -E "\|[[:space:]]*(kubeadm|kubelet|kubectl|kubernetes-cni|cri-o)[[:space:]]" || true)
-    if [ -n "$remaining_pkgs" ]; then
-        log_warn "Some Kubernetes packages still remain:"
-        echo "$remaining_pkgs"
-        remaining=1
-    fi
+    local remaining
+    remaining=$(_verify_packages_removed "rpm -q" kubeadm kubelet kubectl kubernetes-cni cri-o)
     _verify_cleanup $remaining "/etc/default/kubelet"
 }

@@ -1,56 +1,5 @@
 #!/bin/sh
 
-# Install AUR packages via a temporary unprivileged user with scoped sudo.
-# Requires AUR_HELPER to be set (see _ensure_aur_helper in kubernetes.sh).
-# Usage: _aur_install_packages <package...>
-_AUR_INSTALLER_USER=""
-_AUR_INSTALLER_SUDOERS=""
-_cleanup_aur_installer() {
-    [ -n "$_AUR_INSTALLER_SUDOERS" ] && rm -f "$_AUR_INSTALLER_SUDOERS"
-    [ -n "$_AUR_INSTALLER_USER" ] && { userdel -r "$_AUR_INSTALLER_USER" 2>/dev/null || true; }
-    _AUR_INSTALLER_USER=""
-    _AUR_INSTALLER_SUDOERS=""
-}
-
-_aur_install_packages() {
-    _AUR_INSTALLER_USER="aur_installer_$$"
-    _AUR_INSTALLER_SUDOERS="/etc/sudoers.d/99-${_AUR_INSTALLER_USER}"
-    local tmp_user="$_AUR_INSTALLER_USER"
-    local sudoers_file="$_AUR_INSTALLER_SUDOERS"
-    _push_cleanup _cleanup_aur_installer
-    useradd -m -s /bin/bash "$tmp_user"
-
-    local rc=0
-
-    # Build sudoers: -S rule for direct install, -U rule with cache globs for built packages
-    cat > "$sudoers_file" <<SUDOERS_EOF
-Defaults:$tmp_user secure_path="/usr/bin:/usr/sbin"
-$tmp_user ALL=(ALL) NOPASSWD: /usr/bin/pacman *
-SUDOERS_EOF
-    chmod 0440 "$sudoers_file"
-    local _visudo_err
-    if ! _visudo_err=$(visudo -cf "$sudoers_file" 2>&1); then
-        log_error "Generated sudoers file is invalid: $_visudo_err"
-        rc=1
-    fi
-
-    # Disable debug package generation (default in modern makepkg) to avoid
-    # install failures when yay tries to batch-install main + debug packages
-    su - "$tmp_user" -c 'echo "OPTIONS+=(!debug)" >> ~/.makepkg.conf'
-
-    if [ "$rc" -eq 0 ]; then
-        log_info "Installing AUR packages: $*..."
-        if ! su - "$tmp_user" -c "$AUR_HELPER -S --noconfirm --needed $*"; then
-            log_error "AUR installation failed for: $*"
-            rc=1
-        fi
-    fi
-
-    _cleanup_aur_installer
-    _pop_cleanup
-    return "$rc"
-}
-
 # Arch Linux specific: Install dependencies
 install_dependencies_arch() {
     log_info "Installing dependencies for Arch-based distribution..."

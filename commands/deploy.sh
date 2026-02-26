@@ -1,110 +1,14 @@
 #!/bin/sh
 
 # Deploy module: orchestrate remote Kubernetes cluster installation via SSH
-# SSH infrastructure is provided by common/ssh.sh (loaded before this module).
-
-# --- Token Extraction ---
-
-# Extract join information from the first control-plane node
-# Sets: _JOIN_COMMAND, _JOIN_TOKEN, _JOIN_ADDR, _JOIN_HASH, _CERT_KEY
-_extract_join_info() {
-    local user="$1" host="$2"
-
-    log_info "[$host] Extracting join information..."
-
-    # Get join command (use sudo -n when not root for fail-fast on missing NOPASSWD)
-    local sudo_pfx=""
-    [ "$user" != "root" ] && sudo_pfx="sudo -n "
-    local attempt=1 max_attempts=3
-    _JOIN_COMMAND=""
-    while [ "$attempt" -le "$max_attempts" ]; do
-        _JOIN_COMMAND=$(_deploy_ssh "$user" "$host" "${sudo_pfx}kubeadm token create --print-join-command") && break
-        log_warn "[$host] Join command extraction attempt $attempt/$max_attempts failed, retrying in ${attempt}s..."
-        sleep "$attempt"
-        attempt=$((attempt + 1))
-    done
-    if [ -z "$_JOIN_COMMAND" ]; then
-        log_error "[$host] Failed to extract join command after $max_attempts attempts"
-        return 1
-    fi
-    log_debug "Join command: $_JOIN_COMMAND"
-
-    # Parse token, address, and hash from join command using word-based splitting
-    # Expected format: kubeadm join <addr> --token <token> --discovery-token-ca-cert-hash <hash>
-    _JOIN_ADDR="" _JOIN_TOKEN="" _JOIN_HASH=""
-    # shellcheck disable=SC2086 # intentional word splitting of join command
-    set -- $_JOIN_COMMAND
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            join)
-                # Next word is the address (if not a flag)
-                if [ $# -ge 2 ]; then
-                    case "$2" in
-                        -*) ;;
-                        *) _JOIN_ADDR="$2" ;;
-                    esac
-                fi
-                ;;
-            --token)
-                [ $# -ge 2 ] && _JOIN_TOKEN="$2"
-                ;;
-            --discovery-token-ca-cert-hash)
-                [ $# -ge 2 ] && _JOIN_HASH="$2"
-                ;;
-        esac
-        shift
-    done
-
-    if [ -z "$_JOIN_TOKEN" ] || [ -z "$_JOIN_ADDR" ] || [ -z "$_JOIN_HASH" ]; then
-        log_error "[$host] Failed to parse join command components"
-        log_error "  Join command was: $_JOIN_COMMAND"
-        log_error "  Parsed: addr='$_JOIN_ADDR' token='$_JOIN_TOKEN' hash='$_JOIN_HASH'"
-        return 1
-    fi
-
-    # Validate extracted values
-    if ! echo "$_JOIN_TOKEN" | grep -qE '^[a-z0-9]{6}\.[a-z0-9]{16}$'; then
-        log_error "[$host] Join token format looks invalid: $_JOIN_TOKEN"
-        return 1
-    fi
-    if ! echo "$_JOIN_HASH" | grep -qE '^sha256:[a-f0-9]{64}$'; then
-        log_error "[$host] Discovery token hash format looks invalid: $_JOIN_HASH"
-        return 1
-    fi
-
-    # For HA: get certificate key
-    _CERT_KEY=""
-    local has_ha_vip=false
-    if [ -n "$DEPLOY_PASSTHROUGH_ARGS" ]; then
-        local _chk_arg
-        while IFS= read -r _chk_arg; do
-            if [ "$_chk_arg" = "--ha-vip" ]; then
-                has_ha_vip=true
-                break
-            fi
-        done <<EOF
-$DEPLOY_PASSTHROUGH_ARGS
-EOF
-    fi
-
-    if [ "$has_ha_vip" = true ]; then
-        log_info "[$host] Uploading certificates for HA join..."
-        local cert_output
-        if ! cert_output=$(_deploy_ssh "$user" "$host" "${sudo_pfx}kubeadm init phase upload-certs --upload-certs"); then
-            log_error "[$host] kubeadm upload-certs failed"
-            return 1
-        fi
-        _CERT_KEY=$(echo "$cert_output" | tail -1)
-        if ! echo "$_CERT_KEY" | grep -qE '^[a-f0-9]{64}$'; then
-            log_error "[$host] Invalid certificate key format (expected 64 hex chars, got: '$_CERT_KEY')"
-            return 1
-        fi
-        log_debug "Certificate key: $_CERT_KEY"
-    fi
-
-    log_info "[$host] Join info extracted successfully"
-    return 0
-}
+# SSH infrastructure is provided by lib/ssh.sh (loaded before this module).
+#
+# === Sections ===
+# 1. Dry-run display                        (~line 11)
+# 2. Remote orchestration (deploy_cluster)   (~line 73)
+# 3. CLI parsing & help                     (~line 337)
+#
+# Token extraction -> lib/join_token.sh
 
 # --- Main Orchestration ---
 
@@ -113,33 +17,11 @@ deploy_dry_run() {
     log_info "=== Deploy Dry-Run Plan ==="
     log_info ""
 
-    # Parse control-plane nodes
-    local cp_count
-    cp_count=$(_csv_count "$DEPLOY_CONTROL_PLANES")
-    log_info "Control-Plane Nodes (${cp_count}):"
-    local _i=0
-    while [ "$_i" -lt "$cp_count" ]; do
-        local node
-        node=$(_csv_get "$DEPLOY_CONTROL_PLANES" "$_i")
-        _parse_node_address "$node"
-        log_info "  - ${_NODE_USER}@${_NODE_HOST}"
-        _i=$((_i + 1))
-    done
+    _log_node_list "Control-Plane Nodes" "$DEPLOY_CONTROL_PLANES"
     log_info ""
 
-    # Parse worker nodes
     if [ -n "$DEPLOY_WORKERS" ]; then
-        local w_count
-        w_count=$(_csv_count "$DEPLOY_WORKERS")
-        log_info "Worker Nodes (${w_count}):"
-        _i=0
-        while [ "$_i" -lt "$w_count" ]; do
-            local node
-            node=$(_csv_get "$DEPLOY_WORKERS" "$_i")
-            _parse_node_address "$node"
-            log_info "  - ${_NODE_USER}@${_NODE_HOST}"
-            _i=$((_i + 1))
-        done
+        _log_node_list "Worker Nodes" "$DEPLOY_WORKERS"
     else
         log_info "Worker Nodes: (none)"
     fi
@@ -153,6 +35,8 @@ deploy_dry_run() {
         log_info ""
     fi
 
+    local cp_count
+    cp_count=$(_csv_count "$DEPLOY_CONTROL_PLANES")
     local cp0
     cp0=$(_csv_get "$DEPLOY_CONTROL_PLANES" 0)
     log_info "Orchestration Plan:"
@@ -190,6 +74,18 @@ deploy_dry_run() {
     log_info "=== End of dry-run (no changes made) ==="
 }
 
+# Build a join command string with common join arguments.
+# Usage: join_cmd=$(_build_join_cmd <sudo_prefix> <bundle_path>)
+# Requires: _JOIN_TOKEN, _JOIN_ADDR, _JOIN_HASH (set by _extract_join_info)
+_build_join_cmd() {
+    local _sudo="$1" _bundle="$2"
+    local _cmd="${_sudo}sh ${_bundle} join"
+    _cmd="${_cmd} --join-token $(_posix_shell_quote "$_JOIN_TOKEN")"
+    _cmd="${_cmd} --join-address $(_posix_shell_quote "$_JOIN_ADDR")"
+    _cmd="${_cmd} --discovery-token-hash $(_posix_shell_quote "$_JOIN_HASH")"
+    printf '%s' "$_cmd"
+}
+
 # Main deploy orchestration
 deploy_cluster() {
     local cp_count w_count
@@ -203,9 +99,9 @@ deploy_cluster() {
     local all_count
     all_count=$(_csv_count "$_DEPLOY_ALL_NODES")
 
-    # Calculate total orchestration steps: bundle, ssh-check, transfer, init, extract-token,
+    # Calculate total orchestration steps: ssh-check, bundle-transfer, init, extract-token,
     # [join-cps], [join-workers], cleanup-remote, summary
-    local total_steps=6
+    local total_steps=5
     [ "$cp_count" -gt 1 ] && total_steps=$((total_steps + 1))
     [ "$w_count" -gt 0 ] && total_steps=$((total_steps + 1))
     # State/resume support (only when --resume is enabled)
@@ -226,97 +122,25 @@ deploy_cluster() {
     _audit_log "deploy" "started" "cp=${cp_count} workers=${w_count}"
     log_info "Deploying Kubernetes cluster: ${cp_count} control-plane(s), ${w_count} worker(s)"
 
-    # Inform about SSH host key policy
-    if [ "${DEPLOY_SSH_HOST_KEY_CHECK}" = "accept-new" ]; then
-        log_info "SSH host key check: accept-new (TOFU). New keys are accepted on first connect;"
-        log_info "subsequent connections reject changed keys. For stricter security, use:"
-        log_info "  --ssh-known-hosts known_hosts"
-    elif [ "${DEPLOY_SSH_HOST_KEY_CHECK}" = "yes" ] && [ -z "$DEPLOY_SSH_KNOWN_HOSTS_FILE" ]; then
-        log_info "SSH strict host key checking is enabled."
-        log_info "Provide known_hosts with --ssh-known-hosts to proceed:"
-        log_info "  ssh-keyscan -H <node-ip> >> known_hosts  # collect fingerprints"
-        log_info "  setup-k8s.sh deploy --ssh-known-hosts known_hosts ..."
-    fi
-
-    # Create session-scoped known_hosts for MITM detection within this deploy
-    _setup_session_known_hosts "deploy"
-
-    # --- Step 1: Generate bundle ---
-    # Always regenerate the bundle (even on resume), because bundle paths are
-    # process-local and remote temp dirs are cleaned on exit.
     local _step=0
-    _step=$((_step + 1))
-    local bundle_path=""
-    log_info "Step ${_step}/${total_steps}: Generating deploy bundle..."
-    bundle_path=$(mktemp /tmp/setup-k8s-deploy-XXXXXX)
-    chmod 600 "$bundle_path"
-    generate_deploy_bundle "$bundle_path"
-    log_info "Bundle generated: $(wc -c < "$bundle_path") bytes"
 
-    # --- Step 2: SSH connectivity check ---
+    # --- Step 1: SSH connectivity check ---
     _step=$((_step + 1))
-    log_info "Step ${_step}/${total_steps}: Checking SSH connectivity to all nodes..."
-    # Build argument list for connectivity check
-    local _i=0 _conn_nodes=""
-    while [ "$_i" -lt "$all_count" ]; do
-        local _n
-        _n=$(_csv_get "$_DEPLOY_ALL_NODES" "$_i")
-        _conn_nodes="${_conn_nodes} ${_n}"
-        _i=$((_i + 1))
-    done
-    # shellcheck disable=SC2086 # intentional word splitting
-    if ! _check_ssh_connectivity $_conn_nodes; then
-        log_error "SSH connectivity check failed. Aborting deployment."
-        rm -f "$bundle_path"
+    log_info "Step ${_step}/${total_steps}: Checking SSH connectivity..."
+    if ! _init_remote_session "deploy" "$_DEPLOY_ALL_NODES"; then
         return 1
     fi
 
-    # --- Step 3: Transfer bundle to all nodes ---
-    # Always re-transfer (even on resume): remote temp dirs are cleaned on exit,
-    # and _DEPLOY_NODE_BUNDLE_DIRS is process-local.
+    # --- Step 2: Generate and transfer bundle ---
+    # Always regenerate (even on resume), because bundle paths are
+    # process-local and remote temp dirs are cleaned on exit.
     _step=$((_step + 1))
-    log_info "Step ${_step}/${total_steps}: Transferring bundle to all nodes..."
-    _DEPLOY_NODE_BUNDLE_DIRS=""
+    log_info "Step ${_step}/${total_steps}: Generating and transferring bundle..."
+    if ! _generate_and_transfer_bundle "deploy"; then
+        return 1
+    fi
 
-    # Register cleanup handler for remote temp directories (best-effort on early failure)
-    # Uses module-level globals so EXIT trap can access them after function returns
-    _push_cleanup _cleanup_remote_bundle_dirs
-
-    _i=0
-    while [ "$_i" -lt "$all_count" ]; do
-        local node
-        node=$(_csv_get "$_DEPLOY_ALL_NODES" "$_i")
-        _parse_node_address "$node"
-        log_info "  [${_NODE_HOST}] Transferring bundle..."
-        # Create secure temp dir on remote (owned by SSH user, mode 700)
-        local rdir
-        rdir=$(_deploy_ssh "$_NODE_USER" "$_NODE_HOST" "d=\$(mktemp -d) && chmod 700 \"\$d\" && echo \"\$d\"") || true
-        rdir=$(echo "$rdir" | tr -d '[:space:]')
-        if [ -z "$rdir" ]; then
-            log_error "  [${_NODE_HOST}] Failed to create remote temp directory (got: '${rdir}')"
-            rm -f "$bundle_path"
-            return 1
-        fi
-        case "$rdir" in
-            /*) ;;
-            *)
-                log_error "  [${_NODE_HOST}] Failed to create remote temp directory (got: '${rdir}')"
-                rm -f "$bundle_path"
-                return 1
-                ;;
-        esac
-        _bundle_dir_set "$_NODE_HOST" "$rdir"
-        if ! _deploy_scp "$bundle_path" "$_NODE_USER" "$_NODE_HOST" "${rdir}/setup-k8s.sh"; then
-            log_error "  [${_NODE_HOST}] Failed to transfer bundle"
-            rm -f "$bundle_path"
-            return 1
-        fi
-        _i=$((_i + 1))
-    done
-    rm -f "$bundle_path"
-    log_info "Bundle transferred to all nodes"
-
-    # --- Step 4: Init first control-plane ---
+    # --- Step 3: Init first control-plane ---
     _step=$((_step + 1))
     local cp0
     cp0=$(_csv_get "$DEPLOY_CONTROL_PLANES" 0)
@@ -350,8 +174,7 @@ deploy_cluster() {
         # Build init command with passthrough args (shell-escaped)
         local remote_bundle
         remote_bundle="$(_bundle_dir_lookup "$cp1_host")/setup-k8s.sh"
-        local sudo_pfx=""
-        [ "$cp1_user" != "root" ] && sudo_pfx="sudo -n "
+        local sudo_pfx; sudo_pfx=$(_sudo_prefix "$cp1_user")
         local init_cmd="${sudo_pfx}sh ${remote_bundle} init"
         # If multiple CPs, enable HA
         if [ "$cp_count" -gt 1 ]; then
@@ -371,7 +194,7 @@ deploy_cluster() {
         log_info "Step ${_step}/${total_steps}: Initializing first control-plane... (skipped, resumed)"
     fi
 
-    # --- Step 5: Extract join token ---
+    # --- Step 4: Extract join token ---
     _step=$((_step + 1))
     log_info "Step ${_step}/${total_steps}: Extracting join information..."
     if ! _extract_join_info "$cp1_user" "$cp1_host"; then
@@ -379,7 +202,7 @@ deploy_cluster() {
         return 1
     fi
 
-    # --- Step 6: Join additional control-planes (sequential) ---
+    # --- Step 5: Join additional control-planes (sequential) ---
     if [ "$cp_count" -gt 1 ]; then
         _step=$((_step + 1))
         log_info "Step ${_step}/${total_steps}: Joining additional control-planes..."
@@ -397,12 +220,9 @@ deploy_cluster() {
 
             local node_bundle
             node_bundle="$(_bundle_dir_lookup "$_NODE_HOST")/setup-k8s.sh"
-            local sudo_pfx=""
-            [ "$_NODE_USER" != "root" ] && sudo_pfx="sudo -n "
-            local join_cmd="${sudo_pfx}sh ${node_bundle} join"
-            join_cmd="${join_cmd} --join-token $(_posix_shell_quote "$_JOIN_TOKEN")"
-            join_cmd="${join_cmd} --join-address $(_posix_shell_quote "$_JOIN_ADDR")"
-            join_cmd="${join_cmd} --discovery-token-hash $(_posix_shell_quote "$_JOIN_HASH")"
+            local sudo_pfx; sudo_pfx=$(_sudo_prefix "$_NODE_USER")
+            local join_cmd
+            join_cmd=$(_build_join_cmd "$sudo_pfx" "$node_bundle")
             join_cmd="${join_cmd} --control-plane"
             join_cmd="${join_cmd} --certificate-key $(_posix_shell_quote "$_CERT_KEY")"
             # Pass through HA and other args (shell-escaped)
@@ -420,7 +240,7 @@ deploy_cluster() {
         done
     fi
 
-    # --- Step 7: Join workers (parallel) ---
+    # --- Step 6: Join workers (parallel) ---
     local worker_failed=false
     if [ "$w_count" -gt 0 ]; then
         _step=$((_step + 1))
@@ -436,14 +256,10 @@ deploy_cluster() {
 
             local w_bundle
             w_bundle="$(_bundle_dir_lookup "$w_host")/setup-k8s.sh"
-            local w_sudo=""
-            [ "$w_user" != "root" ] && w_sudo="sudo -n "
-            local join_cmd="${w_sudo}sh ${w_bundle} join"
-            join_cmd="${join_cmd} --join-token $(_posix_shell_quote "$_JOIN_TOKEN")"
-            join_cmd="${join_cmd} --join-address $(_posix_shell_quote "$_JOIN_ADDR")"
-            join_cmd="${join_cmd} --discovery-token-hash $(_posix_shell_quote "$_JOIN_HASH")"
-            # Pass through args (exclude HA-specific ones for workers, shell-escaped)
-            join_cmd=$(_append_passthrough_to_cmd_worker "$join_cmd" "$DEPLOY_PASSTHROUGH_ARGS")
+            local w_sudo; w_sudo=$(_sudo_prefix "$w_user")
+            local join_cmd
+            join_cmd=$(_build_join_cmd "$w_sudo" "$w_bundle")
+            join_cmd=$(_append_passthrough_filtered "$join_cmd" "$DEPLOY_PASSTHROUGH_ARGS" "--ha-vip --ha-interface")
 
             # Run in background subshell
             (
@@ -475,36 +291,20 @@ deploy_cluster() {
     local node_count_ok=true
     _verify_node_count "$cp1_user" "$cp1_host" "$all_count" || node_count_ok=false
 
-    # --- Step 8: Clean up remote bundle directories ---
+    # --- Step 7: Clean up remote bundle directories ---
     _step=$((_step + 1))
     log_info "Step ${_step}/${total_steps}: Cleaning up remote bundle directories..."
     _cleanup_remote_bundle_dirs
     _pop_cleanup
 
-    # --- Step 9: Summary ---
+    # --- Step 8: Summary ---
     log_info ""
     log_info "=== Deployment Summary ==="
     log_info ""
-    log_info "Control-Plane Nodes:"
-    _i=0
-    while [ "$_i" -lt "$cp_count" ]; do
-        local node
-        node=$(_csv_get "$DEPLOY_CONTROL_PLANES" "$_i")
-        _parse_node_address "$node"
-        log_info "  - ${_NODE_USER}@${_NODE_HOST} [OK]"
-        _i=$((_i + 1))
-    done
+    _log_node_list "Control-Plane Nodes" "$DEPLOY_CONTROL_PLANES"
     log_info ""
     if [ "$w_count" -gt 0 ]; then
-        log_info "Worker Nodes:"
-        _i=0
-        while [ "$_i" -lt "$w_count" ]; do
-            local node
-            node=$(_csv_get "$DEPLOY_WORKERS" "$_i")
-            _parse_node_address "$node"
-            log_info "  - ${_NODE_USER}@${_NODE_HOST}"
-            _i=$((_i + 1))
-        done
+        _log_node_list "Worker Nodes" "$DEPLOY_WORKERS"
         log_info ""
     fi
 
@@ -543,4 +343,119 @@ deploy_cluster() {
     _audit_log "deploy" "completed" "cp=${cp_count} workers=${w_count}"
     log_info "Cluster deployment completed successfully!"
     return 0
+}
+
+# === Deploy argument parsing (moved from lib/validation.sh) ===
+show_deploy_help() {
+    echo "Usage: $0 deploy [options]"
+    echo ""
+    echo "Deploy a Kubernetes cluster across remote nodes via SSH."
+    echo ""
+    echo "Required:"
+    echo "  --control-planes IPs    Comma-separated list of control-plane nodes (user@ip or ip)"
+    echo ""
+    echo "Optional:"
+    echo "  --workers IPs           Comma-separated list of worker nodes (user@ip or ip)"
+    _show_common_ssh_help "  "
+    echo "  --ha-vip ADDRESS        VIP address for HA (required when >1 control-plane)"
+    echo "  --ha-interface IFACE    Network interface for VIP (auto-detected on remote)"
+    echo "  --cri RUNTIME           Container runtime (containerd or crio)"
+    echo "  --proxy-mode MODE       Kube-proxy mode (iptables, ipvs, or nftables)"
+    echo "  --distro FAMILY         Override distro family detection"
+    echo "  --swap-enabled          Keep swap enabled (K8s 1.28+)"
+    echo "  --enable-completion BOOL  Enable shell completion setup (default: true)"
+    echo "  --install-helm BOOL     Install Helm package manager (default: false)"
+    echo "  --completion-shells LIST  Shells to configure (auto, bash, zsh, fish, or comma-separated)"
+    echo "  --kubernetes-version VER Kubernetes version (e.g., 1.32)"
+    echo "  --pod-network-cidr CIDR Pod network CIDR"
+    echo "  --service-cidr CIDR     Service CIDR"
+    echo "  --resume                Resume a previously interrupted deploy"
+    _show_help_footer "  " "Show deployment plan and exit"
+    echo ""
+    echo "Examples:"
+    echo "  $0 deploy --control-planes 10.0.0.1 --workers 10.0.0.2,10.0.0.3 --ssh-key ~/.ssh/id_rsa"
+    echo "  $0 deploy --control-planes 10.0.0.1,10.0.0.2,10.0.0.3 --workers 10.0.0.4 --ha-vip 10.0.0.100"
+    echo "  $0 deploy --control-planes admin@10.0.0.1 --workers ubuntu@10.0.0.2"
+    exit "${1:-0}"
+}
+
+# Parse command line arguments for deploy
+parse_deploy_args() {
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --help|-h)
+                show_deploy_help
+                ;;
+            --ha-vip)
+                _require_value $# "$1" "${2:-}"
+                DEPLOY_PASSTHROUGH_ARGS=$(_passthrough_add_pair "$DEPLOY_PASSTHROUGH_ARGS" "--ha-vip" "$2")
+                shift 2
+                ;;
+            --ha-interface)
+                _require_value $# "$1" "${2:-}"
+                DEPLOY_PASSTHROUGH_ARGS=$(_passthrough_add_pair "$DEPLOY_PASSTHROUGH_ARGS" "--ha-interface" "$2")
+                shift 2
+                ;;
+            --distro)
+                _require_value $# "$1" "${2:-}"
+                DEPLOY_PASSTHROUGH_ARGS=$(_passthrough_add_pair "$DEPLOY_PASSTHROUGH_ARGS" "$1" "$2")
+                shift 2
+                ;;
+            --cri|--proxy-mode|--kubernetes-version|--pod-network-cidr|--service-cidr|--apiserver-advertise-address|--control-plane-endpoint|--kubeadm-config-patch|--api-server-extra-sans|--kubelet-node-ip)
+                _require_value $# "$1" "${2:-}"
+                DEPLOY_PASSTHROUGH_ARGS=$(_passthrough_add_pair "$DEPLOY_PASSTHROUGH_ARGS" "$1" "$2")
+                shift 2
+                ;;
+            --swap-enabled)
+                DEPLOY_PASSTHROUGH_ARGS=$(_passthrough_add_flag "$DEPLOY_PASSTHROUGH_ARGS" "$1")
+                shift
+                ;;
+            --enable-completion|--install-helm|--completion-shells)
+                _require_value $# "$1" "${2:-}"
+                DEPLOY_PASSTHROUGH_ARGS=$(_passthrough_add_pair "$DEPLOY_PASSTHROUGH_ARGS" "$1" "$2")
+                shift 2
+                ;;
+            *)
+                if _parse_remote_ssh_args $# "$1" "${2:-}"; then
+                    shift "$_REMOTE_SSH_SHIFT"
+                else
+                    log_error "Unknown deploy option: $1"
+                    show_deploy_help 1
+                fi
+                ;;
+        esac
+    done
+}
+
+# Validate deploy arguments
+validate_deploy_args() {
+    # --control-planes is required
+    if [ -z "$DEPLOY_CONTROL_PLANES" ]; then
+        log_error "--control-planes is required for deploy"
+        exit 1
+    fi
+
+    _validate_remote_node_args
+
+    # Count control-plane nodes
+    local cp_count
+    cp_count=$(_csv_count "$DEPLOY_CONTROL_PLANES")
+
+    # Check --ha-vip in passthrough args
+    local has_ha_vip=false
+    case "$DEPLOY_PASSTHROUGH_ARGS" in
+        *--ha-vip*) has_ha_vip=true ;;
+    esac
+
+    # If >1 CP, --ha-vip is required
+    if [ "$cp_count" -gt 1 ] && [ "$has_ha_vip" = false ]; then
+        log_error "--ha-vip is required when using multiple control-plane nodes"
+        exit 1
+    fi
+
+    # If only 1 CP, --ha-vip is not applicable
+    if [ "$cp_count" -eq 1 ] && [ "$has_ha_vip" = true ]; then
+        log_error "--ha-vip requires multiple control-plane nodes (got 1)"
+        exit 1
+    fi
 }
