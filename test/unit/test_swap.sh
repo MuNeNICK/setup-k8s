@@ -54,6 +54,7 @@ test_validate_swap_enabled() {
 
         # swap disabled should always pass regardless of version
         SWAP_ENABLED=false
+        # shellcheck disable=SC2034 # used by validate_swap_enabled
         K8S_VERSION="1.25"
         validate_swap_enabled
         _assert_eq "swap disabled always passes" "false" "$SWAP_ENABLED"

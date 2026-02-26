@@ -211,10 +211,12 @@ _parse_upgrade_common_arg() {
             _UPGRADE_ARG_SHIFT=1
             ;;
         --no-rollback)
+            # shellcheck disable=SC2034 # used by upgrade_orchestration.sh
             UPGRADE_NO_ROLLBACK=true
             _UPGRADE_ARG_SHIFT=1
             ;;
         --auto-step-upgrade)
+            # shellcheck disable=SC2034 # used by upgrade_orchestration.sh
             UPGRADE_AUTO_STEP=true
             _UPGRADE_ARG_SHIFT=1
             ;;
@@ -228,6 +230,7 @@ parse_upgrade_local_args() {
         case $1 in
             --help|-h) show_upgrade_help ;;
             --first-control-plane)
+                # shellcheck disable=SC2034 # used by upgrade_helpers.sh
                 UPGRADE_FIRST_CONTROL_PLANE=true
                 shift
                 ;;

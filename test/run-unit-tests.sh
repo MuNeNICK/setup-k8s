@@ -7,6 +7,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC2034 # used by test/unit/*.sh via source
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Temporary file for collecting assertion results across subshells

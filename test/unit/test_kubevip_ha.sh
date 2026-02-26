@@ -66,6 +66,7 @@ test_kube_vip_kubeconfig_path() {
         _assert_eq "K8s 1.27 uses admin.conf" \
             "/etc/kubernetes/admin.conf" "$(_kube_vip_kubeconfig_path)"
 
+        # shellcheck disable=SC2034 # used by _kube_vip_kubeconfig_path
         K8S_VERSION=""
         _assert_eq "empty version uses admin.conf" \
             "/etc/kubernetes/admin.conf" "$(_kube_vip_kubeconfig_path)"
@@ -152,6 +153,7 @@ test_validate_ha_args_ipv6() {
         _assert_eq "IPv6 VIP accepted" "fd00::100" "$HA_VIP_ADDRESS"
 
         # IPv6 VIP on init should set bracketed CP endpoint
+        # shellcheck disable=SC2034 # globals used by validate_ha_args
         ACTION="init"
         HA_ENABLED=true
         HA_VIP_ADDRESS="fd00::100"

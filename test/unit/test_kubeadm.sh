@@ -61,15 +61,21 @@ test_generate_kubeadm_config_patch() {
         . "$PROJECT_ROOT/lib/kubeadm.sh"
         . "$PROJECT_ROOT/commands/init.sh"
 
+        # shellcheck disable=SC2034 # used by generate_kubeadm_config
         KUBEADM_POD_CIDR=""
+        # shellcheck disable=SC2034 # used by generate_kubeadm_config
         KUBEADM_SERVICE_CIDR=""
+        # shellcheck disable=SC2034 # used by generate_kubeadm_config
         KUBEADM_API_ADDR=""
+        # shellcheck disable=SC2034 # used by generate_kubeadm_config
         KUBEADM_CP_ENDPOINT=""
+        # shellcheck disable=SC2034 # used by generate_kubeadm_config
         API_SERVER_EXTRA_SANS=""
 
         local tmpfile
         tmpfile=$(mktemp /tmp/test-patch-XXXXXX)
         echo "customKey: customValue" > "$tmpfile"
+        # shellcheck disable=SC2034 # used by generate_kubeadm_config
         KUBEADM_CONFIG_PATCH="$tmpfile"
 
         local config_file

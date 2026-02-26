@@ -141,10 +141,13 @@ test_join_address_ipv6_example() {
         source "$PROJECT_ROOT/lib/variables.sh"
         source "$PROJECT_ROOT/lib/validation.sh"
 
+        # shellcheck disable=SC2034 # used by validate_join_args
         ACTION="join"
+        # shellcheck disable=SC2034 # used by validate_join_args
         JOIN_TOKEN="abcdef.1234567890abcdef"
-        # shellcheck disable=SC2034 # Used by validate_join_args
+        # shellcheck disable=SC2034 # used by validate_join_args
         DISCOVERY_TOKEN_HASH="sha256:$(printf '%064d' 0)"
+        # shellcheck disable=SC2034 # used by validate_join_args
         JOIN_ADDRESS="noport"
         local err_output
         err_output=$(validate_join_args 2>&1) || true

@@ -739,6 +739,7 @@ test_log_ssh_settings() {
 
         # shellcheck disable=SC2034 # used by _log_ssh_settings
         DEPLOY_SSH_USER="admin"
+        # shellcheck disable=SC2034 # used by _log_ssh_settings
         DEPLOY_SSH_PORT=2222
         DEPLOY_SSH_KEY="/path/to/key"
         DEPLOY_SSH_PASSWORD=""

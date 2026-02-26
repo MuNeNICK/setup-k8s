@@ -434,6 +434,7 @@ create_cp_worker_env() {
 # Common arg parser for --distro, --k8s-version, --memory, --cpus, --disk-size
 # Returns 0 and shifts args if handled; returns 1 for unknown args (caller handles).
 # Usage: _parse_common_test_args "$@" && shift $SHIFT_COUNT
+# shellcheck disable=SC2034 # SHIFT_COUNT used by caller via: shift $SHIFT_COUNT
 _parse_common_test_args() {
     SHIFT_COUNT=0
     case "${1:-}" in

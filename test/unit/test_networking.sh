@@ -293,6 +293,7 @@ test_install_proxy_mode_packages_logic() {
         _assert_eq "nftables installs nftables" "true" "$has_nftables"
 
         # iptables mode (should not install anything)
+        # shellcheck disable=SC2034 # used by install_proxy_mode_packages
         PROXY_MODE="iptables"
         captured_args=""
         install_proxy_mode_packages mock_install

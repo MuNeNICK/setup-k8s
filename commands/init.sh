@@ -18,6 +18,7 @@ parse_setup_args() {
                     log_error "--kubernetes-version must be in MAJOR.MINOR format (e.g., 1.29, 1.32), got '$2'"
                     exit 1
                 fi
+                # shellcheck disable=SC2034 # used by setup-k8s.sh
                 K8S_VERSION="$2"
                 shift 2
                 ;;
@@ -66,6 +67,7 @@ parse_setup_args() {
                 ;;
             --ha-interface)
                 _require_value $# "$1" "${2:-}"
+                # shellcheck disable=SC2034 # used by kubevip.sh
                 HA_VIP_INTERFACE="$2"
                 shift 2
                 ;;
