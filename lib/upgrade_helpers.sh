@@ -135,7 +135,7 @@ _record_pre_upgrade_versions() {
 # Attempt to rollback a failed node to the pre-upgrade version.
 # Usage: _rollback_node <user> <host> <node_name> <bundle_path> <pre_version>
 _rollback_node() {
-    local user="$1" host="$2" node_name="$3" bundle_path="$4" pre_version="$5"
+    local user="$1" host="$2" _node_name="$3" bundle_path="$4" pre_version="$5"
     local pfx; pfx=$(_sudo_prefix "$user")
 
     if [ -z "$pre_version" ]; then
