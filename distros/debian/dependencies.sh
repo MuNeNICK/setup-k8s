@@ -8,7 +8,6 @@ install_dependencies_debian() {
     # Install base dependencies
     if ! apt-get install -y \
         apt-transport-https ca-certificates curl gnupg \
-        software-properties-common \
         conntrack socat ethtool iproute2 iptables; then
         log_error "Failed to install base dependencies"
         return 1

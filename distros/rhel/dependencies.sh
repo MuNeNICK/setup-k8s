@@ -48,5 +48,19 @@ install_dependencies_rhel() {
         return 1
     fi
 
+    # RHEL-based cloud images (Rocky, AlmaLinux, etc.) ship only kernel-core and
+    # kernel-modules-core to minimise image size.  br_netfilter, which Kubernetes
+    # requires, is packaged in kernel-modules-extra and therefore absent by default.
+    # Install the matching version for the running kernel so that modprobe succeeds.
+    if ! modprobe -n br_netfilter >/dev/null 2>&1; then
+        local _running_kernel
+        _running_kernel=$(uname -r)
+        log_info "br_netfilter not available — installing kernel-modules-extra for running kernel ($_running_kernel)..."
+        if ! $PKG_MGR install -y "kernel-modules-extra-${_running_kernel}"; then
+            log_error "Failed to install kernel-modules-extra-${_running_kernel}"
+            return 1
+        fi
+    fi
+
     install_proxy_mode_packages "$PKG_MGR" install -y
 }
