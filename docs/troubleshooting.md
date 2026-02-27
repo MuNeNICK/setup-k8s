@@ -57,6 +57,26 @@ kubectl version --short
   - nftables mode only allows NodePort on default IPs
   - Use the node's primary IP address, not 127.0.0.1
 
+## CNI Plugin Issues
+
+### Flannel: `failed to acquire lease: node "xxx" pod cidr not assigned`
+
+Flannel requires each node to have a Pod CIDR assigned via `node.spec.podCIDR`. This is set automatically when `--pod-network-cidr` is passed to `kubeadm init`, but **is not set by default**.
+
+Other CNI plugins (Calico, Cilium, Weave) have their own IPAM and work without this flag.
+
+If you plan to use Flannel, run init with `--pod-network-cidr`:
+```bash
+setup-k8s.sh init --pod-network-cidr 10.244.0.0/16
+```
+
+If the cluster is already initialized without it, you can patch the node manually:
+```bash
+kubectl patch node <node-name> -p '{"spec":{"podCIDR":"10.244.0.0/24","podCIDRs":["10.244.0.0/24"]}}'
+```
+
+> **Note:** The manual patch only assigns a CIDR to existing nodes. For automatic allocation on new nodes (e.g., worker join), the controller-manager must be reconfigured with `--cluster-cidr` and `--allocate-node-cidrs=true`.
+
 ## Cleanup Issues
 - Ensure proper node drainage
 - Verify permissions
