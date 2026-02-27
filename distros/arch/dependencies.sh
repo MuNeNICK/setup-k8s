@@ -6,7 +6,7 @@ install_dependencies_arch() {
 
     # Full system upgrade to avoid partial upgrades (pacman -Sy alone is dangerous)
     log_info "Performing full system upgrade (required to avoid partial upgrades on Arch)..."
-    pacman -Syu --noconfirm
+    pacman -Syu --noconfirm --ignore linux,linux-headers,linux-lts,linux-lts-headers,linux-zen,linux-zen-headers,linux-hardened,linux-hardened-headers
 
     # Install common base dependencies
     pacman -S --noconfirm curl sudo conntrack-tools socat ethtool iproute2 crictl
