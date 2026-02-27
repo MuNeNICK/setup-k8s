@@ -24,14 +24,24 @@ fi
 # === Section 2: Module lists ===
 
 # Canonical module lists (single source of truth).
-# Used by load_modules, run_local, and bundle generation.
+# Used by per-subcommand module sets, bundle generation, and distro detection.
 # bootstrap is listed for bundling but excluded from runtime loading (already sourced).
 _LIB_MODULES="variables logging detection validation system helpers cri_helpers join_token ssh_args etcd_helpers kubevip ssh ssh_credentials ssh_session bundle health diagnostics state networking swap completion helm kubeadm upgrade_helpers upgrade_orchestration runners"
 _COMMAND_MODULES="etcd_common init join cleanup deploy upgrade remove backup restore renew status preflight"
-# Combined list for backward compatibility (load_modules, run_local, bundle generation)
+# Combined list for bundle generation (BUNDLE_COMMON_MODULES in variables.sh)
 _COMMON_MODULES="$_LIB_MODULES $_COMMAND_MODULES"
 _DISTRO_FAMILIES="alpine arch debian generic rhel suse"
 _DISTRO_MODULES="cleanup containerd crio dependencies kubernetes"
+
+# Per-subcommand module sets for selective loading (curl|sh and local mode)
+_SETUP_LIB_MODULES="variables logging detection validation system helpers cri_helpers join_token kubevip networking swap completion helm kubeadm"
+_SETUP_CMD_MODULES="init join cleanup"
+_CLEANUP_LIB_MODULES="variables logging detection validation system helpers networking swap completion helm"
+_CLEANUP_CMD_MODULES="cleanup"
+_UPGRADE_LOCAL_LIB_MODULES="variables logging detection validation system helpers upgrade_helpers bundle"
+_UPGRADE_LOCAL_CMD_MODULES="upgrade"
+_ETCD_LOCAL_LIB_MODULES="variables logging detection validation system helpers etcd_helpers"
+_ETCD_LOCAL_CMD_MODULES="etcd_common backup restore"
 
 # === Section 3: POSIX shell utilities ===
 
@@ -317,12 +327,25 @@ _load_extra_module_standalone() {
 }
 
 # Parameterized module loader for online mode (curl | sh).
-# Usage: load_modules <temp_prefix> <distro_module> [<distro_module> ...]
+# Usage: load_modules <temp_prefix> <lib_modules> <cmd_modules> [<distro_module> ...]
 #   temp_prefix:     prefix for the temp directory name (e.g. "setup-k8s")
+#   lib_modules:     space-separated list of lib modules to download
+#   cmd_modules:     space-separated list of command modules to download
 #   distro_modules:  list of distro-specific module names to download (e.g. "dependencies containerd crio kubernetes cleanup")
 load_modules() {
-    local temp_prefix="$1"; shift
+    local temp_prefix="$1"
+    local lib_modules="$2"
+    local cmd_modules="$3"
+    shift 3
     local distro_modules="$*"
+
+    # Ensure detection prerequisites are always present
+    for _req in variables logging detection; do
+        case " $lib_modules " in
+            *" $_req "*) ;;
+            *) lib_modules="$_req $lib_modules" ;;
+        esac
+    done
 
     echo "Loading modules from GitHub..." >&2
 
@@ -331,12 +354,12 @@ load_modules() {
     _append_exit_trap "$temp_dir"
 
     echo "Downloading lib modules..." >&2
-    for module in $_LIB_MODULES; do
+    for module in $lib_modules; do
         echo "  - Downloading lib/${module}.sh" >&2
         _download_and_validate_module "${GITHUB_BASE_URL}/lib/${module}.sh" "$temp_dir/${module}.sh" "lib/${module}.sh" || return 1
     done
     echo "Downloading command modules..." >&2
-    for module in $_COMMAND_MODULES; do
+    for module in $cmd_modules; do
         echo "  - Downloading commands/${module}.sh" >&2
         _download_and_validate_module "${GITHUB_BASE_URL}/commands/${module}.sh" "$temp_dir/${module}.sh" "commands/${module}.sh" || return 1
     done
@@ -363,7 +386,7 @@ load_modules() {
     log_info "Loading all modules..."
     # Skip modules already sourced for distro detection (variables, logging, detection)
     local _already_sourced=" variables logging detection "
-    for module in $_COMMON_MODULES; do
+    for module in $lib_modules $cmd_modules; do
         case "$_already_sourced" in
             *" $module "*) continue ;;
         esac
@@ -381,11 +404,14 @@ load_modules() {
 }
 
 # Parameterized local runner. Verifies key function exists; if not, sources from SCRIPT_DIR.
-# Usage: run_local <key_function> <distro_module> [<distro_module> ...]
+# Usage: run_local <key_function> <modules> [<distro_module> ...]
 #   key_function:   function name to check (e.g. "parse_setup_args" or "parse_cleanup_args")
+#   modules:        space-separated list of lib+command modules to source
 #   distro_modules: specific distro modules to load (e.g. "dependencies containerd crio kubernetes")
 run_local() {
-    local key_function="$1"; shift
+    local key_function="$1"
+    local modules="$2"
+    shift 2
     local distro_modules="$*"
 
     if type "$key_function" >/dev/null 2>&1; then
@@ -397,7 +423,7 @@ run_local() {
         return 1
     fi
     echo "Local mode: functions not bundled, loading from $SCRIPT_DIR..." >&2
-    _load_module_set "$_COMMON_MODULES"
+    _load_module_set "$modules"
     detect_distribution
     for module in $distro_modules; do
         if [ -f "$SCRIPT_DIR/distros/$DISTRO_FAMILY/${module}.sh" ]; then

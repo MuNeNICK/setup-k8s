@@ -219,6 +219,12 @@ test_parse_auto_step_upgrade
 test_compute_upgrade_steps_defined
 
 # --- state ---
+# --- module set completeness ---
+test_module_set_setup
+test_module_set_cleanup
+test_module_set_upgrade_local
+test_module_set_etcd_local
+
 test_state_functions_defined
 test_state_set_get
 test_state_mark_step_done
