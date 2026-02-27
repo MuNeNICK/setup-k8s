@@ -112,9 +112,9 @@ _run_deploy() {
 _run_upgrade() {
     _load_upgrade_local() {
         if { [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/lib" ]; } || [ "$BUNDLED_MODE" = "true" ]; then
-            run_local "parse_upgrade_local_args" "$_UPGRADE_LOCAL_LIB_MODULES $_UPGRADE_LOCAL_CMD_MODULES" dependencies containerd crio kubernetes
+            run_local "parse_upgrade_local_args" "$_UPGRADE_LOCAL_CMD_MODULES $_UPGRADE_LOCAL_LIB_MODULES" dependencies containerd crio kubernetes
         else
-            load_modules "setup-k8s" "$_UPGRADE_LOCAL_LIB_MODULES" "$_UPGRADE_LOCAL_CMD_MODULES" dependencies containerd crio kubernetes
+            load_modules "setup-k8s" "$_UPGRADE_LOCAL_CMD_MODULES" "$_UPGRADE_LOCAL_LIB_MODULES" dependencies containerd crio kubernetes
         fi
         _ensure_distro_detected
     }
@@ -136,9 +136,9 @@ _run_cleanup() {
     _show_help_if_requested show_cleanup_help "$@"
     _require_root "Cleanup"
     if { [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/lib" ]; } || [ "$BUNDLED_MODE" = "true" ]; then
-        run_local "parse_cleanup_args" "$_CLEANUP_LIB_MODULES $_CLEANUP_CMD_MODULES" dependencies cleanup
+        run_local "parse_cleanup_args" "$_CLEANUP_CMD_MODULES $_CLEANUP_LIB_MODULES" dependencies cleanup
     else
-        load_modules "setup-k8s" "$_CLEANUP_LIB_MODULES" "$_CLEANUP_CMD_MODULES" dependencies cleanup
+        load_modules "setup-k8s" "$_CLEANUP_CMD_MODULES" "$_CLEANUP_LIB_MODULES" dependencies cleanup
     fi
     eval "$_RESTORE_CLI_ARGS"
     parse_cleanup_args "$@"
@@ -198,9 +198,9 @@ _run_etcd() {
         _show_help_if_requested _show_etcd_help_by_action "$@"
         _require_root "Local backup/restore"
         if { [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/lib" ]; } || [ "$BUNDLED_MODE" = "true" ]; then
-            run_local "parse_backup_local_args" "$_ETCD_LOCAL_LIB_MODULES $_ETCD_LOCAL_CMD_MODULES" dependencies containerd crio kubernetes
+            run_local "parse_backup_local_args" "$_ETCD_LOCAL_CMD_MODULES $_ETCD_LOCAL_LIB_MODULES" dependencies containerd crio kubernetes
         else
-            load_modules "setup-k8s" "$_ETCD_LOCAL_LIB_MODULES" "$_ETCD_LOCAL_CMD_MODULES" dependencies containerd crio kubernetes
+            load_modules "setup-k8s" "$_ETCD_LOCAL_CMD_MODULES" "$_ETCD_LOCAL_LIB_MODULES" dependencies containerd crio kubernetes
         fi
         eval "$_RESTORE_CLI_ARGS"
         if [ "$ACTION" = "backup" ]; then
@@ -255,9 +255,9 @@ _run_setup() {
     _require_root "This script"
 
     if { [ "$_STDIN_MODE" = false ] && [ -d "$SCRIPT_DIR/lib" ]; } || [ "$BUNDLED_MODE" = "true" ]; then
-        run_local "parse_setup_args" "$_SETUP_LIB_MODULES $_SETUP_CMD_MODULES" dependencies containerd crio kubernetes
+        run_local "parse_setup_args" "$_SETUP_CMD_MODULES $_SETUP_LIB_MODULES" dependencies containerd crio kubernetes
     else
-        load_modules "setup-k8s" "$_SETUP_LIB_MODULES" "$_SETUP_CMD_MODULES" dependencies containerd crio kubernetes
+        load_modules "setup-k8s" "$_SETUP_CMD_MODULES" "$_SETUP_LIB_MODULES" dependencies containerd crio kubernetes
     fi
 
     eval "$_RESTORE_CLI_ARGS"

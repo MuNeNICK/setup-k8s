@@ -34,14 +34,14 @@ _DISTRO_FAMILIES="alpine arch debian generic rhel suse"
 _DISTRO_MODULES="cleanup containerd crio dependencies kubernetes"
 
 # Per-subcommand module sets for selective loading (curl|sh and local mode)
-_SETUP_LIB_MODULES="variables logging detection validation system helpers cri_helpers join_token kubevip networking swap completion helm kubeadm"
 _SETUP_CMD_MODULES="init join cleanup"
-_CLEANUP_LIB_MODULES="variables logging detection validation system helpers networking swap completion helm"
+_SETUP_LIB_MODULES="variables logging detection validation system helpers cri_helpers join_token kubevip networking swap completion helm kubeadm"
 _CLEANUP_CMD_MODULES="cleanup"
-_UPGRADE_LOCAL_LIB_MODULES="variables logging detection validation system helpers upgrade_helpers bundle"
+_CLEANUP_LIB_MODULES="variables logging detection validation system helpers networking swap completion helm"
 _UPGRADE_LOCAL_CMD_MODULES="upgrade"
-_ETCD_LOCAL_LIB_MODULES="variables logging detection validation system helpers etcd_helpers"
+_UPGRADE_LOCAL_LIB_MODULES="variables logging detection validation system helpers upgrade_helpers bundle"
 _ETCD_LOCAL_CMD_MODULES="etcd_common backup restore"
+_ETCD_LOCAL_LIB_MODULES="variables logging detection validation system helpers etcd_helpers"
 
 # === Section 3: POSIX shell utilities ===
 
@@ -327,15 +327,15 @@ _load_extra_module_standalone() {
 }
 
 # Parameterized module loader for online mode (curl | sh).
-# Usage: load_modules <temp_prefix> <lib_modules> <cmd_modules> [<distro_module> ...]
+# Usage: load_modules <temp_prefix> <cmd_modules> <lib_modules> [<distro_module> ...]
 #   temp_prefix:     prefix for the temp directory name (e.g. "setup-k8s")
-#   lib_modules:     space-separated list of lib modules to download
 #   cmd_modules:     space-separated list of command modules to download
+#   lib_modules:     space-separated list of lib modules to download
 #   distro_modules:  list of distro-specific module names to download (e.g. "dependencies containerd crio kubernetes cleanup")
 load_modules() {
     local temp_prefix="$1"
-    local lib_modules="$2"
-    local cmd_modules="$3"
+    local cmd_modules="$2"
+    local lib_modules="$3"
     shift 3
     local distro_modules="$*"
 
@@ -353,15 +353,15 @@ load_modules() {
     temp_dir=$(mktemp -d "/tmp/${temp_prefix}-XXXXXX")
     _append_exit_trap "$temp_dir"
 
-    echo "Downloading lib modules..." >&2
-    for module in $lib_modules; do
-        echo "  - Downloading lib/${module}.sh" >&2
-        _download_and_validate_module "${GITHUB_BASE_URL}/lib/${module}.sh" "$temp_dir/${module}.sh" "lib/${module}.sh" || return 1
-    done
     echo "Downloading command modules..." >&2
     for module in $cmd_modules; do
         echo "  - Downloading commands/${module}.sh" >&2
         _download_and_validate_module "${GITHUB_BASE_URL}/commands/${module}.sh" "$temp_dir/${module}.sh" "commands/${module}.sh" || return 1
+    done
+    echo "Downloading lib modules..." >&2
+    for module in $lib_modules; do
+        echo "  - Downloading lib/${module}.sh" >&2
+        _download_and_validate_module "${GITHUB_BASE_URL}/lib/${module}.sh" "$temp_dir/${module}.sh" "lib/${module}.sh" || return 1
     done
 
     for module in variables logging detection; do
