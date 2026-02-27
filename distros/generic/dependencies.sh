@@ -21,7 +21,7 @@ install_dependencies_generic() {
     if [ -z "$pkg_mgr" ]; then
         log_warn "No package manager found. Checking required commands..."
         local missing=""
-        for cmd in curl socat conntrack; do
+        for cmd in curl socat conntrack iptables; do
             command -v "$cmd" >/dev/null 2>&1 || missing="${missing}${missing:+ }$cmd"
         done
         if [ -n "$missing" ]; then
@@ -34,11 +34,11 @@ install_dependencies_generic() {
 
     log_info "Installing system dependencies via $pkg_mgr..."
     case "$pkg_mgr" in
-        apt-get) apt-get update && apt-get install -y curl socat conntrack ipset kmod ;;
-        dnf|yum) $pkg_mgr install -y curl socat conntrack-tools ipset kmod ;;
-        zypper)  zypper --non-interactive install curl socat conntrack-tools ipset kmod ;;
-        pacman)  pacman -S --noconfirm --needed curl socat conntrack-tools ipset kmod ;;
-        apk)     apk add --no-cache curl socat conntrack-tools ipset kmod gcompat ;;
+        apt-get) apt-get update && apt-get install -y curl socat conntrack iptables ipset ethtool iproute2 kmod ;;
+        dnf|yum) $pkg_mgr install -y curl socat conntrack-tools iptables ipset ethtool iproute kmod ;;
+        zypper)  zypper --non-interactive install curl socat conntrack-tools iptables ipset ethtool iproute2 kmod ;;
+        pacman)  pacman -S --noconfirm --needed curl socat conntrack-tools iptables ipset ethtool iproute2 kmod ;;
+        apk)     apk add --no-cache curl socat conntrack-tools iptables ipset ethtool iproute2 kmod gcompat ;;
     esac || log_warn "Some packages failed to install"
 
     # Ensure cgroups are mounted (required by kubelet)
